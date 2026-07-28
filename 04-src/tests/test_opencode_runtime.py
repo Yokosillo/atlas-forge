@@ -64,6 +64,33 @@ def test_register_opencode_runtime_uses_same_mechanism_as_claude_code() -> None:
     assert type(opencode) is type(claude_code)  # ambos son `Runtime`
 
 
+def test_register_opencode_runtime_includes_autonomy_flag_by_default() -> None:
+    # T-FB002-US01-01: `--auto` es el mecanismo real de OpenCode
+    # (investigado en la documentación oficial, https://opencode.ai/docs/permissions/,
+    # NO el mismo nombre que la flag de Claude Code — no se asumió).
+    runtime = register_opencode_runtime()
+
+    assert "--auto" in runtime.args
+
+
+def test_register_opencode_runtime_with_model_includes_model_flag() -> None:
+    runtime = register_opencode_runtime(model="deepseek/deepseek-chat")
+
+    assert "--model" in runtime.args
+    model_index = runtime.args.index("--model")
+    assert runtime.args[model_index + 1] == "deepseek/deepseek-chat"
+    # La flag de autonomía sigue presente junto con la de modelo.
+    assert "--auto" in runtime.args
+
+
+def test_register_opencode_runtime_without_model_keeps_previous_behavior() -> None:
+    # Test de regresión explícito sobre lo ya cerrado en T-FB004-US02-01:
+    # sin `model`, no debe aparecer `--model` en los args.
+    runtime = register_opencode_runtime()
+
+    assert "--model" not in runtime.args
+
+
 def test_start_opencode_creates_its_own_session_and_is_alive(
     isolated_socket: str, tmp_path
 ) -> None:

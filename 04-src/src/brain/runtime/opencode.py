@@ -7,16 +7,43 @@ from brain.models import Runtime
 # dentro de sesiones tmux de prueba (misma precaución aplicada a Claude
 # Code en T-FB004-US01-02).
 DEFAULT_OPENCODE_COMMAND = "opencode"
-DEFAULT_OPENCODE_ARGS: list[str] = []
+
+# Flag de máxima autonomía/mínima fricción (T-FB002-US01-01), equivalente
+# funcional a `--dangerously-skip-permissions` de Claude Code, pero NO el
+# mismo nombre — investigado explícitamente antes de implementar (no se
+# asumió el mismo flag): la documentación oficial de OpenCode
+# (https://opencode.ai/docs/permissions/, verificado en julio 2026) expone
+# `--auto` como el mecanismo para aprobar automáticamente solicitudes de
+# permiso que de otro modo pedirían confirmación. A diferencia de
+# `--dangerously-skip-permissions`, `--auto` respeta reglas "deny"
+# explícitas ya configuradas — no es un bypass total, pero es el
+# mecanismo de autonomía real que OpenCode expone hoy (no existe un
+# `--yolo` ni `--dangerously-skip-permissions` real en OpenCode: son
+# peticiones de feature históricas sin implementar, según la
+# investigación realizada para esta Task).
+DEFAULT_OPENCODE_AUTONOMY_FLAG = "--auto"
+DEFAULT_OPENCODE_ARGS: list[str] = [DEFAULT_OPENCODE_AUTONOMY_FLAG]
 
 
-def register_opencode_runtime(runtime_id: str = "opencode") -> Runtime:
+def register_opencode_runtime(
+    runtime_id: str = "opencode", model: str | None = None
+) -> Runtime:
     """Registra OpenCode como Runtime disponible, con su configuración
-    mínima por defecto."""
+    mínima por defecto, incluyendo la flag de autonomía por defecto.
+
+    Si se indica `model` (formato `provider/model`, p. ej.
+    `"deepseek/deepseek-chat"`), se añade `--model <model>` a los `args`
+    construidos. Sin `model`, el comportamiento es el mismo que antes de
+    esta Task (solo la flag de autonomía).
+    """
+    args = list(DEFAULT_OPENCODE_ARGS)
+    if model is not None:
+        args += ["--model", model]
+
     return Runtime(
         id=runtime_id,
         name="OpenCode",
         type="opencode",
         command=DEFAULT_OPENCODE_COMMAND,
-        args=list(DEFAULT_OPENCODE_ARGS),
+        args=args,
     )

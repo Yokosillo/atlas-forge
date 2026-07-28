@@ -10,11 +10,14 @@ requires-python = ">=3.10"
 dependencies = [
     "GitPython>=3.1,<4",
     "libtmux>=0.37,<1",
+    "requests>=2.31,<3",
+    "textual>=8.2,<9",
 ]
 
 [project.optional-dependencies]
 dev = [
     "pytest>=8,<9",
+    "pytest-asyncio>=0.24,<1",
 ]
 
 [project.scripts]
@@ -25,3 +28,4 @@ where = ["src"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+asyncio_mode = "auto"

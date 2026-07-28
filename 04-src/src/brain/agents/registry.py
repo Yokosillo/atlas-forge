@@ -2,7 +2,12 @@ import uuid
 
 from brain.core.session_lifecycle import assign_agent, list_agents
 from brain.models import Agent, DevelopmentSession, Runtime
-from brain.runtime import RuntimeInstance, session_name_for, start_runtime
+from brain.runtime import (
+    RuntimeInstance,
+    register_runtime_instance_for_agent,
+    session_name_for,
+    start_runtime,
+)
 from brain.tmux.manager import DEFAULT_SOCKET_NAME
 
 
@@ -26,6 +31,11 @@ def register_agent(
 
     El agente se crea en estado `idle` y su runtime queda vivo, listo para
     recibir trabajo.
+
+    Registra la asociación `agent.id` → `runtime_instance` en
+    `agent_runtime_registry` (T-FB002-US03-00), consultable después con
+    `get_runtime_instance_for_agent` — necesaria para que `dispatch_job`
+    (T-FB002-US03-01) pueda recuperar el runtime de un agente ya lanzado.
     """
     agent = Agent(
         id=str(uuid.uuid4()),
@@ -41,6 +51,7 @@ def register_agent(
     )
 
     assign_agent(session, agent)
+    register_runtime_instance_for_agent(agent.id, runtime_instance)
 
     return agent, runtime_instance
 

@@ -4,7 +4,17 @@ import uuid
 from pathlib import Path
 
 from brain.agents.lifecycle import mark_idle, mark_working
+from brain.dispatcher.job_count_registry import (
+    get_consecutive_job_count,
+    record_job_dispatch,
+    reset_consecutive_job_count,
+)
 from brain.dispatcher.job_lifecycle import mark_completed, mark_failed, mark_running
+from brain.dispatcher.scribe_trigger import (
+    compose_job_instruction_with_scribe_context,
+    should_invoke_scribe,
+)
+from brain.local_tools import ScribeUnavailableError, summarize_document
 from brain.models import Agent, Job
 from brain.runtime import RuntimeInstance
 from brain.tmux import run_command
@@ -26,11 +36,54 @@ class JobReportTimeoutError(TimeoutError):
     """El agente no reportó su resultado (fichero + marcador) antes del timeout."""
 
 
-def _build_report_instruction(job: Job, report_file: Path) -> str:
-    """Construye la instrucción que se envía al agente: su tarea original
-    (`job.description`) más instrucciones explícitas de auto-reporte."""
+_SCRIBE_UNAVAILABLE_NOTE_TEMPLATE = (
+    "(Nota: se intentó pre-procesar este Job con Scribe antes de "
+    "despacharlo, pero no está disponible — {reason} Continúa con la "
+    "descripción original de abajo, sin ese resumen.)"
+)
+
+
+def _resolve_job_description(job: Job, agent: Agent) -> str:
+    """Decide si toca invocar a Scribe para este despacho (T-FB008-US03-01,
+    `should_invoke_scribe`, combinando ambos mecanismos con OR) y, si
+    aplica, compone la descripción final del Job con su resultado
+    delimitado (`compose_job_instruction_with_scribe_context`).
+
+    Degradación explícita (T-FB014-US01-02, criterio 3 de la Descripción
+    de esta Task): si Scribe dispara pero lanza `ScribeUnavailableError`,
+    el Job se despacha igualmente con su descripción original — la
+    circunstancia no se silencia, se documenta como una nota breve al
+    principio de la instrucción (visible para el agente y para cualquiera
+    que inspeccione el Job después), sin necesidad de introducir logging
+    nuevo en un proyecto que no usa `logging` en ningún otro sitio.
+
+    No modifica `job.description` en el objeto `Job` — devuelve la
+    descripción a usar solo para esta instrucción de despacho, para que
+    el siguiente Job de la misma sesión/agente no arrastre el contexto de
+    Scribe añadido a este (criterio de aceptación: "un segundo Job... no
+    arrastra el contexto de Scribe añadido a un Job anterior")."""
+    consecutive_count = get_consecutive_job_count(job.session_id, agent.id)
+
+    if not should_invoke_scribe(job.description, consecutive_count):
+        return job.description
+
+    try:
+        scribe_result = summarize_document(job.description)
+    except ScribeUnavailableError as error:
+        note = _SCRIBE_UNAVAILABLE_NOTE_TEMPLATE.format(reason=error)
+        return f"{note}\n\n{job.description}"
+
+    reset_consecutive_job_count(job.session_id, agent.id)
+    return compose_job_instruction_with_scribe_context(job.description, scribe_result)
+
+
+def _build_report_instruction(description: str, report_file: Path) -> str:
+    """Construye la instrucción que se envía al agente: la descripción ya
+    resuelta del Job (original, o enriquecida con el contexto de Scribe —
+    ver `_resolve_job_description`) más instrucciones explícitas de
+    auto-reporte."""
     return (
-        f"{job.description}\n\n"
+        f"{description}\n\n"
         f"Cuando termines, escribe tu resultado completo en el fichero "
         f"'{report_file}' y añade la línea '{_REPORT_END_MARKER}' al final "
         f"de ese fichero para indicar que has terminado de escribir."
@@ -72,6 +125,32 @@ def dispatch_job(
     Transiciona `job` a `running` y `agent` a `working` antes de enviar.
     Al finalizar (éxito o fallo), `agent` vuelve siempre a `idle` — nunca
     queda bloqueado en `working`.
+
+    ## Disparo automático de Scribe (T-FB008-US03-02)
+
+    Antes de construir la instrucción de auto-reporte, `dispatch_job`
+    resuelve la descripción final del Job vía `_resolve_job_description`:
+    si el contenido de `job.description` supera el umbral de tamaño, o el
+    agente lleva ya el umbral de Jobs consecutivos sin pasar por Scribe
+    (`should_invoke_scribe`, T-FB008-US03-01, combinando ambos mecanismos
+    con OR), se invoca `summarize_document` (Scribe, FB-014) y su
+    resultado se añade delimitado explícitamente
+    (`compose_job_instruction_with_scribe_context`). Si Scribe lanza
+    `ScribeUnavailableError`, el Job se despacha igualmente con su
+    descripción original — la circunstancia se documenta como una nota
+    breve en la instrucción, nunca en silencio, y nunca bloquea el
+    despacho (degradación explícita, T-FB014-US01-02).
+
+    El conteo de Jobs consecutivos por agente/sesión vive en
+    `job_count_registry` (registro nuevo, ver su docstring para la
+    justificación de por qué no se extendió `DevelopmentSession`), se
+    consulta con el valor previo a este despacho (para decidir si ESTE
+    Job dispara), y se incrementa después de resolver la descripción —
+    de modo que el próximo Job de este mismo agente/sesión ya cuenta con
+    este despacho. La descripción enriquecida con el contexto de Scribe
+    nunca se escribe de vuelta en `job.description` — es una
+    transformación local a esta llamada, así que un segundo Job no
+    arrastra el contexto de Scribe añadido a uno anterior.
 
     ## Mecanismo: auto-reporte cooperativo (rediseño post-cierre de
     T-FB008-US01-03)
@@ -149,9 +228,12 @@ def dispatch_job(
     mark_running(job)
     mark_working(agent)
 
+    description = _resolve_job_description(job, agent)
+    record_job_dispatch(job.session_id, agent.id)
+
     report_file = Path(tempfile.gettempdir()) / f"factory-brain-job-{uuid.uuid4().hex}.txt"
 
-    instruction = _build_report_instruction(job, report_file)
+    instruction = _build_report_instruction(description, report_file)
     run_command(runtime_instance.session_name, instruction, socket_name=socket_name)
 
     try:
