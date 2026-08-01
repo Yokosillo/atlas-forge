@@ -8,7 +8,7 @@ set -u
 
 STATE_DIR="/home/secure_ai_atlas/factoria-software/10-PRODUCTOS/PROD-006-factory-brain/.claude/state"
 WORKER_OUTPUT="$STATE_DIR/worker_output.txt"
-CRITIC_SESSION="critico-factory-brain"
+CRITIC_SESSION="006-critico"
 LOG_DIR="$STATE_DIR/logs"
 LOG_FILE="$LOG_DIR/watch.log"
 

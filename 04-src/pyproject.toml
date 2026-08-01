@@ -9,19 +9,25 @@ description = "Factory Brain - orquestador de agentes de desarrollo de software"
 requires-python = ">=3.10"
 dependencies = [
     "GitPython>=3.1,<4",
+    "PyYAML>=6,<7",
+    "fastapi>=0.115,<1",
     "libtmux>=0.37,<1",
     "requests>=2.31,<3",
     "textual>=8.2,<9",
+    "uvicorn>=0.32,<1",
+    "websockets>=13,<16",
 ]
 
 [project.optional-dependencies]
 dev = [
+    "httpx>=0.27,<1",
     "pytest>=8,<9",
     "pytest-asyncio>=0.24,<1",
 ]
 
 [project.scripts]
 brain = "brain.cli.main:main"
+brain-api = "brain.api.main:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]

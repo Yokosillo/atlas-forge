@@ -34,9 +34,13 @@ def launch_agent(
     elegido lo soporta (Claude Code no; OpenCode sí — T-FB002-US01-01).
     Cualquier rechazo se señala con `AgentLaunchError` (motivo explícito).
 
-    Reutiliza `register_developer`/`register_critic` (FB-005), que a su
-    vez usan `register_agent_with_reuse`: si el rol ya está lanzado en
-    `session`, se devuelve el agente existente sin relanzar su runtime.
+    Reutiliza `register_developer`/`register_critic` (FB-005). Desde
+    T-FB005-US01-04, ambos ya no se comportan igual: `register_critic`
+    sigue reutilizando el Critic existente de `session` si ya hay uno
+    (`register_agent_with_reuse`); `register_developer` crea SIEMPRE una
+    instancia nueva (`register_agent` directo), permitiendo varios
+    Developer simultáneos en la misma sesión — decisión explícita del
+    usuario, acotada solo a Developer.
 
     `project_path` se recibe como parámetro explícito (no se resuelve
     internamente desde el proyecto activo persistido, FB-001): esta

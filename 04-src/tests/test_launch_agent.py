@@ -105,9 +105,13 @@ def test_launching_on_inactive_session_is_rejected(tmp_path) -> None:
         launch_agent(DEVELOPER_ROLE, "claude-code", None, session, str(tmp_path))
 
 
-def test_launching_same_role_twice_reuses_the_existing_agent(
+def test_launching_developer_twice_creates_two_distinct_instances(
     isolated_socket: str, tmp_path
 ) -> None:
+    """T-FB005-US01-04: `launch_agent` con `DEVELOPER_ROLE` ya no
+    reutiliza — cada llamada crea un Developer nuevo (comportamiento
+    actualizado desde `register_developer`, ver
+    `test_developer_agent.py`)."""
     session = _active_session()
 
     first_agent, first_instance = launch_agent(
@@ -127,10 +131,45 @@ def test_launching_same_role_twice_reuses_the_existing_agent(
         socket_name=isolated_socket,
     )
 
+    assert second_agent is not first_agent
+    assert second_instance.session_name != first_instance.session_name
+    developers = [a for a in list_agents(session) if a.role == DEVELOPER_ROLE]
+    assert len(developers) == 2
+
+    stop_runtime(first_instance, socket_name=isolated_socket)
+    stop_runtime(second_instance, socket_name=isolated_socket)
+
+
+def test_launching_critic_twice_still_reuses_the_existing_agent(
+    isolated_socket: str, tmp_path
+) -> None:
+    """Test de regresión explícito (mismo criterio que
+    `test_registering_critic_twice_still_returns_the_same_instance`,
+    `test_critic_agent.py`, pero a través de `launch_agent`/dashboard en
+    vez de `register_critic` directo): Critic sigue reutilizándose."""
+    session = _active_session()
+
+    first_agent, first_instance = launch_agent(
+        CRITIC_ROLE,
+        "claude-code",
+        None,
+        session,
+        str(tmp_path),
+        socket_name=isolated_socket,
+    )
+    second_agent, second_instance = launch_agent(
+        CRITIC_ROLE,
+        "claude-code",
+        None,
+        session,
+        str(tmp_path),
+        socket_name=isolated_socket,
+    )
+
     assert second_agent is first_agent
     assert second_instance.session_name == first_instance.session_name
-    developers = [a for a in list_agents(session) if a.role == DEVELOPER_ROLE]
-    assert len(developers) == 1
+    critics = [a for a in list_agents(session) if a.role == CRITIC_ROLE]
+    assert len(critics) == 1
 
     stop_runtime(first_instance, socket_name=isolated_socket)
 

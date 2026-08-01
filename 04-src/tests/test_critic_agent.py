@@ -129,3 +129,36 @@ def test_developer_and_critic_coexist_without_interference(
     assert is_runtime_alive(critic_instance, socket_name=isolated_socket) is True
 
     stop_runtime(critic_instance, socket_name=isolated_socket)
+
+
+def test_registering_critic_twice_still_returns_the_same_instance(
+    isolated_socket: str, tmp_path
+) -> None:
+    """Test de regresión explícito (T-FB005-US01-04, criterio de
+    aceptación: "Lanzar Critic dos veces sigue devolviendo el mismo
+    Critic — sin cambios de comportamiento"). A diferencia de
+    `register_developer` (ver
+    `test_registering_developer_twice_creates_two_distinct_instances`,
+    `test_developer_agent.py`), `register_critic` sigue usando
+    `register_agent_with_reuse` sin ningún cambio — el alcance de
+    T-FB005-US01-04 está acotado explícitamente solo a Developer."""
+    session = _active_session()
+    runtime = _test_runtime()
+
+    first_agent, first_instance = register_critic(
+        session, runtime, str(tmp_path), socket_name=isolated_socket
+    )
+    time.sleep(0.3)
+
+    second_agent, second_instance = register_critic(
+        session, runtime, str(tmp_path), socket_name=isolated_socket
+    )
+
+    assert second_agent is first_agent
+    assert second_instance.session_name == first_instance.session_name
+    assert is_runtime_alive(second_instance, socket_name=isolated_socket) is True
+
+    critics = [a for a in list_agents(session) if a.role == CRITIC_ROLE]
+    assert len(critics) == 1
+
+    stop_runtime(first_instance, socket_name=isolated_socket)

@@ -12,6 +12,7 @@ from pathlib import Path
 
 from textual.app import App
 
+from brain.tui.backend_client import BackendClient
 from brain.tui.screens import DashboardScreen, WorkspaceScreen
 from brain.workspace.startup import ProjectRecovered, resolve_startup_project
 
@@ -23,10 +24,18 @@ class FactoryBrainApp(App):
         self,
         workspace_root: Path | None = None,
         state_dir: Path | None = None,
+        backend_client: BackendClient | None = None,
     ) -> None:
         super().__init__()
         self._workspace_root = workspace_root
         self._state_dir = state_dir
+        # T-FB016-US01-06: expuesto en el constructor (a diferencia de
+        # `socket_name` en su momento, deliberadamente no expuesto,
+        # T-FB002-US02-04) porque `DashboardScreen` lo necesita YA dentro
+        # de su primer `compose()` — inyectarlo después de construir la
+        # pantalla (como se hacía con `socket_name`, que solo se usaba al
+        # pulsar un botón) llegaría demasiado tarde para el primer render.
+        self._backend = backend_client if backend_client is not None else BackendClient()
 
     def on_mount(self) -> None:
         outcome = resolve_startup_project(
@@ -35,13 +44,17 @@ class FactoryBrainApp(App):
         if isinstance(outcome, ProjectRecovered):
             self.push_screen(
                 DashboardScreen(
-                    workspace_root=self._workspace_root, state_dir=self._state_dir
+                    workspace_root=self._workspace_root,
+                    state_dir=self._state_dir,
+                    backend_client=self._backend,
                 )
             )
         else:
             self.push_screen(
                 WorkspaceScreen(
-                    workspace_root=self._workspace_root, state_dir=self._state_dir
+                    workspace_root=self._workspace_root,
+                    state_dir=self._state_dir,
+                    backend_client=self._backend,
                 )
             )
 

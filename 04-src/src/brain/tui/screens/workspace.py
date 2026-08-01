@@ -22,6 +22,7 @@ from textual.containers import Vertical
 from textual.screen import Screen
 from textual.widgets import Button, ListItem, ListView, Static
 
+from brain.tui.backend_client import BackendClient
 from brain.tui.screens.dashboard import DashboardScreen
 from brain.workspace.active_project import select_active_project
 from brain.workspace.discovery import discover_projects
@@ -35,6 +36,7 @@ class WorkspaceScreen(Screen):
         workspace_root: Path | None = None,
         state_dir: Path | None = None,
         can_return_to_dashboard: bool = False,
+        backend_client: BackendClient | None = None,
     ) -> None:
         super().__init__()
         self._workspace_root = (
@@ -42,6 +44,7 @@ class WorkspaceScreen(Screen):
         )
         self._state_dir = state_dir
         self._can_return_to_dashboard = can_return_to_dashboard
+        self._backend = backend_client if backend_client is not None else BackendClient()
         self._discovered = discover_projects(self._workspace_root)
 
     def compose(self):
@@ -82,7 +85,9 @@ class WorkspaceScreen(Screen):
         )
         self.app.push_screen(
             DashboardScreen(
-                workspace_root=self._workspace_root, state_dir=self._state_dir
+                workspace_root=self._workspace_root,
+                state_dir=self._state_dir,
+                backend_client=self._backend,
             )
         )
 

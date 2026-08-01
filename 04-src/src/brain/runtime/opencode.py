@@ -1,3 +1,5 @@
+import shlex
+
 from brain.models import Runtime
 
 # Configuración por defecto de OpenCode como Runtime (T-FB004-US02-01).
@@ -47,3 +49,18 @@ def register_opencode_runtime(
         command=DEFAULT_OPENCODE_COMMAND,
         args=args,
     )
+
+
+def build_prompt_args(prompt: str) -> list[str]:
+    """Construye los argumentos adicionales para arrancar OpenCode con
+    `prompt` ya cargado como primer mensaje de la sesión interactiva
+    (T-FB005-US01-03).
+
+    Verificado directamente contra `opencode --help` en esta VM (binario
+    real instalado, no documentación externa): el comando por defecto
+    (`opencode [project]`, modo TUI interactivo — no `opencode run
+    [message..]`, que es un subcomando distinto y no interactivo) expone
+    un flag explícito `--prompt <string>` ("prompt to use"). Se prefiere
+    sobre teclear el prompt tras un delay (criterio de aceptación
+    explícito de la Task), mismo criterio ya aplicado a Claude Code."""
+    return ["--prompt", shlex.quote(prompt)]

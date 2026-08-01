@@ -7,10 +7,20 @@ from brain.models import Agent
 # working, unavailable. El estado `paused` del modelo conceptual completo
 # de la Epic se descarta explícitamente en v1 (sin consumidor identificado,
 # ver "Diferido a v2" del propio Epic).
+#
+# `stopped` (T-FB016-US01-03, FB-016): detención intencional del agente
+# por el desarrollador — distinto de `unavailable` (fallo NO solicitado,
+# p. ej. el runtime muere por su cuenta). Alcanzable desde `idle` y desde
+# `working` (detener un agente ocupado también debe ser posible), pero sin
+# transición de vuelta a `idle`: un agente `stopped` no se "reanuda", debe
+# relanzarse desde cero (mismo mecanismo de `register_agent`) — no
+# confundir con `paused`, ya descartado arriba. Sin salida en v1 (criterio
+# de aceptación explícito de la Task).
 _ALLOWED_TRANSITIONS: dict[str, set[str]] = {
-    "idle": {"working", "unavailable"},
-    "working": {"idle", "unavailable"},
+    "idle": {"working", "unavailable", "stopped"},
+    "working": {"idle", "unavailable", "stopped"},
     "unavailable": {"idle"},
+    "stopped": set(),
 }
 
 
@@ -39,6 +49,10 @@ def mark_idle(agent: Agent) -> None:
 
 def mark_unavailable(agent: Agent) -> None:
     _transition(agent, "unavailable")
+
+
+def mark_stopped(agent: Agent) -> None:
+    _transition(agent, "stopped")
 
 
 def get_agent_state(agent: Agent) -> dict[str, Any]:

@@ -7,3 +7,4 @@ build/
 dist/
 .claude/
 claude.log
+.env

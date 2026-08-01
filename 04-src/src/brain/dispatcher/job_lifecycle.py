@@ -4,14 +4,21 @@ from brain.models import Job
 
 # Transiciones válidas del ciclo de vida v1 de Job (ver
 # 02-backlog/epics/FB-008-dispatcher.md, "Alcance v1 (mínimo) — Dispatcher
-# manual"). Los estados `planned` y `cancelled` del modelo conceptual
-# completo de la Epic (v2, Pipeline con dependencias) no son alcanzables
-# todavía — v1 es un ciclo lineal simple: created → running → completed/failed.
+# manual"). El estado `planned` del modelo conceptual completo de la Epic
+# (v2, Pipeline con dependencias) no es alcanzable todavía.
+#
+# `cancelled` (T-FB008-US05-01, US-FB008-05): cancelación solicitada por el
+# usuario mientras el Job está `running` — distinto de `failed` (el propio
+# despacho detecta un problema, p. ej. timeout esperando el reporte del
+# agente). Solo alcanzable desde `running` (no tiene sentido cancelar un
+# Job que aún no se ha despachado, ni uno que ya terminó) y sin salida,
+# mismo patrón que `completed`/`failed`.
 _ALLOWED_TRANSITIONS: dict[str, set[str]] = {
     "created": {"running"},
-    "running": {"completed", "failed"},
+    "running": {"completed", "failed", "cancelled"},
     "completed": set(),
     "failed": set(),
+    "cancelled": set(),
 }
 
 
@@ -41,6 +48,11 @@ def mark_completed(job: Job, result: str) -> None:
 
 def mark_failed(job: Job, reason: str) -> None:
     _transition(job, "failed")
+    job.result = reason
+
+
+def mark_cancelled(job: Job, reason: str) -> None:
+    _transition(job, "cancelled")
     job.result = reason
 
 

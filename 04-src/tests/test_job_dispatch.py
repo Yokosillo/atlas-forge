@@ -143,7 +143,10 @@ def test_wait_for_report_raises_directly_on_timeout() -> None:
 
     with pytest.raises(JobReportTimeoutError):
         _wait_for_report(
-            non_existent_file, timeout_seconds=0.3, poll_interval_seconds=0.1
+            non_existent_file,
+            timeout_seconds=0.3,
+            poll_interval_seconds=0.1,
+            job_id="never-cancelled-job",
         )
 
 

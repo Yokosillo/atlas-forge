@@ -1,0 +1,38 @@
+[Unit]
+Description=Factory Brain API backend (brain-api)
+Documentation=https://github.com/factoria-software/factory-brain
+# T-FB016-US01-01: el backend debe escuchar en la interfaz Tailscale de la
+# VM (resuelta dinámicamente vía `tailscale ip -4`), nunca en 0.0.0.0 —
+# no puede arrancar antes de que esa interfaz exista, o
+# resolve_tailscale_host() fallaría con TailscaleHostUnavailableError.
+# tailscaled.service verificado presente en esta VM (`systemctl
+# list-unit-files | grep tailscale`) antes de fijar esta dependencia.
+After=network.target tailscaled.service
+Wants=tailscaled.service
+
+[Service]
+Type=simple
+# Usuario no-root explícito (criterio de aceptación de la Task): el mismo
+# usuario que ya opera Factory Brain en esta VM (sesiones tmux del
+# servidor "factory-brain", estado persistido en
+# ~/.local/share/brain/), para no necesitar permisos adicionales ni
+# reconciliar propietarios de ficheros entre procesos.
+User=secure_ai_atlas
+Group=secure_ai_atlas
+# Raíz del workspace (factoria-software/), no 04-src/ — mismo motivo ya
+# documentado en discover_projects (FB-001): el proceso necesita ver los
+# repos reales de 10-PRODUCTOS/ para poder lanzar agentes sobre ellos,
+# no solo el código fuente de Factory Brain.
+WorkingDirectory=/opt/openclaw/openclaw-software/.openclaw/workspace/factoria-software
+ExecStart=/opt/openclaw/openclaw-software/.openclaw/workspace/factoria-software/10-PRODUCTOS/PROD-006-factory-brain/04-src/.venv/bin/brain-api
+# on-failure (no `always`): un `systemctl stop` intencional del operador
+# no debe reiniciarse solo — solo un crash real (código de salida
+# distinto de 0, señal, timeout) dispara el reinicio automático. `always`
+# reiniciaría también tras una parada deliberada, lo que complicaría
+# cualquier operación de mantenimiento manual (habría que recordar
+# `systemctl disable` primero solo para parar el proceso un momento).
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

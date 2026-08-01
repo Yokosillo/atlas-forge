@@ -4,6 +4,7 @@ from brain.agents import (
     InvalidAgentTransitionError,
     get_agent_state,
     mark_idle,
+    mark_stopped,
     mark_unavailable,
     mark_working,
 )
@@ -65,6 +66,50 @@ def test_mark_working_rejected_from_unavailable() -> None:
         mark_working(agent)
 
     assert agent.status == "unavailable"
+
+
+def test_mark_stopped_reachable_from_idle_and_working() -> None:
+    # Criterio de aceptación explícito de T-FB016-US01-03: `stopped` es
+    # alcanzable tanto desde `idle` como desde `working` — detener un
+    # agente ocupado también debe ser posible.
+    idle_agent = _make_agent(status="idle")
+    mark_stopped(idle_agent)
+    assert idle_agent.status == "stopped"
+
+    working_agent = _make_agent(status="working")
+    mark_stopped(working_agent)
+    assert working_agent.status == "stopped"
+
+
+def test_stopped_has_no_outgoing_transition() -> None:
+    # Un agente `stopped` no puede volver a `idle` (ni a ningún otro
+    # estado) sin relanzarse desde cero — no confundir con `unavailable`,
+    # que sí vuelve a `idle`.
+    agent = _make_agent(status="stopped")
+
+    with pytest.raises(InvalidAgentTransitionError):
+        mark_idle(agent)
+    with pytest.raises(InvalidAgentTransitionError):
+        mark_working(agent)
+    with pytest.raises(InvalidAgentTransitionError):
+        mark_unavailable(agent)
+
+    assert agent.status == "stopped"
+
+
+def test_stopped_and_unavailable_are_distinct_states() -> None:
+    # Distinción explícita pedida por la Task: "detenido a propósito"
+    # (stopped) frente a "fallo no solicitado" (unavailable) deben ser
+    # estados distintos y distinguibles.
+    stopped_agent = _make_agent(status="idle")
+    mark_stopped(stopped_agent)
+
+    unavailable_agent = _make_agent(status="idle")
+    mark_unavailable(unavailable_agent)
+
+    assert stopped_agent.status != unavailable_agent.status
+    assert get_agent_state(stopped_agent)["status"] == "stopped"
+    assert get_agent_state(unavailable_agent)["status"] == "unavailable"
 
 
 def test_get_agent_state_reflects_current_status() -> None:

@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <!-- El backend (FB-016) viaja sobre HTTP plano dentro del túnel
+         WireGuard de Tailscale, no HTTPS con certificado propio (mismo
+         criterio ya fijado en la Epic FB-016, "tráfico ya viaja cifrado
+         dentro del túnel... redundante para v1") — se declara
+         android:usesCleartextTraffic explícitamente para no depender del
+         valor por defecto (que bloquea cleartext desde API 28) ni de una
+         excepción de dominio específica, ya que el host es configurable
+         en tiempo de ejecución (criterio de aceptación de esta Task), no
+         conocido en tiempo de compilación. -->
+    <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+
+    <application
+        android:allowBackup="true"
+        android:icon="@android:drawable/sym_def_app_icon"
+        android:label="@string/app_name"
+        android:theme="@style/Theme.FactoryBrain"
+        android:usesCleartextTraffic="true">
+
+        <activity
+            android:name=".MainActivity"
+            android:exported="true"
+            android:theme="@style/Theme.FactoryBrain">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+    </application>
+
+</manifest>

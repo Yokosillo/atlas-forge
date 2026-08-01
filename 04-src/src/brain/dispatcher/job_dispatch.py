@@ -4,12 +4,21 @@ import uuid
 from pathlib import Path
 
 from brain.agents.lifecycle import mark_idle, mark_working
+from brain.dispatcher.job_cancellation_registry import (
+    clear_job_cancellation,
+    is_job_cancellation_requested,
+)
 from brain.dispatcher.job_count_registry import (
     get_consecutive_job_count,
     record_job_dispatch,
     reset_consecutive_job_count,
 )
-from brain.dispatcher.job_lifecycle import mark_completed, mark_failed, mark_running
+from brain.dispatcher.job_lifecycle import (
+    mark_cancelled,
+    mark_completed,
+    mark_failed,
+    mark_running,
+)
 from brain.dispatcher.scribe_trigger import (
     compose_job_instruction_with_scribe_context,
     should_invoke_scribe,
@@ -34,6 +43,11 @@ class JobDispatchError(ValueError):
 
 class JobReportTimeoutError(TimeoutError):
     """El agente no reportó su resultado (fichero + marcador) antes del timeout."""
+
+
+class JobCancelledError(RuntimeError):
+    """El Job fue cancelado (T-FB008-US05-01) mientras `_wait_for_report`
+    esperaba el reporte del agente — distinto de un timeout normal."""
 
 
 _SCRIBE_UNAVAILABLE_NOTE_TEMPLATE = (
@@ -91,13 +105,26 @@ def _build_report_instruction(description: str, report_file: Path) -> str:
 
 
 def _wait_for_report(
-    report_file: Path, timeout_seconds: float, poll_interval_seconds: float
+    report_file: Path,
+    timeout_seconds: float,
+    poll_interval_seconds: float,
+    job_id: str,
 ) -> str:
     """Espera (polling simple) a que `report_file` exista y contenga el
     marcador de fin en su propia línea, y devuelve su contenido sin el
-    marcador. Lanza `JobReportTimeoutError` si se agota el timeout."""
+    marcador. Lanza `JobReportTimeoutError` si se agota el timeout.
+
+    En cada ciclo del polling ya existente comprueba también si se ha
+    solicitado la cancelación de `job_id` (T-FB008-US05-01,
+    `job_cancellation_registry`, señalizado desde otro hilo — p. ej.
+    `POST /jobs/{id}/cancel`) — si es así, lanza `JobCancelledError`
+    inmediatamente, sin esperar al timeout normal."""
     deadline = time.monotonic() + timeout_seconds
     while time.monotonic() < deadline:
+        if is_job_cancellation_requested(job_id):
+            raise JobCancelledError(
+                f"Job '{job_id}' cancelado mientras se esperaba el reporte del agente."
+            )
         if report_file.exists():
             content = report_file.read_text()
             if _REPORT_END_MARKER in content:
@@ -183,6 +210,29 @@ def dispatch_job(
     de `run_command_and_capture`, ahora sustituido) y es determinista de
     testear sin binarios externos.
 
+    ## Cancelación (T-FB008-US05-01)
+
+    `_wait_for_report` comprueba en cada ciclo de su polling si se ha
+    solicitado la cancelación de este Job (`job_cancellation_registry`,
+    `threading.Event` por `job_id` — mismo patrón que `plan_registry` para
+    la idempotencia de aprobación de planes, pero con `Event` en vez de
+    `Lock` porque aquí se señaliza un hecho de un hilo a otro, no se
+    protege una sección crítica). Si se cancela, el `Job` pasa a
+    `cancelled` (nunca `failed`) y el agente vuelve a `idle` de inmediato,
+    igual que ante un timeout o un éxito normal.
+
+    **Limitación explícita, documentada a propósito**: cancelar un Job NO
+    toca la sesión tmux del agente ni mata ningún proceso — Factory Brain
+    simplemente deja de esperar su resultado. El runtime real (Claude
+    Code/OpenCode) puede seguir "pensando" o escribiendo internamente
+    aunque nadie espere ya ese resultado; no hay forma de interrumpir el
+    propio proceso de razonamiento del runtime sin matarlo, y eso sigue
+    siendo responsabilidad de `stop_agent`, no de la cancelación de un Job.
+    Si el agente termina escribiendo su reporte tarde (después de
+    cancelado), ese fichero queda huérfano en el directorio temporal del
+    sistema — mismo destino que cualquier `report_file` no leído, ver más
+    abajo.
+
     ## Limitaciones conocidas de este mecanismo
 
     - **Depende de que el agente siga la instrucción de reporte.** Si el
@@ -237,7 +287,13 @@ def dispatch_job(
     run_command(runtime_instance.session_name, instruction, socket_name=socket_name)
 
     try:
-        result = _wait_for_report(report_file, timeout_seconds, poll_interval_seconds)
+        result = _wait_for_report(
+            report_file, timeout_seconds, poll_interval_seconds, job_id=job.id
+        )
+    except JobCancelledError as error:
+        mark_cancelled(job, reason=str(error))
+        mark_idle(agent)
+        return
     except JobReportTimeoutError as error:
         mark_failed(job, reason=f"Timeout esperando reporte del agente: {error}")
         mark_idle(agent)
@@ -245,6 +301,7 @@ def dispatch_job(
     finally:
         if report_file.exists():
             report_file.unlink()
+        clear_job_cancellation(job.id)
 
     mark_completed(job, result=result)
     mark_idle(agent)

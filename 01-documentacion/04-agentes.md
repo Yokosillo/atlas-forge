@@ -167,6 +167,19 @@ El agente nunca deberá construir manualmente su propio contexto.
 
 ---
 
+## Rol base vs. gobierno específico de proyecto (corrección arquitectónica, ver T-FB005-US01-05)
+
+Se detectó un hueco real que contradecía el principio anterior: el prompt inicial de Critic/Developer delegaba en el propio agente la decisión de "si existen ficheros de gobierno en este proyecto, léelos" — es decir, el agente tenía que descubrir y construir su propio contexto de gobierno, no Factory Brain. Además, ese contexto (jerarquía Epic→Story→Task, protocolo de reporte) variaba según si el proyecto activo tenía o no su propia carpeta `00-gobierno/`, haciendo que el mismo rol se comportara de forma distinta según el proyecto sin que eso fuera una decisión consciente.
+
+Corrección: el rol de cada agente (Critic, Developer) se define en dos capas, ambas construidas por Factory Brain, nunca por decisión del propio agente:
+
+1. **Rol base**, en el propio código de `brain` (`agents/critic.py`, `agents/developer.py`): responsabilidad y límites del rol (qué hace, qué NO hace) más un protocolo de reporte genérico (cómo comunica éxito/fallo de su trabajo) — completo y autosuficiente, válido para cualquier proyecto sobre el que Factory Brain opere, sin depender de que exista ningún fichero externo.
+2. **Gobierno específico del proyecto**, capa adicional: si el proyecto activo declara su propia convención (`00-gobierno/<rol>.md` + `00-gobierno/METODOLOGIA.md`, mismo patrón ya usado en PROD-006/PROD-005), se añade como instrucción explícita para que el agente la lea — pero el rol base ya es funcional sin ella. Un proyecto sin esa convención (como PROD-004) no degrada el comportamiento del agente, solo carece de la capa adicional.
+
+Factory Brain sigue siendo quien decide y construye ambas capas antes de arrancar el agente — el agente nunca decide por sí mismo qué leer, solo ejecuta la instrucción ya construida.
+
+---
+
 # Comunicación
 
 Los agentes no se comunicarán directamente.

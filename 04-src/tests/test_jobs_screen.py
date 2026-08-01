@@ -1,26 +1,29 @@
 import asyncio
-import uuid
+import sys
+import time
 from pathlib import Path
 
-import libtmux
 import pytest
+from textual.widgets import Select, Static, TextArea
 
-from brain.core.session_lifecycle import assign_agent, list_agents
-from brain.core.session_registry import _reset_registry_for_tests
+sys.path.insert(0, str(Path(__file__).parent / "fixtures"))
+from backend_server import running_backend  # noqa: E402
+
+from brain.core.session_registry import (
+    _reset_registry_for_tests,
+    resolve_startup_session,
+)
 from brain.dispatcher.job_history_registry import (
     _reset_registry_for_tests as _reset_job_history_registry_for_tests,
 )
-from brain.models import Agent, Runtime
-from brain.runtime import start_runtime, stop_runtime
 from brain.runtime.agent_runtime_registry import (
     _reset_registry_for_tests as _reset_runtime_registry_for_tests,
 )
-from brain.runtime.agent_runtime_registry import register_runtime_instance_for_agent
 from brain.tui.app import FactoryBrainApp
+from brain.tui.backend_client import BackendClient
 from brain.tui.screens import JobsScreen
 from brain.workspace.active_project import select_active_project
 from brain.workspace.discovery import discover_projects
-from textual.widgets import Select, Static, TextArea
 
 _COOPERATIVE_AGENT_SCRIPT = str(
     Path(__file__).parent / "fixtures" / "cooperative_agent_sim.sh"
@@ -38,19 +41,38 @@ def _reset_registries():
     _reset_job_history_registry_for_tests()
 
 
+@pytest.fixture(autouse=True)
+def _no_real_runtime(monkeypatch):
+    """Sustituye los comandos reales de Claude Code/OpenCode por `sleep`
+    por defecto (los tests que necesitan el doble cooperativo real lo
+    sobreescriben explícitamente vía `_launch_cooperative_agent`)."""
+    import brain.runtime.claude_code as claude_code_module
+    import brain.runtime.opencode as opencode_module
+
+    monkeypatch.setattr(claude_code_module, "DEFAULT_CLAUDE_CODE_COMMAND", "sleep")
+    monkeypatch.setattr(claude_code_module, "DEFAULT_CLAUDE_CODE_ARGS", ["5"])
+    monkeypatch.setattr(opencode_module, "DEFAULT_OPENCODE_COMMAND", "sleep")
+    monkeypatch.setattr(opencode_module, "DEFAULT_OPENCODE_AUTONOMY_FLAG", "5")
+
+
 @pytest.fixture
-def isolated_socket():
-    """Aísla los tests de esta Task en su propio servidor tmux, con
-    limpieza garantizada incluso si el test falla a medio camino — mismo
-    patrón que test_job_dispatch.py/test_agents_screen.py."""
-    name = f"brain-test-{uuid.uuid4().hex[:8]}"
-    try:
-        yield name
-    finally:
-        try:
-            libtmux.Server(socket_name=name).kill()
-        except Exception:
-            pass
+def backend(tmp_path: Path):
+    # T-FB016-US01-06: JobsScreen ahora consulta/crea/despacha Jobs vía
+    # backend real (brain-api) en vez de invocar dominio directamente —
+    # se arranca un backend de prueba real (mismo `create_app()` de
+    # producción) en un hilo, mismo criterio de "test contra
+    # comportamiento real" ya aplicado en el resto del proyecto (nunca se
+    # mockea la llamada HTTP; el aislamiento del socket tmux ya lo
+    # gestiona `running_backend`).
+    #
+    # `workspace_root`/`state_dir` aislados en `tmp_path`
+    # (T-FB016-US01-11): evita que el `_lifespan` real resuelva el
+    # proyecto activo REAL del usuario en esta máquina — ver docstring
+    # equivalente en `test_dashboard_screen.py`.
+    with running_backend(
+        workspace_root=tmp_path / "workspace", state_dir=tmp_path / "state"
+    ) as base_url:
+        yield BackendClient(base_url=base_url)
 
 
 def _make_git_repo(path: Path) -> None:
@@ -58,46 +80,41 @@ def _make_git_repo(path: Path) -> None:
     (path / ".git").mkdir()
 
 
-def _select_project(workspace_root: Path, state_dir: Path):
+def _select_project_and_start_backend_session(workspace_root: Path, state_dir: Path):
+    # Ver justificación completa en test_dashboard_screen.py: GET /session
+    # solo consulta, nunca resuelve — se arranca aquí para que el backend
+    # de prueba (mismo proceso Python que el test) tenga sesión activa
+    # antes de que la TUI haga su primera petición.
     repo_path = workspace_root / "my-project"
     _make_git_repo(repo_path)
     discovered = discover_projects(workspace_root)
     select_active_project(discovered[0], discovered=discovered, state_dir=state_dir)
+    resolve_startup_session(workspace_root=workspace_root, state_dir=state_dir)
     return discovered[0]
 
 
 def _launch_cooperative_agent(
-    session,
-    isolated_socket: str,
+    backend: BackendClient,
+    monkeypatch,
     tmp_path,
     extra_env: str = "",
     role: str = "developer",
-    name: str = "Developer",
-):
+) -> dict:
     # Doble cooperativo real (tmux real, nunca el binario real de Claude
-    # Code/OpenCode) — mismo patrón ya usado en test_job_dispatch.py.
-    # Se asigna manualmente a la sesión y se registra su RuntimeInstance
-    # (T-FB002-US03-00), en vez de pasar por `register_developer`/
-    # `launch_agent`, para no depender de mockear el comando real: aquí
-    # se controla directamente qué runtime/comando arranca.
-    runtime_id = f"test-runtime-{uuid.uuid4().hex[:8]}"
-    agent = Agent(
-        id=str(uuid.uuid4()), name=name, role=role, prompt="p", runtime_id=runtime_id
+    # Code/OpenCode) — mismo patrón ya usado en test_job_dispatch.py,
+    # ahora lanzado a través del backend (POST /agents) en vez de
+    # `start_runtime`/`assign_agent`/`register_runtime_instance_for_agent`
+    # directos, para que el agente exista de verdad en el registro que la
+    # TUI consulta vía HTTP.
+    import brain.runtime.claude_code as claude_code_module
+
+    monkeypatch.setattr(
+        claude_code_module, "DEFAULT_CLAUDE_CODE_COMMAND", f"{extra_env} bash".strip()
     )
-    command = f"{extra_env} bash".strip()
-    runtime = Runtime(
-        id=runtime_id,
-        name="Test Runtime",
-        type="test",
-        command=command,
-        args=[_COOPERATIVE_AGENT_SCRIPT],
+    monkeypatch.setattr(
+        claude_code_module, "DEFAULT_CLAUDE_CODE_ARGS", [_COOPERATIVE_AGENT_SCRIPT]
     )
-    runtime_instance = start_runtime(
-        runtime, agent, str(tmp_path), socket_name=isolated_socket
-    )
-    assign_agent(session, agent)
-    register_runtime_instance_for_agent(agent.id, runtime_instance)
-    return agent, runtime_instance
+    return backend.launch_agent(role, "claude-code", None)
 
 
 async def _wait_for_status_containing(jobs_screen, *substrings: str, timeout: float = 5.0):
@@ -111,28 +128,23 @@ async def _wait_for_status_containing(jobs_screen, *substrings: str, timeout: fl
 
 
 async def test_creating_and_dispatching_a_job_without_running_any_manual_code(
-    isolated_socket: str, tmp_path
+    tmp_path, backend, monkeypatch
 ) -> None:
     # Criterio de aceptación 1: el desarrollador puede escribir una
     # descripción, elegir un agente ya lanzado, y confirmar — el Job se
     # crea y se despacha sin ejecutar código manualmente.
     workspace_root = tmp_path / "workspace"
     state_dir = tmp_path / "state"
-    project = _select_project(workspace_root, state_dir)
+    _select_project_and_start_backend_session(workspace_root, state_dir)
 
-    app = FactoryBrainApp(workspace_root=workspace_root, state_dir=state_dir)
+    app = FactoryBrainApp(
+        workspace_root=workspace_root, state_dir=state_dir, backend_client=backend
+    )
     async with app.run_test() as pilot:
-        from brain.core.session_registry import get_current_session
-
-        session = get_current_session()
-        agent, runtime_instance = _launch_cooperative_agent(
-            session, isolated_socket, tmp_path, extra_env="SIM_DELAY=0.1"
-        )
+        _launch_cooperative_agent(backend, monkeypatch, tmp_path, extra_env="SIM_DELAY=0.1")
 
         jobs_screen = JobsScreen(
-            workspace_root=workspace_root,
-            state_dir=state_dir,
-            socket_name=isolated_socket,
+            workspace_root=workspace_root, state_dir=state_dir, backend_client=backend
         )
         pilot.app.push_screen(jobs_screen)
         await pilot.pause()
@@ -155,11 +167,9 @@ async def test_creating_and_dispatching_a_job_without_running_any_manual_code(
         assert "completado" in status_text.lower()
         assert "cooperative result" in status_text.lower()
 
-        stop_runtime(runtime_instance, socket_name=isolated_socket)
-
 
 async def test_ui_stays_responsive_while_job_is_running(
-    isolated_socket: str, tmp_path
+    tmp_path, backend, monkeypatch
 ) -> None:
     # Criterio de aceptación 2: mientras el Job está en curso, la
     # pantalla no se queda congelada ni bloquea el resto de la TUI —
@@ -167,21 +177,16 @@ async def test_ui_stays_responsive_while_job_is_running(
     # despacho (con un delay deliberadamente largo) sigue en curso.
     workspace_root = tmp_path / "workspace"
     state_dir = tmp_path / "state"
-    project = _select_project(workspace_root, state_dir)
+    _select_project_and_start_backend_session(workspace_root, state_dir)
 
-    app = FactoryBrainApp(workspace_root=workspace_root, state_dir=state_dir)
+    app = FactoryBrainApp(
+        workspace_root=workspace_root, state_dir=state_dir, backend_client=backend
+    )
     async with app.run_test() as pilot:
-        from brain.core.session_registry import get_current_session
-
-        session = get_current_session()
-        agent, runtime_instance = _launch_cooperative_agent(
-            session, isolated_socket, tmp_path, extra_env="SIM_DELAY=2"
-        )
+        _launch_cooperative_agent(backend, monkeypatch, tmp_path, extra_env="SIM_DELAY=2")
 
         jobs_screen = JobsScreen(
-            workspace_root=workspace_root,
-            state_dir=state_dir,
-            socket_name=isolated_socket,
+            workspace_root=workspace_root, state_dir=state_dir, backend_client=backend
         )
         pilot.app.push_screen(jobs_screen)
         await pilot.pause()
@@ -192,12 +197,11 @@ async def test_ui_stays_responsive_while_job_is_running(
         await pilot.click("#send-job")
         await pilot.pause()
 
-        # El Job está despachándose (SIM_DELAY=2s) — si dispatch_job
-        # bloqueara el hilo principal de Textual, esta interacción con la
-        # UI (navegar y volver) se quedaría congelada hasta que el Job
-        # termine. Con el worker de hilo, responde de inmediato.
-        import time
-
+        # El Job está despachándose (SIM_DELAY=2s) — si la llamada HTTP
+        # bloqueante bloqueara el hilo principal de Textual, esta
+        # interacción con la UI (navegar y volver) se quedaría congelada
+        # hasta que el Job termine. Con el worker de hilo, responde de
+        # inmediato.
         started_at = time.monotonic()
         pilot.app.pop_screen()
         await pilot.pause()
@@ -206,11 +210,9 @@ async def test_ui_stays_responsive_while_job_is_running(
         assert elapsed < 1.0
         assert not isinstance(pilot.app.screen, JobsScreen)
 
-        stop_runtime(runtime_instance, socket_name=isolated_socket)
-
 
 async def test_screen_shows_running_progress_while_job_is_in_flight(
-    isolated_socket: str, tmp_path
+    tmp_path, backend, monkeypatch
 ) -> None:
     # Criterio de aceptación de US-FB002-03: "la pantalla muestra el
     # progreso (created → running) mientras el agente trabaja" —
@@ -218,21 +220,16 @@ async def test_screen_shows_running_progress_while_job_is_in_flight(
     # que el Job complete, gracias a un SIM_DELAY deliberadamente largo).
     workspace_root = tmp_path / "workspace"
     state_dir = tmp_path / "state"
-    _select_project(workspace_root, state_dir)
+    _select_project_and_start_backend_session(workspace_root, state_dir)
 
-    app = FactoryBrainApp(workspace_root=workspace_root, state_dir=state_dir)
+    app = FactoryBrainApp(
+        workspace_root=workspace_root, state_dir=state_dir, backend_client=backend
+    )
     async with app.run_test() as pilot:
-        from brain.core.session_registry import get_current_session
-
-        session = get_current_session()
-        agent, runtime_instance = _launch_cooperative_agent(
-            session, isolated_socket, tmp_path, extra_env="SIM_DELAY=2"
-        )
+        _launch_cooperative_agent(backend, monkeypatch, tmp_path, extra_env="SIM_DELAY=2")
 
         jobs_screen = JobsScreen(
-            workspace_root=workspace_root,
-            state_dir=state_dir,
-            socket_name=isolated_socket,
+            workspace_root=workspace_root, state_dir=state_dir, backend_client=backend
         )
         pilot.app.push_screen(jobs_screen)
         await pilot.pause()
@@ -246,22 +243,24 @@ async def test_screen_shows_running_progress_while_job_is_in_flight(
 
         await _wait_for_status_containing(jobs_screen, "completado")
 
-        stop_runtime(runtime_instance, socket_name=isolated_socket)
-
 
 async def test_no_agents_launched_shows_clear_message_instead_of_empty_form(
-    tmp_path,
+    tmp_path, backend
 ) -> None:
     # Criterio de aceptación 3: sin agentes lanzados en la sesión, la
     # pantalla informa claramente en vez de mostrar un formulario vacío o
     # roto.
     workspace_root = tmp_path / "workspace"
     state_dir = tmp_path / "state"
-    _select_project(workspace_root, state_dir)
+    _select_project_and_start_backend_session(workspace_root, state_dir)
 
-    app = FactoryBrainApp(workspace_root=workspace_root, state_dir=state_dir)
+    app = FactoryBrainApp(
+        workspace_root=workspace_root, state_dir=state_dir, backend_client=backend
+    )
     async with app.run_test() as pilot:
-        jobs_screen = JobsScreen(workspace_root=workspace_root, state_dir=state_dir)
+        jobs_screen = JobsScreen(
+            workspace_root=workspace_root, state_dir=state_dir, backend_client=backend
+        )
         pilot.app.push_screen(jobs_screen)
         await pilot.pause()
 
@@ -274,42 +273,38 @@ async def test_no_agents_launched_shows_clear_message_instead_of_empty_form(
 
 
 async def test_completed_job_shows_full_result_and_offers_chain_to_critic_when_critic_launched(
-    isolated_socket: str, tmp_path
+    tmp_path, backend, monkeypatch
 ) -> None:
     # Criterios de aceptación: "un Job completado muestra su resultado
     # completo... sin truncarlo silenciosamente" y "un Job de Developer
     # completado con Critic ya lanzado ofrece encadenar".
     workspace_root = tmp_path / "workspace"
     state_dir = tmp_path / "state"
-    _select_project(workspace_root, state_dir)
+    _select_project_and_start_backend_session(workspace_root, state_dir)
 
-    app = FactoryBrainApp(workspace_root=workspace_root, state_dir=state_dir)
+    app = FactoryBrainApp(
+        workspace_root=workspace_root, state_dir=state_dir, backend_client=backend
+    )
     async with app.run_test() as pilot:
-        from brain.core.session_registry import get_current_session
-
-        session = get_current_session()
-        developer, dev_instance = _launch_cooperative_agent(
-            session, isolated_socket, tmp_path, extra_env="SIM_DELAY=0.1"
+        developer = _launch_cooperative_agent(
+            backend, monkeypatch, tmp_path, extra_env="SIM_DELAY=0.1"
         )
-        critic, critic_instance = _launch_cooperative_agent(
-            session,
-            isolated_socket,
+        _launch_cooperative_agent(
+            backend,
+            monkeypatch,
             tmp_path,
             extra_env="SIM_ROLE=critic SIM_DELAY=0.1",
             role="critic",
-            name="Critic",
         )
 
         jobs_screen = JobsScreen(
-            workspace_root=workspace_root,
-            state_dir=state_dir,
-            socket_name=isolated_socket,
+            workspace_root=workspace_root, state_dir=state_dir, backend_client=backend
         )
         pilot.app.push_screen(jobs_screen)
         await pilot.pause()
 
         select_widget = jobs_screen.query_one("#agent-choice", Select)
-        select_widget.value = developer.id
+        select_widget.value = developer["id"]
 
         description_widget = jobs_screen.query_one("#job-description", TextArea)
         description_widget.text = "implement the requested feature"
@@ -328,46 +323,39 @@ async def test_completed_job_shows_full_result_and_offers_chain_to_critic_when_c
 
         assert len(jobs_screen.query("#chain-to-critic").nodes) == 1
 
-        stop_runtime(dev_instance, socket_name=isolated_socket)
-        stop_runtime(critic_instance, socket_name=isolated_socket)
-
 
 async def test_chaining_to_critic_creates_and_dispatches_job_with_developer_result(
-    isolated_socket: str, tmp_path
+    tmp_path, backend, monkeypatch
 ) -> None:
     # Criterio de aceptación: "hacerlo crea y despacha correctamente el
     # Job de Critic con el resultado de Developer incluido".
     workspace_root = tmp_path / "workspace"
     state_dir = tmp_path / "state"
-    _select_project(workspace_root, state_dir)
+    _select_project_and_start_backend_session(workspace_root, state_dir)
 
-    app = FactoryBrainApp(workspace_root=workspace_root, state_dir=state_dir)
+    app = FactoryBrainApp(
+        workspace_root=workspace_root, state_dir=state_dir, backend_client=backend
+    )
     async with app.run_test() as pilot:
-        from brain.core.session_registry import get_current_session
-
-        session = get_current_session()
-        developer, dev_instance = _launch_cooperative_agent(
-            session, isolated_socket, tmp_path, extra_env="SIM_DELAY=0.1"
+        developer = _launch_cooperative_agent(
+            backend, monkeypatch, tmp_path, extra_env="SIM_DELAY=0.1"
         )
-        critic, critic_instance = _launch_cooperative_agent(
-            session,
-            isolated_socket,
+        critic = _launch_cooperative_agent(
+            backend,
+            monkeypatch,
             tmp_path,
             extra_env="SIM_ROLE=critic SIM_DELAY=0.1",
             role="critic",
-            name="Critic",
         )
 
         jobs_screen = JobsScreen(
-            workspace_root=workspace_root,
-            state_dir=state_dir,
-            socket_name=isolated_socket,
+            workspace_root=workspace_root, state_dir=state_dir, backend_client=backend
         )
         pilot.app.push_screen(jobs_screen)
         await pilot.pause()
 
         select_widget = jobs_screen.query_one("#agent-choice", Select)
-        select_widget.value = developer.id
+        select_widget.value = developer["id"]
         jobs_screen.query_one("#job-description", TextArea).text = "implement the feature"
 
         await pilot.click("#send-job")
@@ -383,7 +371,7 @@ async def test_chaining_to_critic_creates_and_dispatches_job_with_developer_resu
 
         # Agente destinatario fijado a Critic (criterio: "agente
         # destinatario fijado si está lanzado").
-        assert critic_screen.query_one("#agent-choice", Select).value == critic.id
+        assert critic_screen.query_one("#agent-choice", Select).value == critic["id"]
 
         await pilot.click("#send-job")
         await pilot.pause()
@@ -396,32 +384,24 @@ async def test_chaining_to_critic_creates_and_dispatches_job_with_developer_resu
         # Critic recibió el resultado real de Developer, no un texto fijo.
         assert "cooperative result" in critic_status_text.lower()
 
-        stop_runtime(dev_instance, socket_name=isolated_socket)
-        stop_runtime(critic_instance, socket_name=isolated_socket)
-
 
 async def test_completed_developer_job_without_critic_launched_shows_clear_message(
-    isolated_socket: str, tmp_path
+    tmp_path, backend, monkeypatch
 ) -> None:
     # Criterio de aceptación: "sin Critic lanzado, la opción de encadenar
     # no está disponible, con mensaje claro".
     workspace_root = tmp_path / "workspace"
     state_dir = tmp_path / "state"
-    _select_project(workspace_root, state_dir)
+    _select_project_and_start_backend_session(workspace_root, state_dir)
 
-    app = FactoryBrainApp(workspace_root=workspace_root, state_dir=state_dir)
+    app = FactoryBrainApp(
+        workspace_root=workspace_root, state_dir=state_dir, backend_client=backend
+    )
     async with app.run_test() as pilot:
-        from brain.core.session_registry import get_current_session
-
-        session = get_current_session()
-        developer, dev_instance = _launch_cooperative_agent(
-            session, isolated_socket, tmp_path, extra_env="SIM_DELAY=0.1"
-        )
+        _launch_cooperative_agent(backend, monkeypatch, tmp_path, extra_env="SIM_DELAY=0.1")
 
         jobs_screen = JobsScreen(
-            workspace_root=workspace_root,
-            state_dir=state_dir,
-            socket_name=isolated_socket,
+            workspace_root=workspace_root, state_dir=state_dir, backend_client=backend
         )
         pilot.app.push_screen(jobs_screen)
         await pilot.pause()
@@ -439,66 +419,36 @@ async def test_completed_developer_job_without_critic_launched_shows_clear_messa
             no_critic_widgets.first().content
         ).lower()
 
-        stop_runtime(dev_instance, socket_name=isolated_socket)
 
-
-async def test_failed_job_shows_reason_without_offering_chain(
-    isolated_socket: str, tmp_path
-) -> None:
+async def test_failed_job_shows_reason_without_offering_chain(tmp_path, backend) -> None:
     # Criterio de aceptación: "un Job fallido muestra el motivo, sin
-    # ofrecer encadenamiento".
+    # ofrecer encadenamiento". Runtime que nunca reporta (`sleep`, el
+    # doble por defecto de `_no_real_runtime` — nunca escribe el fichero
+    # pactado): el backend marca el Job `failed` por timeout.
     workspace_root = tmp_path / "workspace"
     state_dir = tmp_path / "state"
-    _select_project(workspace_root, state_dir)
+    _select_project_and_start_backend_session(workspace_root, state_dir)
 
-    app = FactoryBrainApp(workspace_root=workspace_root, state_dir=state_dir)
+    app = FactoryBrainApp(
+        workspace_root=workspace_root, state_dir=state_dir, backend_client=backend
+    )
     async with app.run_test() as pilot:
-        from brain.core.session_registry import get_current_session
-
-        session = get_current_session()
-        # Runtime que nunca reporta (nunca escribe el fichero pactado) —
-        # dispatch_job lo marca como `failed` por timeout.
-        agent = Agent(
-            id=str(uuid.uuid4()),
-            name="Developer",
-            role="developer",
-            prompt="p",
-            runtime_id="never-reports-runtime",
-        )
-        never_reports_runtime = Runtime(
-            id="never-reports-runtime",
-            name="Never Reports",
-            type="test",
-            command="bash",
-            args=[],
-        )
-        runtime_instance = start_runtime(
-            never_reports_runtime, agent, str(tmp_path), socket_name=isolated_socket
-        )
-        assign_agent(session, agent)
-        register_runtime_instance_for_agent(agent.id, runtime_instance)
+        agent = backend.launch_agent("developer", "claude-code", None)
 
         jobs_screen = JobsScreen(
-            workspace_root=workspace_root,
-            state_dir=state_dir,
-            socket_name=isolated_socket,
+            workspace_root=workspace_root, state_dir=state_dir, backend_client=backend
         )
         pilot.app.push_screen(jobs_screen)
         await pilot.pause()
 
         jobs_screen.query_one("#job-description", TextArea).text = "a task"
-
         select_widget = jobs_screen.query_one("#agent-choice", Select)
-        select_widget.value = agent.id
+        select_widget.value = agent["id"]
 
-        from brain.dispatcher import create_job
+        await pilot.click("#send-job")
+        await pilot.pause()
 
-        job = create_job("a task", agent, session)
-        jobs_screen._dispatch_job_in_background(
-            job, agent, runtime_instance, timeout_seconds=1.0, poll_interval_seconds=0.1
-        )
-
-        await _wait_for_status_containing(jobs_screen, "falló", timeout=5.0)
+        await _wait_for_status_containing(jobs_screen, "falló", timeout=35.0)
 
         status_text = str(jobs_screen.query_one("#job-status", Static).content)
         assert "falló" in status_text.lower()
@@ -506,31 +456,24 @@ async def test_failed_job_shows_reason_without_offering_chain(
         assert len(jobs_screen.query("#chain-to-critic").nodes) == 0
         assert len(jobs_screen.query("#no-critic-message").nodes) == 0
 
-        stop_runtime(runtime_instance, socket_name=isolated_socket)
-
 
 async def test_multiple_jobs_all_appear_in_history_with_current_status(
-    isolated_socket: str, tmp_path
+    tmp_path, backend, monkeypatch
 ) -> None:
     # Criterio de aceptación: "tras crear y despachar varios Jobs, todos
     # aparecen en el histórico con su estado actual".
     workspace_root = tmp_path / "workspace"
     state_dir = tmp_path / "state"
-    _select_project(workspace_root, state_dir)
+    _select_project_and_start_backend_session(workspace_root, state_dir)
 
-    app = FactoryBrainApp(workspace_root=workspace_root, state_dir=state_dir)
+    app = FactoryBrainApp(
+        workspace_root=workspace_root, state_dir=state_dir, backend_client=backend
+    )
     async with app.run_test() as pilot:
-        from brain.core.session_registry import get_current_session
-
-        session = get_current_session()
-        developer, dev_instance = _launch_cooperative_agent(
-            session, isolated_socket, tmp_path, extra_env="SIM_DELAY=0.1"
-        )
+        _launch_cooperative_agent(backend, monkeypatch, tmp_path, extra_env="SIM_DELAY=0.1")
 
         jobs_screen = JobsScreen(
-            workspace_root=workspace_root,
-            state_dir=state_dir,
-            socket_name=isolated_socket,
+            workspace_root=workspace_root, state_dir=state_dir, backend_client=backend
         )
         pilot.app.push_screen(jobs_screen)
         await pilot.pause()
@@ -552,11 +495,9 @@ async def test_multiple_jobs_all_appear_in_history_with_current_status(
         assert "second task" in history_text
         assert history_text.count("[completed]") == 2
 
-        stop_runtime(dev_instance, socket_name=isolated_socket)
-
 
 async def test_history_survives_navigating_away_and_back_to_jobs(
-    isolated_socket: str, tmp_path
+    tmp_path, backend, monkeypatch
 ) -> None:
     # Criterio de aceptación: "navegar a otra pantalla y volver a Jobs
     # conserva el histórico completo" — se verifica construyendo una
@@ -565,21 +506,16 @@ async def test_history_survives_navigating_away_and_back_to_jobs(
     # la anterior), sin pasar por la primera instancia en absoluto.
     workspace_root = tmp_path / "workspace"
     state_dir = tmp_path / "state"
-    _select_project(workspace_root, state_dir)
+    _select_project_and_start_backend_session(workspace_root, state_dir)
 
-    app = FactoryBrainApp(workspace_root=workspace_root, state_dir=state_dir)
+    app = FactoryBrainApp(
+        workspace_root=workspace_root, state_dir=state_dir, backend_client=backend
+    )
     async with app.run_test() as pilot:
-        from brain.core.session_registry import get_current_session
-
-        session = get_current_session()
-        developer, dev_instance = _launch_cooperative_agent(
-            session, isolated_socket, tmp_path, extra_env="SIM_DELAY=0.1"
-        )
+        _launch_cooperative_agent(backend, monkeypatch, tmp_path, extra_env="SIM_DELAY=0.1")
 
         first_jobs_screen = JobsScreen(
-            workspace_root=workspace_root,
-            state_dir=state_dir,
-            socket_name=isolated_socket,
+            workspace_root=workspace_root, state_dir=state_dir, backend_client=backend
         )
         pilot.app.push_screen(first_jobs_screen)
         await pilot.pause()
@@ -598,9 +534,7 @@ async def test_history_survives_navigating_away_and_back_to_jobs(
         await pilot.pause()
 
         second_jobs_screen = JobsScreen(
-            workspace_root=workspace_root,
-            state_dir=state_dir,
-            socket_name=isolated_socket,
+            workspace_root=workspace_root, state_dir=state_dir, backend_client=backend
         )
         pilot.app.push_screen(second_jobs_screen)
         await pilot.pause()
@@ -611,31 +545,26 @@ async def test_history_survives_navigating_away_and_back_to_jobs(
         assert "a task created before navigating away" in history_text
         assert "[completed]" in history_text
 
-        stop_runtime(dev_instance, socket_name=isolated_socket)
-
 
 async def test_history_distinguishes_completed_failed_and_running_jobs(
-    isolated_socket: str, tmp_path
+    tmp_path, backend, monkeypatch
 ) -> None:
     # Criterio de aceptación: "el histórico distingue claramente Jobs
     # completed, failed, y running (si alguno sigue en curso)".
     workspace_root = tmp_path / "workspace"
     state_dir = tmp_path / "state"
-    _select_project(workspace_root, state_dir)
+    _select_project_and_start_backend_session(workspace_root, state_dir)
 
-    app = FactoryBrainApp(workspace_root=workspace_root, state_dir=state_dir)
+    app = FactoryBrainApp(
+        workspace_root=workspace_root, state_dir=state_dir, backend_client=backend
+    )
     async with app.run_test() as pilot:
-        from brain.core.session_registry import get_current_session
-
-        session = get_current_session()
-        developer, dev_instance = _launch_cooperative_agent(
-            session, isolated_socket, tmp_path, extra_env="SIM_DELAY=0.1"
+        developer = _launch_cooperative_agent(
+            backend, monkeypatch, tmp_path, extra_env="SIM_DELAY=0.1"
         )
 
         jobs_screen = JobsScreen(
-            workspace_root=workspace_root,
-            state_dir=state_dir,
-            socket_name=isolated_socket,
+            workspace_root=workspace_root, state_dir=state_dir, backend_client=backend
         )
         pilot.app.push_screen(jobs_screen)
         await pilot.pause()
@@ -646,15 +575,35 @@ async def test_history_distinguishes_completed_failed_and_running_jobs(
         await pilot.pause()
         await _wait_for_status_containing(jobs_screen, "completado")
 
-        # Job en curso (running): se registra manualmente en el
-        # histórico sin despacharlo, para verificar que el histórico
-        # distingue `running` de `completed`/`failed` sin depender de
-        # que dispatch_job termine durante el test.
-        from brain.dispatcher import create_job, mark_running, record_job
+        # Job en curso (running): se despacha con un delay largo en un
+        # segundo hilo, sin esperar a que termine, para verificar que el
+        # histórico distingue `running` de `completed`/`failed` mientras
+        # el Job sigue en curso del lado del backend.
+        _launch_cooperative_agent(
+            backend, monkeypatch, tmp_path, extra_env="SIM_DELAY=5", role="critic"
+        )
+        critic_agent = next(
+            a for a in backend.get_agents() if a["role"] == "critic"
+        )
 
-        running_job = create_job("a running task", developer, session)
-        mark_running(running_job)
-        record_job(session.id, running_job)
+        import threading
+
+        def _dispatch_slow_job():
+            backend.create_and_dispatch_job(critic_agent["id"], "a running task")
+
+        thread = threading.Thread(target=_dispatch_slow_job, daemon=True)
+        thread.start()
+
+        # Espera activa a que el Job "running" aparezca en el histórico
+        # del backend (creado antes de que el thread bloquee 5s en
+        # dispatch).
+        deadline = asyncio.get_event_loop().time() + 3.0
+        while asyncio.get_event_loop().time() < deadline:
+            jobs = backend.get_jobs()
+            if any(job["description"] == "a running task" for job in jobs):
+                break
+            await asyncio.sleep(0.05)
+
         jobs_screen._refresh_history()
 
         history_text = str(
@@ -665,4 +614,4 @@ async def test_history_distinguishes_completed_failed_and_running_jobs(
         assert "[running]" in history_text
         assert "a running task" in history_text
 
-        stop_runtime(dev_instance, socket_name=isolated_socket)
+        thread.join(timeout=10.0)

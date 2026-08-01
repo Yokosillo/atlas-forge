@@ -1,3 +1,5 @@
+import shlex
+
 from brain.models import Runtime
 
 # Configuración por defecto de Claude Code como Runtime (T-FB004-US01-02).
@@ -35,3 +37,25 @@ def register_claude_code_runtime(runtime_id: str = "claude-code") -> Runtime:
         command=DEFAULT_CLAUDE_CODE_COMMAND,
         args=list(DEFAULT_CLAUDE_CODE_ARGS),
     )
+
+
+def build_prompt_args(prompt: str) -> list[str]:
+    """Construye los argumentos adicionales para arrancar Claude Code con
+    `prompt` ya cargado como primer mensaje de la sesión interactiva
+    (T-FB005-US01-03).
+
+    Verificado directamente contra `claude --help` en esta VM (versión real
+    instalada, no documentación externa): `Usage: claude [options]
+    [command] [prompt]` — el prompt es un **argumento posicional**, no un
+    flag. En modo interactivo (sin `-p`/`--print`, que fuerza salida no
+    interactiva y no es lo que se quiere aquí), arrancar con ese argumento
+    ya presente carga el prompt en la sesión sin necesidad de teclearlo
+    después — se prefiere sobre teclear tras un delay (criterio de
+    aceptación explícito de la Task: más robusto, no depende de adivinar
+    cuánto tarda la CLI en estar lista para aceptar input).
+
+    `shlex.quote` evita que el propio contenido del prompt (puede incluir
+    comillas, saltos de línea, etc.) rompa el comando de shell construido
+    en `start_runtime` — el prompt viaja como un único argumento posicional
+    tal cual lo vería el usuario, no se interpreta como shell."""
+    return [shlex.quote(prompt)]

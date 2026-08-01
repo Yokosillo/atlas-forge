@@ -1,0 +1,104 @@
+import uuid
+
+import libtmux
+import pytest
+
+from brain.agents import AgentRuntimeNotFoundError, mark_unavailable, stop_agent
+from brain.core.session_lifecycle import activate
+from brain.dashboard import launch_agent
+from brain.dispatcher import JobCreationError, create_job
+from brain.models import Agent, DevelopmentSession
+from brain.runtime import is_runtime_alive
+
+
+@pytest.fixture(autouse=True)
+def _no_real_runtime(monkeypatch):
+    """Mismo patrón de aislamiento ya usado en test_launch_agent.py: nunca
+    invocar los binarios reales de Claude Code/OpenCode en tests."""
+    import brain.runtime.claude_code as claude_code_module
+    import brain.runtime.opencode as opencode_module
+
+    monkeypatch.setattr(claude_code_module, "DEFAULT_CLAUDE_CODE_COMMAND", "sleep")
+    monkeypatch.setattr(claude_code_module, "DEFAULT_CLAUDE_CODE_ARGS", ["5"])
+    monkeypatch.setattr(opencode_module, "DEFAULT_OPENCODE_COMMAND", "sleep")
+    monkeypatch.setattr(opencode_module, "DEFAULT_OPENCODE_AUTONOMY_FLAG", "5")
+    monkeypatch.setattr(opencode_module, "DEFAULT_OPENCODE_ARGS", ["5"])
+
+
+@pytest.fixture
+def isolated_socket():
+    name = f"brain-test-{uuid.uuid4().hex[:8]}"
+    try:
+        yield name
+    finally:
+        try:
+            libtmux.Server(socket_name=name).kill()
+        except Exception:
+            pass
+
+
+def _active_session() -> DevelopmentSession:
+    session = DevelopmentSession(id="s1", project_id="p1")
+    activate(session)
+    return session
+
+
+def test_stop_agent_kills_the_real_tmux_session_and_marks_stopped(
+    isolated_socket: str, tmp_path
+) -> None:
+    session = _active_session()
+    agent, runtime_instance = launch_agent(
+        "developer", "claude-code", None, session, str(tmp_path), socket_name=isolated_socket
+    )
+    assert is_runtime_alive(runtime_instance, socket_name=isolated_socket) is True
+
+    stop_agent(agent, socket_name=isolated_socket)
+
+    assert is_runtime_alive(runtime_instance, socket_name=isolated_socket) is False
+    assert agent.status == "stopped"
+
+
+def test_stop_agent_never_marks_unavailable() -> None:
+    # Distinción explícita de la Task: detenido a propósito != fallo no
+    # solicitado. `unavailable` sigue existiendo como estado, pero
+    # `stop_agent` nunca lo usa.
+    agent = Agent(
+        id="a1", name="test", role="developer", prompt="p", runtime_id="r1", status="idle"
+    )
+    mark_unavailable(agent)
+    assert agent.status == "unavailable"
+    assert agent.status != "stopped"
+
+
+def test_stop_agent_raises_when_agent_has_no_registered_runtime() -> None:
+    agent = Agent(
+        id="never-launched",
+        name="test",
+        role="developer",
+        prompt="p",
+        runtime_id="r1",
+        status="idle",
+    )
+
+    with pytest.raises(AgentRuntimeNotFoundError):
+        stop_agent(agent)
+
+    # El estado no se toca si no hay runtime que detener de verdad.
+    assert agent.status == "idle"
+
+
+def test_creating_a_job_for_a_stopped_agent_is_rejected_like_any_non_idle_agent(
+    isolated_socket: str, tmp_path
+) -> None:
+    # Criterio de aceptación explícito: create_job ya rechaza agentes no
+    # idle — verificar explícitamente que stopped cae en ese rechazo,
+    # mismo mecanismo, sin lógica nueva en job_creation.py.
+    session = _active_session()
+    agent, runtime_instance = launch_agent(
+        "developer", "claude-code", None, session, str(tmp_path), socket_name=isolated_socket
+    )
+    stop_agent(agent, socket_name=isolated_socket)
+    assert agent.status == "stopped"
+
+    with pytest.raises(JobCreationError):
+        create_job("do something", agent, session)

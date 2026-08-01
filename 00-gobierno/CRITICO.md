@@ -75,6 +75,17 @@ correcciones puntuales, o proponer el siguiente prompt para el worker.
      qué falla.
 5. No reescribas tú el código ni ejecutes tareas del worker: tu output es
    siempre una decisión + el siguiente prompt.
+6. **Marcar `Estado: DONE` en el propio fichero es responsabilidad tuya, no
+   del worker.** Cuando el veredicto sea `Aprobado` o `Aprobado con
+   observaciones`, actualiza tú mismo el campo `## Estado` a `DONE` en el
+   fichero de la Task (siempre) y en el de la User Story (solo cuando
+   cierre la Story completa, tras la auditoría del apartado siguiente) —
+   antes de escribir la decisión en `critic_output.txt`, no después ni
+   "cuando haya tiempo". El worker no debe tocar ese campo (evita que dé
+   por cerrado su propio trabajo sin la validación del crítico); si el
+   worker ya lo dejó en `TODO` tras terminar, es exactamente lo esperado,
+   no un olvido suyo. Verifica con `grep`/lectura del propio fichero tras
+   escribir el cambio — no asumas que se aplicó.
 
 ## Verificación: confía en los tests del worker, no los repitas
 

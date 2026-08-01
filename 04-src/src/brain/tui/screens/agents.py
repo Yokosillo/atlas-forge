@@ -1,10 +1,22 @@
 """Pantalla Agentes (T-FB002-US02-04): elegir, lanzar y consultar estado
-de agentes, migrando la funcionalidad ya construida en
-`brain-launch-agent` (T-FB002-US01-04) a esta pantalla de la TUI
-unificada. Reutiliza `list_available_agent_options`/`launch_agent`/
-`confirm_launch` (FB-002/FB-005) sin reimplementar su lógica de
-dominio — solo sustituye la interacción por `input()` de terminal por
-widgets de Textual (`Select`/`Input`/`Button`)."""
+de agentes.
+
+T-FB016-US01-06: deja de invocar directamente
+`brain.core.session_registry`/`brain.dashboard.launch`/
+`brain.agents.registry` — lanzar un agente y consultar la sesión/lista de
+agentes pasa por `BackendClient` (`GET /session`, `GET /agents`, `POST
+/agents`), el mismo backend que consumirá la app Android.
+`list_available_agent_options` (`brain.dashboard.agent_options`) sigue
+siendo local: es un catálogo estático de combinaciones agente/runtime
+posibles, sin tocar ningún registro de estado — no hay ni falta ningún
+endpoint HTTP para esto (ver `brain.tui.backend_client`).
+
+Añade el botón "Detener" (T-FB016-US01-03, `POST /agents/{agent_id}/stop`)
+aplazado explícitamente hasta esta Task — antes no tenía sentido añadirlo
+sobre la pantalla que gestionaba su propio estado en memoria, porque
+quedaría obsoleto en cuanto se migrara a cliente del backend (mismo
+razonamiento ya aplicado en T-FB016-US01-03/-04 para no tocar `brain/tui/`
+antes de tiempo)."""
 
 from pathlib import Path
 
@@ -12,46 +24,86 @@ from textual.containers import Vertical
 from textual.screen import Screen
 from textual.widgets import Button, Input, Select, Static
 
-from brain.core.session_lifecycle import list_agents
-from brain.core.session_registry import get_current_session, resolve_startup_session
-from brain.dashboard import AgentChoice, confirm_launch, list_available_agent_options
-from brain.tmux.manager import DEFAULT_SOCKET_NAME
+from brain.dashboard.agent_options import list_available_agent_options
+from brain.tui.backend_client import BackendClient, BackendUnavailableError, error_detail
 
 
 class AgentsScreen(Screen):
-    """Elige, lanza y consulta el estado de los agentes de la sesión."""
+    """Elige, lanza, detiene y consulta el estado de los agentes de la sesión."""
 
     def __init__(
         self,
         workspace_root: Path | None = None,
         state_dir: Path | None = None,
-        project_path: str | None = None,
-        socket_name: str = DEFAULT_SOCKET_NAME,
+        backend_client: BackendClient | None = None,
     ) -> None:
         super().__init__()
         self._workspace_root = workspace_root
         self._state_dir = state_dir
-        self._project_path = project_path
-        self._socket_name = socket_name
+        self._backend = backend_client if backend_client is not None else BackendClient()
         self._options = list_available_agent_options()
+        self._agents: list[dict] = []
 
-    def _current_session(self):
-        return get_current_session() or resolve_startup_session(
-            workspace_root=self._workspace_root, state_dir=self._state_dir
-        )
+    def _render_agents_block(self) -> str:
+        if not self._agents:
+            return "Agentes lanzados: ninguno"
+
+        agents_lines = [
+            f"  - {agent['name']} ({agent['role']}): {agent['status']}"
+            for agent in self._agents
+        ]
+        return "\n".join(["Agentes lanzados:", *agents_lines])
+
+    def _refresh_agents_widget(self) -> None:
+        agents_widget = self.query_one("#agents-list", Static)
+        agents_widget.update(self._render_agents_block())
+
+        # Reconcilia los botones existentes con los agentes actuales en
+        # vez de "borrar todo y volver a montar" — `remove()`/`mount()`
+        # son operaciones asíncronas en Textual, y montar un botón con un
+        # `id` que otro `remove()` todavía no ha retirado del árbol causa
+        # `DuplicateIds` (mismo bug real ya documentado y evitado en
+        # `JobsScreen._render_chain_to_critic_offer`, T-FB002-US03-02).
+        stop_container = self.query_one("#stop-buttons")
+        stoppable_ids = {
+            agent["id"] for agent in self._agents if agent["status"] != "stopped"
+        }
+        existing_ids = {
+            button.id.removeprefix("stop-")
+            for button in stop_container.query(".stop-agent-button")
+        }
+
+        for agent_id in existing_ids - stoppable_ids:
+            stop_container.query_one(f"#stop-{agent_id}").remove()
+
+        agents_by_id = {agent["id"]: agent for agent in self._agents}
+        for agent_id in stoppable_ids - existing_ids:
+            agent = agents_by_id[agent_id]
+            stop_container.mount(
+                Button(
+                    f"Detener {agent['name']}",
+                    id=f"stop-{agent_id}",
+                    classes="stop-agent-button",
+                )
+            )
 
     def compose(self):
-        session = self._current_session()
-        agents = list_agents(session) if session is not None else []
+        try:
+            self._agents = self._backend.get_agents()
+            backend_error = None
+        except BackendUnavailableError as error:
+            self._agents = []
+            backend_error = str(error)
 
-        if agents:
-            agents_lines = [
-                f"  - {agent.name} ({agent.role}): {agent.status}"
-                for agent in agents
-            ]
-            agents_block = "\n".join(["Agentes lanzados:", *agents_lines])
-        else:
-            agents_block = "Agentes lanzados: ninguno"
+        if backend_error is not None:
+            yield Vertical(
+                Static(
+                    f"No se pudo contactar con el backend: {backend_error}",
+                    id="backend-error",
+                ),
+                Button("Volver al Dashboard", id="go-to-dashboard"),
+            )
+            return
 
         select_options = [
             (
@@ -65,7 +117,8 @@ class AgentsScreen(Screen):
         default_value = select_options[0][1] if select_options else Select.BLANK
 
         yield Vertical(
-            Static(agents_block, id="agents-list"),
+            Static(self._render_agents_block(), id="agents-list"),
+            Vertical(id="stop-buttons"),
             Static("Elige agente + runtime:"),
             Select(
                 select_options,
@@ -78,12 +131,16 @@ class AgentsScreen(Screen):
             Static("", id="launch-result"),
             Button("Volver al Dashboard", id="go-to-dashboard"),
         )
+        self.call_after_refresh(self._refresh_agents_widget)
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
-        if event.button.id == "launch-agent":
+        button_id = event.button.id or ""
+        if button_id == "launch-agent":
             self._launch_selected_agent()
-        elif event.button.id == "go-to-dashboard":
+        elif button_id == "go-to-dashboard":
             self.app.pop_screen()
+        elif button_id.startswith("stop-"):
+            self._stop_agent(button_id.removeprefix("stop-"))
 
     def _launch_selected_agent(self) -> None:
         select_widget = self.query_one("#agent-choice", Select)
@@ -97,20 +154,34 @@ class AgentsScreen(Screen):
         agent_role, runtime_type = select_widget.value
         model = model_widget.value.strip() or None
 
-        session = self._current_session()
-        if session is None:
-            result_widget.update("No hay ninguna sesión de desarrollo activa.")
+        try:
+            agent = self._backend.launch_agent(agent_role, runtime_type, model)
+        except BackendUnavailableError as error:
+            result_widget.update(f"No se pudo contactar con el backend: {error}")
+            return
+        except Exception as error:  # requests.HTTPError con detail del dominio
+            result_widget.update(f"No se pudo lanzar el agente: {error_detail(error)}")
             return
 
-        choice = AgentChoice(agent_role=agent_role, runtime_type=runtime_type, model=model)
-        message = confirm_launch(
-            choice, session, self._project_path, socket_name=self._socket_name
+        result_widget.update(
+            f"Agente '{agent['name']}' ({agent['role']}) operativo, "
+            f"estado: {agent['status']}."
         )
-        result_widget.update(message)
 
-        agents_widget = self.query_one("#agents-list", Static)
-        agents = list_agents(session)
-        agents_lines = [
-            f"  - {agent.name} ({agent.role}): {agent.status}" for agent in agents
-        ]
-        agents_widget.update("\n".join(["Agentes lanzados:", *agents_lines]))
+        self._agents = self._backend.get_agents()
+        self._refresh_agents_widget()
+
+    def _stop_agent(self, agent_id: str) -> None:
+        result_widget = self.query_one("#launch-result", Static)
+        try:
+            agent = self._backend.stop_agent(agent_id)
+        except BackendUnavailableError as error:
+            result_widget.update(f"No se pudo contactar con el backend: {error}")
+            return
+        except Exception as error:
+            result_widget.update(f"No se pudo detener el agente: {error_detail(error)}")
+            return
+
+        result_widget.update(f"Agente '{agent['name']}' detenido (stopped).")
+        self._agents = self._backend.get_agents()
+        self._refresh_agents_widget()

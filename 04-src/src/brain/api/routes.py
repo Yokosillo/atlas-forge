@@ -1,0 +1,835 @@
+"""Rutas HTTP de la API (T-FB016-US01-02 en adelante): cada endpoint es
+una envoltura fina sobre una función de dominio ya existente, sin
+reimplementar su validación — mismo principio ya fijado en
+`02-backlog/epics/FB-016-api-backend.md` ("cada endpoint es una envoltura
+fina... no se duplica lógica de validación"). Las excepciones de dominio
+(`AgentLaunchError`, `SessionNotActiveError`, ...) se traducen a
+`HTTPException` con el mismo mensaje ya construido por el dominio — nunca
+un texto reinventado en esta capa."""
+
+import time
+from pathlib import Path
+
+from fastapi import APIRouter, HTTPException
+from pydantic import BaseModel
+
+from brain.agents.lifecycle import InvalidAgentTransitionError
+from brain.agents.liveness import refresh_agent_liveness
+from brain.agents.stop import AgentRuntimeNotFoundError, stop_agent
+from brain.api.events import jobs_hub, plans_hub
+from brain.api.plan_registry import get_plan, get_plan_lock, list_plans, register_plan
+from brain.core.session_lifecycle import SessionNotActiveError, list_agents
+from brain.core.session_registry import (
+    get_current_session,
+    resolve_startup_session,
+    shutdown_current_session,
+)
+from brain.dashboard.launch import AgentLaunchError, launch_agent
+from brain.dispatcher.job_cancellation import (
+    JobCancellationRejectedError,
+    request_cancellation,
+)
+from brain.dispatcher.job_creation import JobCreationError
+from brain.dispatcher.job_dispatch import dispatch_job
+from brain.dispatcher.job_history_registry import list_jobs_for_session
+from brain.dispatcher.job_orchestration import create_and_record_job
+from brain.dispatcher.job_plan_approval import present_plan_for_approval
+from brain.dispatcher.job_plan_builder import build_job_plan_for_story
+from brain.dispatcher.job_plan_cancellation import (
+    JobPlanCancellationRejectedError,
+    request_cancellation as request_plan_cancellation,
+)
+from brain.dispatcher.job_plan_dispatch import dispatch_plan, get_plan_progress
+from brain.dispatcher.job_plan_lifecycle import InvalidJobPlanTransitionError
+from brain.models import Agent, Job
+from brain.runtime.agent_runtime_registry import get_runtime_instance_for_agent
+from brain.runtime.generic import extract_model_from_runtime
+from brain.tmux.manager import DEFAULT_SOCKET_NAME
+from brain.workspace.active_project import (
+    ProjectNotDiscoveredError,
+    get_active_project,
+    select_active_project,
+)
+from brain.workspace.discovery import discover_projects
+from brain.workspace.project_scripts import (
+    MalformedScriptManifestError,
+    discover_project_scripts,
+    run_project_script,
+)
+
+router = APIRouter()
+
+# Módulo-nivel (no parámetro del body HTTP: el socket tmux es un detalle de
+# infraestructura del propio servidor, ningún cliente real debería
+# controlarlo) — expuesto como variable, no inline, únicamente para que los
+# tests puedan aislarse en un servidor tmux propio via monkeypatch, mismo
+# patrón ya usado en test_launch_agent.py para los comandos de runtime.
+_SOCKET_NAME = DEFAULT_SOCKET_NAME
+
+# Mismo patrón que `_SOCKET_NAME` (T-FB016-US01-11): `None` en producción
+# resuelve al directorio de trabajo real del proceso / ubicación por
+# defecto de `brain.storage` (igual que `resolve_startup_session()` sin
+# argumentos en `_lifespan`, `brain/api/app.py`) — expuestos como
+# variables de módulo para que los tests puedan aislarse en un workspace
+# y estado propios via monkeypatch, sin tocar el filesystem real del
+# usuario.
+_WORKSPACE_ROOT: Path | None = None
+_STATE_DIR: Path | None = None
+
+
+def _resolve_workspace_root() -> Path:
+    return _WORKSPACE_ROOT if _WORKSPACE_ROOT is not None else Path.cwd()
+
+
+class LaunchAgentRequest(BaseModel):
+    role: str
+    runtime_type: str
+    model: str | None = None
+
+
+class CreateJobRequest(BaseModel):
+    agent_id: str
+    description: str
+    previous_job_id: str | None = None
+
+
+class CreatePlanRequest(BaseModel):
+    goal: str
+
+
+class SelectProjectRequest(BaseModel):
+    # `Project.id` es literalmente `str(path)` (ver `discover_projects`,
+    # `brain/workspace/discovery.py`) — un único campo cubre ambos nombres
+    # que menciona la Descripción de la Task ("project_id o path"), sin
+    # necesitar dos campos redundantes que pudieran discreparse entre sí.
+    project_id: str
+
+
+def _serialize_project(project) -> dict:
+    return {
+        "id": project.id,
+        "name": project.name,
+        "path": project.path,
+        "repository": project.repository,
+    }
+
+
+@router.get("/project")
+def get_project() -> dict:
+    """Proyecto activo (`brain.workspace.active_project`, FB-001) — 404
+    explícito si no hay ninguno seleccionado todavía.
+
+    Usa `_STATE_DIR` (T-FB016-US01-11), no el valor por defecto de
+    `get_active_project`: antes de esta Task no había ninguna forma de
+    aislar este endpoint del filesystem real del usuario en tests
+    (`~/.local/share/brain/`), inconsistencia que se hizo visible al
+    aislar `POST /project` en su propio estado de test — ambos deben leer
+    y escribir la misma ubicación, sea la real (`_STATE_DIR=None`, valor
+    por defecto en producción) o una aislada de test."""
+    project = get_active_project(state_dir=_STATE_DIR)
+    if project is None:
+        raise HTTPException(status_code=404, detail="No hay ningún proyecto activo.")
+
+    return _serialize_project(project)
+
+
+@router.get("/projects")
+def get_projects() -> list[dict]:
+    """Repositorios Git descubiertos en el workspace (T-FB016-US01-11),
+    candidatos a proyecto activo — mismo `discover_projects` (FB-001) que
+    ya usa `WorkspaceScreen` de la TUI, sobre el mismo `workspace_root`
+    por defecto (directorio de trabajo del proceso) que usa
+    `resolve_startup_session` en `_lifespan` (`brain/api/app.py`), para
+    que la lista aquí coincida con la que ese arranque ya resolvió."""
+    return [
+        _serialize_project(project)
+        for project in discover_projects(_resolve_workspace_root())
+    ]
+
+
+@router.post("/project")
+def post_project(body: SelectProjectRequest) -> dict:
+    """Selecciona un proyecto de `GET /projects` como activo
+    (`select_active_project`, FB-001) y re-arranca la sesión de
+    desarrollo del proceso para él (T-FB016-US01-11, mismo mecanismo de
+    `resolve_startup_session` que T-FB016-US01-10 ya usa al arrancar el
+    proceso — aquí aplicado también al cambio de proyecto en caliente).
+
+    ## Qué pasa con los agentes de la sesión anterior (criterio de
+    aceptación explícito de la Task)
+
+    Antes de descartar la sesión anterior (si había una activa, de otro
+    proyecto), se detiene cada uno de sus agentes todavía no `stopped`
+    (`stop_agent`, T-FB016-US01-03: detiene la sesión tmux real y
+    transiciona el agente). Sin este paso, esos agentes seguirían con su
+    proceso tmux real corriendo pero dejarían de ser alcanzables desde
+    cualquier endpoint (`GET /agents`/`POST /agents/{id}/stop` solo
+    consultan `session.agents` de la sesión ACTUAL, ver
+    `brain.core.session_lifecycle.list_agents`) — quedarían huérfanos: un
+    proceso real vivo que ninguna interfaz puede ya ver ni detener. Un
+    fallo al detener un agente concreto (p. ej. su runtime ya había
+    muerto externamente) no bloquea el cambio de proyecto — se ignora
+    ese fallo puntual y se continúa con el resto, porque el objetivo de
+    este paso es evitar huérfanos evitables, no bloquear una operación
+    del usuario por el estado de un agente que de todos modos ya no
+    sirve una vez cambiada la sesión.
+    """
+    discovered = discover_projects(_resolve_workspace_root())
+    selected = next(
+        (project for project in discovered if project.id == body.project_id), None
+    )
+    if selected is None:
+        raise HTTPException(
+            status_code=400,
+            detail=f"El proyecto '{body.project_id}' no pertenece a la lista de "
+            "repositorios descubiertos.",
+        )
+
+    try:
+        select_active_project(selected, discovered=discovered, state_dir=_STATE_DIR)
+    except ProjectNotDiscoveredError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+
+    previous_session = get_current_session()
+    if previous_session is not None:
+        for agent in list_agents(previous_session):
+            if agent.status == "stopped":
+                continue
+            try:
+                stop_agent(agent, socket_name=_SOCKET_NAME)
+            except AgentRuntimeNotFoundError:
+                pass
+        shutdown_current_session()
+
+    resolve_startup_session(workspace_root=_WORKSPACE_ROOT, state_dir=_STATE_DIR)
+
+    return _serialize_project(selected)
+
+
+@router.get("/session")
+def get_session() -> dict:
+    """Sesión de desarrollo activa de este proceso — 404 explícito si
+    todavía no se ha arrancado ninguna (criterio de aceptación de la
+    Task)."""
+    session = get_current_session()
+    if session is None:
+        raise HTTPException(
+            status_code=404, detail="No hay ninguna sesión de desarrollo activa."
+        )
+
+    return {
+        "id": session.id,
+        "project_id": session.project_id,
+        "status": session.status,
+    }
+
+
+def _serialize_agent(agent: Agent) -> dict:
+    """Serializa `agent` incluyendo su preferencia de runtime/modelo
+    (T-FB005-US05-01, criterio de aceptación: "consultar el agente
+    muestra el runtime/modelo asociado"). `runtime_id` ya existía en
+    `Agent` — sin cambios de modelo necesarios, confirmado que el
+    mecanismo de `Runtime` ya cubre la necesidad (ver
+    `runtime/generic.py`, `extract_model_from_runtime`). `model` se
+    resuelve desde el `RuntimeInstance` real asociado al agente
+    (`get_runtime_instance_for_agent`, T-FB002-US03-00) — `None`
+    explícito si el agente nunca llegó a registrar un runtime (no debería
+    ocurrir en la práctica, todo agente pasa por `register_agent`, pero
+    se maneja sin excepción por si acaso) o si el runtime no tiene un
+    modelo asociado (Claude Code hoy, o OpenCode sin `model` indicado)."""
+    runtime_instance = get_runtime_instance_for_agent(agent.id)
+    model = (
+        extract_model_from_runtime(runtime_instance.runtime)
+        if runtime_instance is not None
+        else None
+    )
+    return {
+        "id": agent.id,
+        "name": agent.name,
+        "role": agent.role,
+        "status": agent.status,
+        "runtime_id": agent.runtime_id,
+        "model": model,
+    }
+
+
+@router.get("/agents")
+def get_agents() -> list[dict]:
+    """Lista de agentes lanzados en la sesión activa y su estado
+    (reutiliza `list_agents`, FB-005). 404 si no hay sesión activa — sin
+    sesión no hay agentes que consultar, mismo criterio que `GET
+    /session`.
+
+    Antes de devolver cada agente, `refresh_agent_liveness`
+    (T-FB016-US01-07) comprueba de forma perezosa si su runtime real
+    sigue vivo — si murió sin que nadie lo pidiera (no estaba `stopped`),
+    se transiciona a `unavailable` en este mismo momento, para que ningún
+    cliente vea `idle`/`working` de un proceso que ya no existe."""
+    session = get_current_session()
+    if session is None:
+        raise HTTPException(
+            status_code=404, detail="No hay ninguna sesión de desarrollo activa."
+        )
+
+    return [
+        _serialize_agent(refresh_agent_liveness(agent, socket_name=_SOCKET_NAME))
+        for agent in list_agents(session)
+    ]
+
+
+@router.post("/agents", status_code=201)
+def post_agents(body: LaunchAgentRequest) -> dict:
+    """Lanza un agente (mismo mecanismo que la TUI, `launch_agent` de
+    `brain.dashboard`, FB-002/FB-005), sin reimplementar su validación.
+    `project_path` se resuelve del proyecto activo (FB-001) en vez de
+    pedirlo al cliente — el dominio ya lo conoce, no tiene sentido que
+    cada cliente HTTP tenga que resolverlo por su cuenta.
+
+    Cualquier rechazo de `launch_agent` (`AgentLaunchError`) o de sesión
+    no activa (`SessionNotActiveError`) se traduce a 400 con el mismo
+    mensaje de motivo ya construido por el dominio — criterio de
+    aceptación explícito de la Task, nunca un texto reinventado aquí."""
+    session = get_current_session()
+    if session is None:
+        raise HTTPException(
+            status_code=404, detail="No hay ninguna sesión de desarrollo activa."
+        )
+
+    project = get_active_project()
+    if project is None:
+        raise HTTPException(status_code=404, detail="No hay ningún proyecto activo.")
+
+    try:
+        agent, _runtime_instance = launch_agent(
+            body.role,
+            body.runtime_type,
+            body.model,
+            session,
+            project.path,
+            socket_name=_SOCKET_NAME,
+        )
+    except (AgentLaunchError, SessionNotActiveError) as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+
+    return _serialize_agent(agent)
+
+
+def _find_agent_by_id(session, agent_id: str) -> Agent | None:
+    return next(
+        (
+            agent
+            for agent in list_agents(session)
+            if isinstance(agent, Agent) and agent.id == agent_id
+        ),
+        None,
+    )
+
+
+@router.post("/agents/{agent_id}/stop")
+def post_agent_stop(agent_id: str) -> dict:
+    """Detiene el agente `agent_id` de la sesión activa (`stop_agent`,
+    T-FB016-US01-03): detiene su sesión tmux real y lo transiciona a
+    `stopped` — nunca a `unavailable`. Devuelve el estado ya actualizado,
+    reflejado inmediatamente en `GET /agents` después (criterio de
+    aceptación explícito de la Task)."""
+    session = get_current_session()
+    if session is None:
+        raise HTTPException(
+            status_code=404, detail="No hay ninguna sesión de desarrollo activa."
+        )
+
+    agent = _find_agent_by_id(session, agent_id)
+    if agent is None:
+        raise HTTPException(
+            status_code=404, detail=f"No existe ningún agente con id '{agent_id}'."
+        )
+
+    try:
+        stop_agent(agent, socket_name=_SOCKET_NAME)
+    except (AgentRuntimeNotFoundError, InvalidAgentTransitionError) as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+
+    return _serialize_agent(agent)
+
+
+def _find_job_by_id(session, job_id: str) -> Job | None:
+    return next(
+        (job for job in list_jobs_for_session(session.id) if job.id == job_id),
+        None,
+    )
+
+
+def _serialize_job(job: Job) -> dict:
+    return {
+        "id": job.id,
+        "session_id": job.session_id,
+        "agent_id": job.agent_id,
+        "description": job.description,
+        "status": job.status,
+        "result": job.result,
+    }
+
+
+@router.post("/jobs", status_code=201)
+def post_jobs(body: CreateJobRequest) -> dict:
+    """Crea y despacha un Job real (`create_and_record_job` + `dispatch_job`,
+    US-FB008-01/02), sin reimplementar su validación ni su mecanismo de
+    encadenamiento — mismo resultado que si se hubiera despachado desde la
+    TUI (criterio de aceptación explícito). Bloqueante: la respuesta HTTP
+    solo llega cuando el Job ya terminó (`completed`/`failed`), igual que
+    `dispatch_job` ya es síncrono en el resto del dominio.
+
+    `previous_job_id` (opcional) resuelve un `Job` ya existente del
+    histórico de la sesión para encadenar su resultado como entrada del
+    nuevo Job (`create_job(..., previous_job=...)`, US-FB008-02) — mismo
+    mecanismo que `JobsScreen` usa hoy para encadenar Developer → Critic.
+
+    Publica en `WS /ws/jobs` (T-FB016-US01-05) el evento `created` antes
+    de despachar, y el evento final (`completed`/`failed`) después —
+    `dispatch_job` en sí no conoce a sus observadores (ver
+    `brain.api.events` para la justificación de no tocar el dominio).
+    `dispatch_job` nunca propaga una excepción por un fallo de despacho
+    (timeout esperando al agente, etc.): captura el fallo internamente y
+    deja `job.status == "failed"` con el motivo en `job.result` — no hay
+    ningún `try/except` que envolver aquí para ese caso, el estado final
+    ya es correcto por construcción, se publica y se devuelve tal cual."""
+    session = get_current_session()
+    if session is None:
+        raise HTTPException(
+            status_code=404, detail="No hay ninguna sesión de desarrollo activa."
+        )
+
+    agent = _find_agent_by_id(session, body.agent_id)
+    if agent is None:
+        raise HTTPException(
+            status_code=404, detail=f"No existe ningún agente con id '{body.agent_id}'."
+        )
+
+    previous_job = None
+    if body.previous_job_id is not None:
+        previous_job = _find_job_by_id(session, body.previous_job_id)
+        if previous_job is None:
+            raise HTTPException(
+                status_code=404,
+                detail=f"No existe ningún Job con id '{body.previous_job_id}' "
+                "en el histórico de la sesión.",
+            )
+
+    runtime_instance = get_runtime_instance_for_agent(agent.id)
+    if runtime_instance is None:
+        raise HTTPException(
+            status_code=400,
+            detail=f"El agente '{agent.name}' no tiene un runtime registrado "
+            "— debe estar lanzado antes de despachar un Job.",
+        )
+
+    try:
+        job = create_and_record_job(
+            body.description, agent, session, previous_job=previous_job
+        )
+    except JobCreationError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+
+    jobs_hub.publish({"event": "job_status", **_serialize_job(job)})
+
+    dispatch_job(job, agent, runtime_instance, socket_name=_SOCKET_NAME)
+
+    jobs_hub.publish({"event": "job_status", **_serialize_job(job)})
+
+    return _serialize_job(job)
+
+
+@router.get("/jobs/{job_id}")
+def get_job(job_id: str) -> dict:
+    """Estado y resultado de un Job del histórico de la sesión activa —
+    404 si no hay sesión activa o si `job_id` no existe en ese histórico."""
+    session = get_current_session()
+    if session is None:
+        raise HTTPException(
+            status_code=404, detail="No hay ninguna sesión de desarrollo activa."
+        )
+
+    job = _find_job_by_id(session, job_id)
+    if job is None:
+        raise HTTPException(
+            status_code=404, detail=f"No existe ningún Job con id '{job_id}'."
+        )
+
+    return _serialize_job(job)
+
+
+@router.get("/jobs")
+def get_jobs() -> list[dict]:
+    """Histórico de Jobs de la sesión activa — mismo origen de datos que
+    consulta la pantalla Jobs de la TUI (`list_jobs_for_session`,
+    T-FB002-US03-03), no duplicado. 404 si no hay sesión activa."""
+    session = get_current_session()
+    if session is None:
+        raise HTTPException(
+            status_code=404, detail="No hay ninguna sesión de desarrollo activa."
+        )
+
+    return [_serialize_job(job) for job in list_jobs_for_session(session.id)]
+
+
+_CANCEL_CONFIRMATION_TIMEOUT_SECONDS = 5.0
+_CANCEL_CONFIRMATION_POLL_INTERVAL_SECONDS = 0.05
+
+
+@router.post("/jobs/{job_id}/cancel")
+def post_job_cancel(job_id: str) -> dict:
+    """Cancela el Job `job_id` en curso (T-FB016-US01-15, expone
+    `request_cancellation`, T-FB008-US05-01): localiza el Job en el
+    histórico de la sesión activa (404 si no existe o no pertenece a
+    ella), señaliza su cancelación (`threading.Event` por Job,
+    `job_cancellation_registry`) y devuelve el estado ya actualizado.
+
+    Esta petición corre en un hilo del threadpool DISTINTO al de la
+    petición `POST /jobs` original que despachó el Job (FastAPI atiende
+    cada endpoint síncrono en su propio hilo) — es precisamente esa
+    concurrencia entre hilos la que hace útil este endpoint: `dispatch_job`
+    (bloqueado dentro de esa otra petición, en `_wait_for_report`) detecta
+    la señal en su siguiente ciclo de polling y transiciona el Job a
+    `cancelled` desde SU PROPIO hilo (nunca este, evita que dos hilos
+    escriban `job.status` a la vez). Señalizar no es instantáneo desde el
+    punto de vista de este endpoint: `_wait_for_report` solo comprueba el
+    evento una vez por `poll_interval_seconds` del despacho en curso, así
+    que tras señalizar se espera (mismo patrón de polling breve, acotado a
+    `_CANCEL_CONFIRMATION_TIMEOUT_SECONDS`) a que `job.status` dependa de
+    esa transición real antes de responder — para devolver de verdad "el
+    estado actualizado" (criterio de aceptación de la Task), no una
+    fotografía tomada antes de que el otro hilo la aplique.
+
+    400 explícito (mensaje ya construido por el dominio, sin reinventarlo
+    aquí) si el Job no está `running` — ya terminó o nunca se despachó."""
+    session = get_current_session()
+    if session is None:
+        raise HTTPException(
+            status_code=404, detail="No hay ninguna sesión de desarrollo activa."
+        )
+
+    job = _find_job_by_id(session, job_id)
+    if job is None:
+        raise HTTPException(
+            status_code=404, detail=f"No existe ningún Job con id '{job_id}'."
+        )
+
+    try:
+        request_cancellation(job)
+    except JobCancellationRejectedError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+
+    deadline = time.monotonic() + _CANCEL_CONFIRMATION_TIMEOUT_SECONDS
+    while job.status == "running" and time.monotonic() < deadline:
+        time.sleep(_CANCEL_CONFIRMATION_POLL_INTERVAL_SECONDS)
+
+    return _serialize_job(job)
+
+
+@router.post("/plans", status_code=201)
+def post_plans(body: CreatePlanRequest) -> dict:
+    """Solicita al Critic un plan para `goal` (identificador de User
+    Story), reutilizando `build_job_plan_for_story` (T-FB008-US04-01) sin
+    reimplementar la heurística de desglose. No despacha ningún Job
+    todavía — el plan se presenta en estado `proposed`, tal como ya
+    garantiza el propio dominio (criterio de aceptación explícito de
+    US-FB008-04, reconfirmado aquí).
+
+    US-FB008-04 ya existe en este momento de la implementación de
+    Factory Brain, así que este endpoint no devuelve nunca 501 en la
+    práctica — el fallback explícito que pedía la Descripción de esta
+    Task ("Dispatcher-crítico todavía no implementado") solo aplicaría si
+    `build_job_plan_for_story` no estuviera disponible para importar, lo
+    cual haría fallar el arranque de la app entera antes de llegar aquí,
+    no este endpoint en particular. No se introduce un `try/except
+    ImportError` especulativo para un escenario que no puede darse ya
+    con el import fijo de arriba."""
+    plan = build_job_plan_for_story(body.goal)
+    plan_id = register_plan(plan)
+
+    progress = get_plan_progress(plan)
+    plans_hub.publish({"event": "plan_progress", "plan_id": plan_id, **progress})
+
+    return {"plan_id": plan_id, **progress}
+
+
+@router.get("/plans")
+def get_plans() -> list[dict]:
+    """Lista todos los planes registrados en el proceso (T-FB016-US01-14):
+    corrige la asimetría real con `GET /jobs` — antes de esta Task solo
+    existía `GET /plans/{plan_id}` (uno concreto, si ya se conocía su id).
+    Sin esto, un cliente que pierde la referencia al `plan_id` actual (la
+    app cerrada y matada en segundo plano, o la TUI que nunca lo tuvo en
+    primer lugar — ver T-FB016-US01-18) no tenía forma de descubrir qué
+    plan seguía `proposed`/`approved` sin pedirle uno nuevo al Critic,
+    arriesgando duplicar trabajo.
+
+    Ningún plan se elimina de la lista tras decidirse — un plan ya
+    `approved`/`rejected`/`blocked`/`cancelled` sigue apareciendo con su
+    estado final (criterio de aceptación explícito), mismo criterio que
+    `GET /jobs` ya aplica a su histórico."""
+    return [
+        {"plan_id": plan_id, **get_plan_progress(plan)} for plan_id, plan in list_plans()
+    ]
+
+
+def _get_plan_or_404(plan_id: str):
+    plan = get_plan(plan_id)
+    if plan is None:
+        raise HTTPException(
+            status_code=404, detail=f"No existe ningún plan con id '{plan_id}'."
+        )
+    return plan
+
+
+def _settle_plan_decision(plan_id: str, plan, approved: bool) -> tuple[dict, bool]:
+    """Sección crítica de la decisión (T-FB016-US01-08): protegida por el
+    `Lock` de `plan_id` para que "leer `plan.status` + transicionar" sea
+    atómico frente a dos peticiones casi simultáneas en hilos distintos
+    (ver docstring de módulo de `brain.api.plan_registry`).
+
+    Devuelve `(progress_dict, did_transition_now)`:
+    - Si `plan.status` ya no es `proposed` (ya fijado por una petición
+      anterior, incluida otra que "ganó la carrera" hace microsegundos),
+      NO se reintenta transicionar — se devuelve el estado ya fijado tal
+      cual, `did_transition_now=False`. Nunca un error genérico ni una
+      transición silenciosa (criterio de aceptación explícito): el propio
+      payload de respuesta refleja el estado real, con
+      `already_decided=True` explícito para que el cliente distinga este
+      caso de una decisión que él mismo acaba de provocar.
+    - Si sigue `proposed`, se transiciona dentro del lock y se devuelve
+      `did_transition_now=True` — la única petición que puede haber
+      ganado, de entre cualquier número de llamadas concurrentes."""
+    lock = get_plan_lock(plan_id)
+    with lock:
+        if plan.status != "proposed":
+            progress = get_plan_progress(plan)
+            return {"plan_id": plan_id, "already_decided": True, **progress}, False
+
+        present_plan_for_approval(plan, approved=approved)
+        progress = get_plan_progress(plan)
+        return {"plan_id": plan_id, "already_decided": False, **progress}, True
+
+
+@router.post("/plans/{plan_id}/approve")
+def post_plan_approve(plan_id: str) -> dict:
+    """Aprueba el plan completo (`present_plan_for_approval` +
+    `dispatch_plan`, T-FB008-US04-02/03) — sin aprobación por paso
+    individual, mismo criterio que la TUI tendría si expusiera esto.
+    Bloqueante: despacha el plan entero antes de responder.
+
+    ## Progreso por paso en `WS /ws/plans` (T-FB017-US04-03)
+
+    Antes de esta Task, solo se publicaba el progreso antes y después de
+    la secuencia COMPLETA — nunca durante, pese a que el docstring previo
+    de este mismo endpoint afirmaba lo contrario (verificado leyendo el
+    código real). `dispatch_plan` (dominio) ahora acepta un callback
+    opcional `on_step_status_changed`, invocado cada vez que el estado de
+    un paso cambia — aquí se pasa un lambda que publica el progreso
+    completo (`get_plan_progress`) en `plans_hub`, mismo formato de evento
+    que ya usan el resto de publicaciones de este endpoint. El dominio no
+    conoce `plans_hub` en ningún momento (mismo principio ya fijado en
+    `brain/api/events.py`) — solo invoca una función genérica.
+
+    Idempotente (T-FB016-US01-08): dos llamadas casi simultáneas para el
+    mismo `plan_id` producen un único despacho real — la sección crítica
+    de `_settle_plan_decision` garantiza que solo una de ellas transiciona
+    `proposed -> approved` y por tanto solo una llega a invocar
+    `dispatch_plan`; el resto recibe el estado ya fijado
+    (`already_decided=True`) sin re-despachar nada."""
+    session = get_current_session()
+    if session is None:
+        raise HTTPException(
+            status_code=404, detail="No hay ninguna sesión de desarrollo activa."
+        )
+
+    plan = _get_plan_or_404(plan_id)
+
+    try:
+        result, did_transition_now = _settle_plan_decision(plan_id, plan, approved=True)
+    except InvalidJobPlanTransitionError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+
+    plans_hub.publish({"event": "plan_progress", **result})
+
+    if not did_transition_now:
+        return result
+
+    def _publish_step_progress(dispatched_plan) -> None:
+        plans_hub.publish(
+            {
+                "event": "plan_progress",
+                "plan_id": plan_id,
+                "already_decided": False,
+                **get_plan_progress(dispatched_plan),
+            }
+        )
+
+    dispatch_plan(
+        plan, session, socket_name=_SOCKET_NAME, on_step_status_changed=_publish_step_progress
+    )
+
+    progress = get_plan_progress(plan)
+    result = {"plan_id": plan_id, "already_decided": False, **progress}
+    plans_hub.publish({"event": "plan_progress", **result})
+
+    return result
+
+
+@router.post("/plans/{plan_id}/reject")
+def post_plan_reject(plan_id: str) -> dict:
+    """Rechaza el plan completo (`present_plan_for_approval`,
+    T-FB008-US04-02) — no se despacha ningún Job de este plan.
+
+    Idempotente (T-FB016-US01-08), mismo mecanismo que `post_plan_approve`:
+    una llamada tras el plan ya `approved`/`rejected` no cambia el estado
+    ya fijado, devuelve ese estado con `already_decided=True`."""
+    plan = _get_plan_or_404(plan_id)
+
+    try:
+        result, _did_transition_now = _settle_plan_decision(plan_id, plan, approved=False)
+    except InvalidJobPlanTransitionError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+
+    plans_hub.publish({"event": "plan_progress", **result})
+
+    return result
+
+
+@router.get("/plans/{plan_id}")
+def get_plan_endpoint(plan_id: str) -> dict:
+    """Consulta el progreso de un plan ya construido — no forma parte del
+    listado explícito de la Descripción de esta Task, pero es necesario
+    para que un cliente pueda releer el estado de un `plan_id` ya emitido
+    sin depender solo del WebSocket (misma simetría que `GET
+    /jobs/{job_id}` frente a `WS /ws/jobs`)."""
+    plan = _get_plan_or_404(plan_id)
+    return {"plan_id": plan_id, **get_plan_progress(plan)}
+
+
+@router.post("/plans/{plan_id}/cancel")
+def post_plan_cancel(plan_id: str) -> dict:
+    """Cancela el plan `plan_id` en curso (T-FB016-US01-17, expone
+    `job_plan_cancellation.request_cancellation`, T-FB008-US08-01):
+    localiza el plan (404 si no existe), invoca la cancelación de dominio
+    y devuelve el progreso ya actualizado (incluye qué pasos llegaron a
+    `completed` antes de cancelar, vía `get_plan_progress`, sin cambios).
+
+    Mismo patrón que `post_plan_reject`: no comprueba sesión activa — el
+    mecanismo de dominio (`request_cancellation`) no la necesita (opera
+    solo sobre el objeto `plan`), y los planes no se indexan por sesión en
+    ningún registro (a diferencia de `Job`, ver `job_history_registry`) —
+    `plan_registry` es un registro global por `plan_id`, no por sesión.
+
+    400 explícito (mensaje ya construido por el dominio) si el plan no
+    está `approved`, o si no le quedan pasos pendientes de despachar.
+
+    ## Por qué SÍ hace falta esperar confirmación tras señalizar (decidido
+    ## con evidencia, no por simetría automática con T-FB016-US01-15)
+
+    `request_cancellation` (`job_plan_cancellation.py`) ya resuelve
+    INTERNAMENTE, antes de devolver el control, las dos ventanas de
+    carrera entre "señalizar" y "hay un Job real que cancelar" (Job del
+    paso aún no registrado como activo del plan, o registrado pero aún no
+    `running`) — mediante su propio polling acotado
+    (`_CANCELLATION_RETRY_TIMEOUT_SECONDS`). Pero esa función retorna en
+    cuanto el `Event` del Job individual queda señalizado con éxito
+    (`job_cancellation.request_cancellation` no lanza) — NO espera a que
+    `_wait_for_report`, en el hilo de `dispatch_plan`/`dispatch_job`,
+    detecte esa señal en su siguiente ciclo de polling y aplique de
+    verdad `transition_job_plan(plan, "cancelled")`. Esa ventana final
+    persiste exactamente igual que en `POST /jobs/{job_id}/cancel`
+    (verificado con un test que reproduce sin ella la misma falla que
+    motivó el fix allí: `plan.status` seguía `approved` justo después de
+    señalizar) — mismo fix: polling breve acotado tras invocar el
+    dominio, hasta que `plan.status` deje de ser `approved`."""
+    plan = _get_plan_or_404(plan_id)
+
+    try:
+        request_plan_cancellation(plan)
+    except JobPlanCancellationRejectedError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+
+    deadline = time.monotonic() + _CANCEL_CONFIRMATION_TIMEOUT_SECONDS
+    while plan.status == "approved" and time.monotonic() < deadline:
+        time.sleep(_CANCEL_CONFIRMATION_POLL_INTERVAL_SECONDS)
+
+    progress = get_plan_progress(plan)
+    result = {"plan_id": plan_id, **progress}
+    plans_hub.publish({"event": "plan_progress", **result})
+
+    return result
+
+
+def _serialize_script(script) -> dict:
+    return {
+        "id": script.id,
+        "name": script.name,
+        "command": script.command,
+        "description": script.description,
+    }
+
+
+@router.get("/scripts")
+def get_scripts() -> list[dict]:
+    """Catálogo de scripts particulares del proyecto activo
+    (`discover_project_scripts`, T-FB001-US03-01) — solo particulares por
+    ahora (T-FB001-US03-03: "si [FB-018 scripts genéricos] no está
+    implementado antes, esta Task expone solo particulares" — verificado
+    explícitamente que FB-018 no tiene ninguna implementación real todavía,
+    solo su fichero de Epic, `Estado: TODO` en su única Task).
+
+    Lista vacía si el proyecto activo no tiene manifiesto (criterio de
+    aceptación explícito: "proyecto sin scripts... sin error, lista vacía
+    visible") — mismo caso ya cubierto por `discover_project_scripts` en
+    dominio, aquí solo se propaga tal cual. `MalformedScriptManifestError`
+    (manifiesto presente pero roto) se traduce a 400 con el mismo mensaje
+    ya construido por el dominio, nunca un 500 genérico.
+
+    `get_active_project(state_dir=_STATE_DIR)`, no el valor por defecto
+    implícito — mismo bug ya corregido una vez en `GET /project`
+    (T-FB016-US01-11): sin pasar `_STATE_DIR` explícito, este endpoint
+    leería el filesystem real del usuario en vez del estado de proyecto
+    activo aislado en tests, dando siempre lista vacía en cualquier test
+    que no coincida por casualidad con el proyecto real de esta VM."""
+    project = get_active_project(state_dir=_STATE_DIR)
+    if project is None:
+        raise HTTPException(status_code=404, detail="No hay ningún proyecto activo.")
+
+    try:
+        scripts = discover_project_scripts(project.path)
+    except MalformedScriptManifestError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+
+    return [_serialize_script(script) for script in scripts]
+
+
+@router.post("/scripts/{script_id}/run")
+def post_script_run(script_id: str) -> dict:
+    """Ejecuta el script catalogado `script_id` del proyecto activo
+    (`run_project_script`, T-FB001-US03-02) y devuelve su resultado
+    completo (`success`, `exit_code`, `stdout`, `stderr`, `error_message`).
+
+    A diferencia de `POST /agents`/`POST /jobs`, este endpoint nunca
+    traduce un fallo a un código HTTP de error — `run_project_script` ya
+    devuelve un `ScriptRunResult` con toda la información del fallo
+    (`script_id` desconocido, script que falla, timeout, manifiesto roto)
+    de forma estructurada; convertir eso a una `HTTPException` perdería la
+    salida/motivo detallado que el criterio de aceptación exige mostrar
+    ("con su salida disponible para diagnóstico"). El único 404 real de
+    este endpoint es la ausencia de sesión activa — no encontrar el
+    script en sí es un resultado válido de `ScriptRunResult`, no un error
+    de la petición HTTP. Mismo motivo que `get_scripts` para pasar
+    `state_dir=_STATE_DIR` explícito."""
+    project = get_active_project(state_dir=_STATE_DIR)
+    if project is None:
+        raise HTTPException(status_code=404, detail="No hay ningún proyecto activo.")
+
+    result = run_project_script(script_id, project.path)
+    return {
+        "success": result.success,
+        "exit_code": result.exit_code,
+        "stdout": result.stdout,
+        "stderr": result.stderr,
+        "error_message": result.error_message,
+    }
