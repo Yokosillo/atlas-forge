@@ -5,7 +5,7 @@ import pytest
 
 from brain.agents import CRITIC_ROLE, DEVELOPER_ROLE
 from brain.core.session_lifecycle import activate, list_agents
-from brain.dashboard import AgentLaunchError, launch_agent
+from brain.agents.launch import AgentLaunchError, launch_agent
 from brain.models import DevelopmentSession
 from brain.runtime import is_runtime_alive, stop_runtime
 

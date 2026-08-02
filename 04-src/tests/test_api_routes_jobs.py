@@ -11,7 +11,7 @@ import brain.api.routes as routes_module
 from brain.api import create_app
 from brain.core import resolve_startup_session
 from brain.core.session_registry import _reset_registry_for_tests
-from brain.dashboard import launch_agent
+from brain.agents.launch import launch_agent
 from brain.dispatcher.job_cancellation_registry import (
     _reset_registry_for_tests as _reset_job_cancellation,
 )

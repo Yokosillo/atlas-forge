@@ -32,7 +32,7 @@ es T-FB016-US01-09, otra Task).
   construido en FB-016 v1 (`GET /project` es de solo lectura) — es
   configuración local del propio cliente sobre el sistema de ficheros,
   no estado de sesión/agentes/Jobs compartido entre procesos.
-- `list_available_agent_options` (`brain.dashboard.agent_options`): un
+- `list_available_agent_options` (`brain.agents.agent_options`): un
   catálogo estático de combinaciones agente/runtime posibles, sin tocar
   ningún registro de estado — no hay endpoint HTTP para esto porque no
   hace falta, no es información que dependa del proceso backend.
@@ -152,6 +152,25 @@ class BackendClient:
             },
             timeout=_JOB_DISPATCH_TIMEOUT_SECONDS,
         )
+        response.raise_for_status()
+        return response.json()
+
+    def cancel_job(self, job_id: str) -> dict:
+        """`POST /jobs/{job_id}/cancel` (T-FB016-US01-15, T-FB019-US01-02):
+        cancela un Job `running` — el agente involucrado queda `idle`
+        (nunca se mata su sesión tmux). Cliente HTTP con el timeout por
+        defecto (no el de despacho largo): la propia espera de
+        confirmación del backend ya está acotada a unos segundos
+        (`_CANCEL_CONFIRMATION_TIMEOUT_SECONDS`, `brain/api/routes.py`),
+        no al timeout de un despacho completo."""
+        response = self._request("POST", f"/jobs/{job_id}/cancel")
+        response.raise_for_status()
+        return response.json()
+
+    def cancel_plan(self, plan_id: str) -> dict:
+        """`POST /plans/{plan_id}/cancel` (T-FB016-US01-17,
+        T-FB019-US01-02) — mismo criterio de timeout que `cancel_job`."""
+        response = self._request("POST", f"/plans/{plan_id}/cancel")
         response.raise_for_status()
         return response.json()
 

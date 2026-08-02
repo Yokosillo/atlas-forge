@@ -5,7 +5,7 @@ import pytest
 
 from brain.agents import mark_stopped, mark_unavailable, refresh_agent_liveness
 from brain.core.session_lifecycle import activate
-from brain.dashboard import launch_agent
+from brain.agents.launch import launch_agent
 from brain.models import Agent, DevelopmentSession
 from brain.runtime import is_runtime_alive
 from brain.tmux.manager import kill_session

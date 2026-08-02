@@ -10,8 +10,26 @@ Job, consultar el histórico y encadenar Developer→Critic pasan por
 ya no pasa el objeto `Job` de dominio entre pantallas — se pasa
 `previous_job_id` (str), resuelto por el backend en `POST /jobs`
 (`previous_job_id`, T-FB016-US01-04) exactamente igual que
-`create_job(..., previous_job=...)` ya hacía en dominio."""
+`create_job(..., previous_job=...)` ya hacía en dominio.
 
+## Cancelar Job (T-FB019-US01-02)
+
+`POST /jobs` (`create_and_dispatch_job`) es una única llamada bloqueante
+— no devuelve el `job_id` hasta que el Job entero termina, así que no
+sirve por sí sola para saber QUÉ cancelar mientras sigue en curso. El
+backend registra el Job en el histórico de la sesión (`record_job`,
+`create_and_record_job`) ANTES de invocar `dispatch_job` — verificado
+leyendo `job_orchestration.py`/`routes.py::post_jobs` — así que
+`GET /jobs` desde OTRO hilo, mientras el despacho bloqueante sigue en
+curso, ya puede ver ese mismo Job con su `id` real en estado
+`created`/`running`. `_locate_dispatched_job_in_background` hace polling
+breve sobre `GET /jobs` (buscando por `description` exacta, ya que es lo
+único que la pantalla conoce de antemano) para resolver el `job_id` sin
+tener que ampliar `POST /jobs` para devolverlo de forma anticipada —
+mismo criterio de "envoltura fina, sin lógica de dominio nueva" que el
+resto de este cliente."""
+
+import time
 from pathlib import Path
 
 from textual import work
@@ -21,6 +39,16 @@ from textual.widgets import Button, Select, Static, TextArea
 
 from brain.agents import CRITIC_ROLE, DEVELOPER_ROLE
 from brain.tui.backend_client import BackendClient, BackendUnavailableError, error_detail
+
+# T-FB019-US01-02: margen para que `GET /jobs` (hilo de localización)
+# encuentre el Job recién creado por `POST /jobs` (hilo de despacho) —
+# ambas peticiones HTTP corren en hilos Python distintos del mismo
+# proceso TUI, sin ninguna sincronización explícita entre ellas más que
+# este polling. `record_job` ya deja el Job visible en el histórico
+# antes de que `dispatch_job` empiece a esperar (ver docstring de
+# módulo), así que la ventana real suele cerrarse en milisegundos.
+_JOB_LOCATE_TIMEOUT_SECONDS = 5.0
+_JOB_LOCATE_POLL_INTERVAL_SECONDS = 0.2
 
 
 class JobsScreen(Screen):
@@ -47,6 +75,21 @@ class JobsScreen(Screen):
         self._preselected_agent_id = preselected_agent_id
         self._last_completed_job: dict | None = None
         self._last_completed_job_agent: dict | None = None
+        # T-FB019-US01-02: `job_id` del despacho actualmente en curso, una
+        # vez localizado por `_locate_dispatched_job_in_background` — `None`
+        # antes de despachar y tras terminar (éxito, fallo o cancelación),
+        # habilita/deshabilita el botón "Cancelar Job".
+        self._dispatching_job_id: str | None = None
+        # Identifica el despacho vigente para el worker de localización —
+        # ver docstring de `_locate_dispatched_job_in_background` para la
+        # condición de carrera concreta que evita.
+        self._active_dispatch_token: object | None = None
+        # Confirmación de "segunda pulsación" (punto 3 de la Descripción de
+        # la Task): Textual no usa diálogos modales en ningún sitio de esta
+        # TUI — un primer clic en "Cancelar Job" pide confirmar, un segundo
+        # clic mientras `_cancel_confirmation_pending` sigue activo ejecuta
+        # la cancelación real.
+        self._cancel_confirmation_pending = False
 
     def compose(self):
         try:
@@ -148,6 +191,8 @@ class JobsScreen(Screen):
     def on_button_pressed(self, event: Button.Pressed) -> None:
         if event.button.id == "send-job":
             self._create_and_dispatch_job()
+        elif event.button.id == "cancel-job":
+            self._handle_cancel_job_button()
         elif event.button.id == "chain-to-critic":
             self._open_chain_to_critic_form()
         elif event.button.id == "go-to-dashboard":
@@ -186,7 +231,155 @@ class JobsScreen(Screen):
         # muestra aquí, antes de arrancar el worker de hilo, porque el
         # despacho está a punto de empezar de inmediato.
         status_widget.update(f"Job en curso (running) con {agent['name']}...")
+        self._unmount_cancel_job_button()
+        self._cancel_confirmation_pending = False
+        dispatch_token = object()
+        self._active_dispatch_token = dispatch_token
         self._dispatch_job_in_background(description, agent)
+        self._locate_dispatched_job_in_background(description, dispatch_token)
+
+    def _handle_cancel_job_button(self) -> None:
+        if self._dispatching_job_id is None:
+            # El botón solo está montado mientras hay un `job_id`
+            # localizado — este `return` es defensivo, no debería
+            # alcanzarse en la práctica.
+            return
+
+        if not self._cancel_confirmation_pending:
+            self._cancel_confirmation_pending = True
+            # T-FB019-US01-02: la confirmación se refleja en la ETIQUETA
+            # del propio botón, no en `#job-status` — encontrado durante
+            # el desarrollo de esta Task: `#job-status` vive dentro de un
+            # `VerticalScroll` sin altura fija (`#job-status-scroll`, ya
+            # existente antes de esta Task) que crece con su contenido;
+            # cambiar su texto entre el primer y segundo clic desplazaba
+            # el botón "Cancelar Job" una fila hacia abajo justo entre
+            # ambos clics, dejando el segundo clic apuntando a coordenadas
+            # que ya no correspondían al botón. El texto del botón, en
+            # cambio, no reposiciona nada del resto del layout.
+            try:
+                self.query_one("#cancel-job", Button).label = "¿Seguro? Confirmar cancelación"
+            except Exception:
+                pass
+            return
+
+        self._cancel_confirmation_pending = False
+        status_widget = self.query_one("#job-status", Static)
+        status_widget.update("Cancelando Job...")
+        self._cancel_job_in_background(self._dispatching_job_id)
+
+    @work(thread=True)
+    def _locate_dispatched_job_in_background(self, description: str, dispatch_token: object) -> None:
+        # Ver docstring de módulo: `POST /jobs` no devuelve el `job_id`
+        # hasta que el Job termina — este worker aparte, en su propio
+        # hilo, hace polling breve sobre `GET /jobs` para encontrar el
+        # Job recién creado (por `description` exacta, ya que es lo único
+        # que esta pantalla conoce de antemano) mientras el despacho
+        # bloqueante sigue en curso en el OTRO worker.
+        #
+        # `dispatch_token` (objeto centinela único por despacho, ver
+        # `_create_and_dispatch_job`) evita una condición de carrera real
+        # encontrada durante el desarrollo: si el usuario cancela el Job
+        # ANTES de que este worker termine su búsqueda, una lectura tardía
+        # de `GET /jobs` podría seguir viendo `status == "running"` (el
+        # backend aún no ha propagado la transición a `cancelled`) y
+        # volver a montar el botón "Cancelar Job" ya retirado. Comparando
+        # contra `self._active_dispatch_token` en cada iteración, el
+        # worker se detiene en cuanto detecta que ya no es el despacho
+        # vigente, sin depender de ningún timing exacto del backend.
+        deadline = time.monotonic() + _JOB_LOCATE_TIMEOUT_SECONDS
+        while time.monotonic() < deadline:
+            if self._active_dispatch_token is not dispatch_token:
+                return
+            try:
+                jobs = self._backend.get_jobs()
+            except BackendUnavailableError:
+                return
+            if self._active_dispatch_token is not dispatch_token:
+                return
+            matching_job = next(
+                (
+                    job
+                    for job in jobs
+                    if job["description"] == description
+                    and job["status"] in ("created", "running")
+                ),
+                None,
+            )
+            if matching_job is not None:
+                self.app.call_from_thread(
+                    self._set_dispatching_job_id, matching_job["id"], dispatch_token
+                )
+                return
+            time.sleep(_JOB_LOCATE_POLL_INTERVAL_SECONDS)
+
+    def _set_dispatching_job_id(self, job_id: str, dispatch_token: object) -> None:
+        # Mismo `dispatch_token` que el worker de localización — si el
+        # despacho vigente ya cambió (cancelado, o un nuevo Job despachado
+        # mientras este callback esperaba su turno en el hilo principal),
+        # este resultado ya obsoleto se descarta en vez de remontar un
+        # botón que no corresponde al estado actual de la pantalla.
+        if self._active_dispatch_token is not dispatch_token:
+            return
+        try:
+            if not self.is_mounted:
+                return
+        except Exception:
+            return
+        self._dispatching_job_id = job_id
+        self._mount_cancel_job_button()
+
+    def _mount_cancel_job_button(self) -> None:
+        # Montado dinámicamente dentro de `#job-status-scroll` (mismo
+        # patrón ya usado por `_render_chain_to_critic_offer`), NO como
+        # botón permanente del `Vertical` raíz — un botón siempre presente
+        # ahí desplazaría verticalmente el resto del layout (incluido
+        # `#chain-to-critic`, montado más abajo en el mismo scroll) fuera
+        # del viewport visible en una terminal pequeña, rompiendo `pilot.click`
+        # en los tests existentes (encontrado durante el desarrollo de esta
+        # Task: el test de encadenar a Critic dejó de encontrar su botón).
+        if self.query("#cancel-job"):
+            return
+        try:
+            scroll_container = self.query_one("#job-status-scroll", VerticalScroll)
+        except Exception:
+            return
+        scroll_container.mount(Button("Cancelar Job", id="cancel-job"))
+
+    def _unmount_cancel_job_button(self) -> None:
+        self._dispatching_job_id = None
+        # Invalida el token del despacho vigente — el worker de
+        # localización (si sigue en vuelo) lo detecta en su siguiente
+        # comprobación y se detiene sin remontar el botón (ver docstring
+        # de `_locate_dispatched_job_in_background`).
+        self._active_dispatch_token = None
+        existing = self.query("#cancel-job")
+        if existing:
+            existing.remove()
+
+    @work(thread=True)
+    def _cancel_job_in_background(self, job_id: str) -> None:
+        try:
+            job = self._backend.cancel_job(job_id)
+        except BackendUnavailableError as error:
+            self.app.call_from_thread(self._show_backend_error, str(error))
+            return
+        except Exception as error:
+            self.app.call_from_thread(
+                self._show_backend_error, f"No se pudo cancelar el Job: {error_detail(error)}"
+            )
+            return
+
+        self.app.call_from_thread(self._show_cancel_result, job)
+
+    def _show_cancel_result(self, job: dict) -> None:
+        # `dispatch_job` (dominio) ya deja el agente `idle` al cancelar
+        # (T-FB008-US05-01) — no hay nada más que hacer aquí salvo
+        # reflejarlo.
+        status_widget = self.query_one("#job-status", Static)
+        status_widget.update(f"Job cancelado ({job['status']}): {job['result']}")
+        self._unmount_cancel_job_button()
+        self._refresh_history()
 
     @work(thread=True)
     def _dispatch_job_in_background(self, description: str, agent: dict) -> None:
@@ -223,6 +416,10 @@ class JobsScreen(Screen):
         # quepa en una pantalla.
         status_widget = self.query_one("#job-status", Static)
         self._refresh_history()
+        # T-FB019-US01-02: el despacho ya terminó (completed/failed) — no
+        # queda nada que cancelar, sin esperar a que el usuario pulse
+        # "Cancelar Job" y reciba el 400 del backend (Job no `running`).
+        self._unmount_cancel_job_button()
         if job["status"] == "completed":
             status_widget.update(f"Job completado:\n{job['result']}")
         else:

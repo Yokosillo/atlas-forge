@@ -4,7 +4,7 @@ import time
 from pathlib import Path
 
 import pytest
-from textual.widgets import Select, Static, TextArea
+from textual.widgets import Button, Select, Static, TextArea
 
 sys.path.insert(0, str(Path(__file__).parent / "fixtures"))
 from backend_server import running_backend  # noqa: E402
@@ -615,3 +615,92 @@ async def test_history_distinguishes_completed_failed_and_running_jobs(
         assert "a running task" in history_text
 
         thread.join(timeout=10.0)
+
+
+async def test_cancel_job_button_appears_and_cancels_a_real_job_from_the_tui(
+    tmp_path, backend, monkeypatch
+) -> None:
+    # Criterios de aceptación de T-FB019-US01-02: "Cancelar un Job en
+    # curso desde la TUI lo refleja como cancelled también si se consulta
+    # desde la app u otro cliente" y "El agente involucrado queda idle
+    # tras cancelar, disponible para el siguiente Job, verificado desde la
+    # propia TUI." tmux real, delay largo deliberado para que la
+    # cancelación llegue mientras el Job sigue realmente en curso.
+    workspace_root = tmp_path / "workspace"
+    state_dir = tmp_path / "state"
+    _select_project_and_start_backend_session(workspace_root, state_dir)
+
+    app = FactoryBrainApp(
+        workspace_root=workspace_root, state_dir=state_dir, backend_client=backend
+    )
+    async with app.run_test() as pilot:
+        agent = _launch_cooperative_agent(
+            backend, monkeypatch, tmp_path, extra_env="SIM_DELAY=10"
+        )
+
+        jobs_screen = JobsScreen(
+            workspace_root=workspace_root, state_dir=state_dir, backend_client=backend
+        )
+        pilot.app.push_screen(jobs_screen)
+        await pilot.pause()
+
+        jobs_screen.query_one("#job-description", TextArea).text = "a cancellable task"
+        await pilot.click("#send-job")
+        await pilot.pause()
+
+        # Espera a que el botón "Cancelar Job" aparezca (montado por
+        # `_locate_dispatched_job_in_background` en cuanto localiza el
+        # `job_id` real) — evidencia de que la localización sin
+        # `POST /jobs` devolviendo el id de forma anticipada funciona de
+        # verdad, no solo en teoría.
+        deadline = asyncio.get_event_loop().time() + 5.0
+        while asyncio.get_event_loop().time() < deadline:
+            if len(jobs_screen.query("#cancel-job").nodes) == 1:
+                break
+            await asyncio.sleep(0.1)
+        assert len(jobs_screen.query("#cancel-job").nodes) == 1
+
+        # Primer clic: pide confirmación, no cancela todavía (patrón de
+        # "segunda pulsación", ver docstring de módulo). La confirmación
+        # se refleja en la ETIQUETA del propio botón (no en #job-status,
+        # que vive en un VerticalScroll de altura variable — ver
+        # comentario en `_handle_cancel_job_button` sobre por qué),
+        # verificado aquí explícitamente para no reintroducir la
+        # regresión de layout encontrada durante el desarrollo.
+        await pilot.click("#cancel-job")
+        await pilot.pause()
+        cancel_button = jobs_screen.query_one("#cancel-job", Button)
+        assert "seguro" in str(cancel_button.label).lower()
+
+        # Textual mantiene la clase `-active` del primer clic durante
+        # `Button.active_effect_duration` (0.2s, animación visual de
+        # "pulsado") — un segundo clic real de un usuario nunca llega tan
+        # rápido, pero `pilot.click` sí puede, y `Button._on_click`
+        # ignora silenciosamente el clic mientras esa clase siga presente
+        # (encontrado depurando esta Task: la confirmación no llegaba a
+        # invocarse en absoluto en el segundo clic). Se espera a que pase
+        # ese margen antes del segundo clic, igual que un clic humano real.
+        await asyncio.sleep(0.25)
+
+        # Segundo clic: confirma y cancela de verdad.
+        await pilot.click("#cancel-job")
+        await pilot.pause()
+
+        await _wait_for_status_containing(jobs_screen, "cancelado")
+        # `remove()` de Textual es asíncrono (`AwaitRemove`) — un
+        # `pilot.pause()` extra da tiempo a que el árbol de widgets
+        # refleje el desmontaje antes de comprobar su ausencia.
+        await pilot.pause()
+
+        assert len(jobs_screen.query("#cancel-job").nodes) == 0
+
+        # "Otro cliente": una segunda instancia de BackendClient contra el
+        # mismo backend de prueba, sin pasar por la instancia de la TUI.
+        other_client = BackendClient(base_url=backend._base_url)
+        jobs = other_client.get_jobs()
+        cancelled_job = next(j for j in jobs if j["description"] == "a cancellable task")
+        assert cancelled_job["status"] == "cancelled"
+
+        agents = other_client.get_agents()
+        cancelled_job_agent = next(a for a in agents if a["id"] == agent["id"])
+        assert cancelled_job_agent["status"] == "idle"

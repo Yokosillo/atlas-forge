@@ -13,7 +13,7 @@ from brain.api.plan_registry import _reset_registry_for_tests as _reset_plan_reg
 from brain.api.plan_registry import register_plan
 from brain.core import resolve_startup_session
 from brain.core.session_registry import _reset_registry_for_tests
-from brain.dashboard import launch_agent
+from brain.agents.launch import launch_agent
 from brain.dispatcher.job_history_registry import _reset_registry_for_tests as _reset_job_history
 from brain.dispatcher.job_plan_builder import build_job_plan_for_story
 from brain.models import JobPlan, JobPlanStep

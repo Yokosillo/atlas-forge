@@ -1,5 +1,5 @@
 from brain.agents import CRITIC_ROLE, DEVELOPER_ROLE
-from brain.dashboard import AgentLaunchOption, list_available_agent_options
+from brain.agents.agent_options import AgentLaunchOption, list_available_agent_options
 
 
 def test_catalog_includes_developer_and_critic_as_agent_roles() -> None:

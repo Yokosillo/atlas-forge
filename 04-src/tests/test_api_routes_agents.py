@@ -137,7 +137,7 @@ def test_get_agents_reflects_an_agent_launched_directly_via_domain(
     """Criterio de aceptación: arrancar sesión, lanzar agente vía llamada
     directa a dominio (sin pasar por HTTP), consultar por HTTP y ver el
     mismo agente."""
-    from brain.dashboard import launch_agent
+    from brain.agents.launch import launch_agent
 
     _project, session = _active_project_and_session(tmp_path, monkeypatch)
     agent, runtime_instance = launch_agent(
@@ -193,7 +193,7 @@ def test_post_agents_with_unrecognized_role_returns_400_with_domain_message(
     """Criterio de aceptación: combinación inválida devuelve 4xx con el
     mismo mensaje de motivo que ya lanza AgentLaunchError, no un texto
     reinventado."""
-    from brain.dashboard import AgentLaunchError, launch_agent
+    from brain.agents.launch import AgentLaunchError, launch_agent
 
     _project, session = _active_project_and_session(tmp_path, monkeypatch)
 
@@ -292,3 +292,29 @@ def test_get_agents_does_not_rewrite_a_stopped_agent_to_unavailable(
     assert response.status_code == 200
     refreshed = next(a for a in response.json() if a["id"] == launched["id"])
     assert refreshed["status"] == "stopped"
+
+
+def test_get_agents_options_returns_the_same_catalog_as_domain(
+    tmp_path, monkeypatch,
+) -> None:
+    """Criterio de aceptación (T-FB016-US01-18): `GET /agents/options`
+    devuelve el mismo catálogo que `list_available_agent_options` (dominio),
+    sin requerir sesión activa."""
+    from brain.agents.agent_options import list_available_agent_options
+
+    expected = [
+        {
+            "agent_role": option.agent_role,
+            "runtime_type": option.runtime_type,
+            "runtime_name": option.runtime_name,
+            "supports_model": option.supports_model,
+        }
+        for option in list_available_agent_options()
+    ]
+
+    client = TestClient(create_app())
+    response = client.get("/agents/options")
+
+    assert response.status_code == 200
+    assert response.json() == expected
+    assert len(response.json()) > 0

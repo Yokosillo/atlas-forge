@@ -10,7 +10,31 @@ Mismo patrón ya establecido en `AgentsScreen`/`JobsScreen`: cliente de
 prerequisito real no resuelto: sin lista de planes, esta pantalla no
 tenía forma de descubrir qué plan estaba `proposed` sin que alguien le
 pasara su `plan_id` a mano) resuelve qué plan mostrar — el más reciente
-en estado `proposed`, si hay alguno."""
+en estado `proposed`, si hay alguno.
+
+## Cancelar plan (T-FB019-US01-02)
+
+A diferencia de cancelar un Job (`jobs.py`), aquí el `plan_id` YA es
+conocido de antemano (`self._plan["plan_id"]`, resuelto en `compose`) —
+no hace falta ningún mecanismo de localización. El botón "Cancelar plan"
+aparece al aprobar (mientras `POST /plans/{id}/approve` sigue bloqueado
+despachando la secuencia de pasos en otro hilo) e invoca
+`POST /plans/{id}/cancel` desde un tercer worker de hilo.
+
+## Confirmación al aprobar (T-FB019-US01-03)
+
+Decisión de mecanismo idiomático: Textual soporta `ModalScreen` de forma
+nativa (equivalente más directo al `AlertDialog` de Compose usado en
+T-FB017-US04-01), pero esta TUI no usa ningún diálogo modal en ningún
+sitio — el patrón ya establecido y validado en `_handle_cancel_plan_button`
+(esta misma pantalla) y `JobsScreen._handle_cancel_job_button`
+(T-FB019-US01-02) es "segunda pulsación" reflejada en la etiqueta del
+propio botón. Se aplica el mismo mecanismo a "Aprobar plan completo" por
+coherencia dentro de la misma TUI — introducir un `ModalScreen` solo para
+esta acción, mientras el resto sigue con "segunda pulsación", dividiría
+el lenguaje de confirmación del producto sin necesidad real (ninguna de
+las dos acciones es más compleja que la otra: ambas son sí/no de una
+acción irreversible)."""
 
 from pathlib import Path
 
@@ -51,6 +75,13 @@ class PlanScreen(Screen):
         self._state_dir = state_dir
         self._backend = backend_client if backend_client is not None else BackendClient()
         self._plan: dict | None = None
+        # T-FB019-US01-02: mismo patrón de "segunda pulsación" ya usado en
+        # `JobsScreen` (Textual no usa diálogos modales en esta TUI) —
+        # `False` hasta el primer clic en "Cancelar plan".
+        self._cancel_confirmation_pending = False
+        # T-FB019-US01-03: mismo patrón para "Aprobar plan completo" —
+        # `False` hasta el primer clic.
+        self._approve_confirmation_pending = False
 
     def compose(self):
         try:
@@ -90,6 +121,7 @@ class PlanScreen(Screen):
             VerticalScroll(Static("", id="plan-status"), id="plan-status-scroll"),
             Button("Aprobar plan completo", id="approve-plan"),
             Button("Rechazar", id="reject-plan"),
+            Button("Cancelar plan", id="cancel-plan", disabled=True),
             Button("Volver al Dashboard", id="go-to-dashboard"),
         )
 
@@ -107,10 +139,28 @@ class PlanScreen(Screen):
             self._approve_plan()
         elif event.button.id == "reject-plan":
             self._reject_plan()
+        elif event.button.id == "cancel-plan":
+            self._handle_cancel_plan_button()
         elif event.button.id == "go-to-dashboard":
             self.app.pop_screen()
 
     def _approve_plan(self) -> None:
+        # T-FB019-US01-03: patrón de "segunda pulsación" (ver docstring de
+        # módulo) — el primer clic pide confirmar con el número de pasos,
+        # el segundo clic mientras la confirmación sigue pendiente
+        # despacha de verdad.
+        if not self._approve_confirmation_pending:
+            self._approve_confirmation_pending = True
+            step_count = len(self._plan["steps"])
+            try:
+                self.query_one("#approve-plan", Button).label = (
+                    f"¿Seguro? Se despacharán {step_count} pasos. Confirmar aprobar"
+                )
+            except Exception:
+                pass
+            return
+
+        self._approve_confirmation_pending = False
         status_widget = self.query_one("#plan-status", Static)
         # Criterio de aceptación (paridad con T-FB017-US04-03 en la app):
         # el desarrollador ve que la aprobación está en curso, no silencio
@@ -118,6 +168,10 @@ class PlanScreen(Screen):
         # bloqueante (despacha la secuencia completa de Jobs), igual que
         # `POST /jobs` ya lo es en JobsScreen.
         status_widget.update(f"Despachando {len(self._plan['steps'])} pasos...")
+        # T-FB019-US01-02: el `plan_id` ya se conoce (a diferencia de un
+        # Job recién despachado) — el botón "Cancelar plan" se habilita de
+        # inmediato, sin necesitar ningún mecanismo de localización.
+        self.query_one("#cancel-plan", Button).disabled = False
         self._approve_plan_in_background(self._plan["plan_id"])
 
     @work(thread=True)
@@ -138,6 +192,44 @@ class PlanScreen(Screen):
             return
 
         self.app.call_from_thread(self._show_plan_result, plan)
+
+    def _handle_cancel_plan_button(self) -> None:
+        status_widget = self.query_one("#plan-status", Static)
+
+        if not self._cancel_confirmation_pending:
+            self._cancel_confirmation_pending = True
+            status_widget.update(
+                "¿Seguro que quieres cancelar este plan? Pulsa 'Cancelar plan' "
+                "de nuevo para confirmar."
+            )
+            return
+
+        self._cancel_confirmation_pending = False
+        status_widget.update("Cancelando plan...")
+        self._cancel_plan_in_background(self._plan["plan_id"])
+
+    @work(thread=True)
+    def _cancel_plan_in_background(self, plan_id: str) -> None:
+        try:
+            plan = self._backend.cancel_plan(plan_id)
+        except BackendUnavailableError as error:
+            self.app.call_from_thread(self._show_backend_error, str(error))
+            return
+        except Exception as error:
+            self.app.call_from_thread(
+                self._show_backend_error, f"No se pudo cancelar el plan: {error_detail(error)}"
+            )
+            return
+
+        self.app.call_from_thread(self._show_cancel_plan_result, plan)
+
+    def _show_cancel_plan_result(self, plan: dict) -> None:
+        # `dispatch_plan` (dominio, T-FB008-US08-01) ya cancela el paso
+        # `running` (el agente involucrado queda `idle`) y detiene el
+        # despacho de los pasos pendientes — no hay nada más que hacer
+        # aquí salvo reflejarlo.
+        self.query_one("#cancel-plan", Button).disabled = True
+        self._show_plan_result(plan)
 
     def _reject_plan(self) -> None:
         status_widget = self.query_one("#plan-status", Static)
@@ -161,3 +253,13 @@ class PlanScreen(Screen):
         for index, step in enumerate(plan["steps"], start=1):
             lines.append(f"Paso {index} [{step['status']}]: {step['description']}")
         status_widget.update("\n".join(lines))
+
+        # T-FB019-US01-02: punto final común (aprobación completada,
+        # rechazo, o bloqueo por fallo intermedio) — ninguno de esos
+        # estados deja pasos pendientes/en curso que cancelar. Si llegó
+        # aquí desde `_show_cancel_plan_result`, ya estaba deshabilitado;
+        # deshabilitarlo de nuevo no tiene efecto adicional.
+        if plan["status"] != "approved" or all(
+            step["status"] in ("completed", "failed", "cancelled") for step in plan["steps"]
+        ):
+            self.query_one("#cancel-plan", Button).disabled = True

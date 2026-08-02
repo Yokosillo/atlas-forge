@@ -24,7 +24,8 @@ from brain.core.session_registry import (
     resolve_startup_session,
     shutdown_current_session,
 )
-from brain.dashboard.launch import AgentLaunchError, launch_agent
+from brain.agents.agent_options import list_available_agent_options
+from brain.agents.launch import AgentLaunchError, launch_agent
 from brain.dispatcher.job_cancellation import (
     JobCancellationRejectedError,
     request_cancellation,
@@ -277,10 +278,29 @@ def get_agents() -> list[dict]:
     ]
 
 
+@router.get("/agents/options")
+def get_agents_options() -> list[dict]:
+    """Catálogo de combinaciones agente/runtime/modelo disponibles
+    (envoltura fina de `list_available_agent_options`, FB-005) — sin
+    reimplementar su contenido. T-FB016-US01-18: ajusta un consumidor real
+    (la app Android) que solo puede hablar HTTP y que antes duplicaba este
+    catálogo en Kotlin; desde aquí la app y la TUI comparten la misma fuente
+    de verdad. No requiere sesión activa: es información estática sin estado."""
+    return [
+        {
+            "agent_role": option.agent_role,
+            "runtime_type": option.runtime_type,
+            "runtime_name": option.runtime_name,
+            "supports_model": option.supports_model,
+        }
+        for option in list_available_agent_options()
+    ]
+
+
 @router.post("/agents", status_code=201)
 def post_agents(body: LaunchAgentRequest) -> dict:
     """Lanza un agente (mismo mecanismo que la TUI, `launch_agent` de
-    `brain.dashboard`, FB-002/FB-005), sin reimplementar su validación.
+    `brain.agents.launch`, FB-005), sin reimplementar su validación.
     `project_path` se resuelve del proyecto activo (FB-001) en vez de
     pedirlo al cliente — el dominio ya lo conoce, no tiene sentido que
     cada cliente HTTP tenga que resolverlo por su cuenta.

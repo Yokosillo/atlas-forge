@@ -314,3 +314,60 @@ async def test_dashboard_reflects_job_summary_after_returning_from_jobs(
         jobs_summary_after = str(dashboard_screen.query_one("#jobs-summary").content)
         assert "1" in jobs_summary_after
         assert "completed" in jobs_summary_after.lower()
+
+
+async def test_dashboard_without_active_project_hides_operational_navigation(
+    tmp_path, backend
+) -> None:
+    # T-FB019-US01-05: no existe hoy ningún camino real de producto que
+    # aterrice en `DashboardScreen` sin proyecto activo (ver docstring de
+    # módulo, "Camino real verificado") — este test construye la pantalla
+    # directamente, fuera del flujo normal de navegación, para ejercer la
+    # rama defensiva sin depender de que exista ese camino.
+    state_dir = tmp_path / "state"  # sin ningún proyecto activo persistido
+
+    app = FactoryBrainApp(
+        workspace_root=tmp_path / "workspace", state_dir=state_dir, backend_client=backend
+    )
+    async with app.run_test() as pilot:
+        dashboard_screen = DashboardScreen(
+            workspace_root=tmp_path / "workspace",
+            state_dir=state_dir,
+            backend_client=backend,
+        )
+        pilot.app.push_screen(dashboard_screen)
+        await pilot.pause()
+
+        guidance_widgets = dashboard_screen.query("#no-active-project-guidance")
+        assert len(guidance_widgets.nodes) == 1
+        assert "sin proyecto activo" in str(guidance_widgets.first().content).lower()
+
+        for button_id in ("#go-to-agents", "#go-to-jobs", "#go-to-plan", "#go-to-scripts"):
+            assert len(dashboard_screen.query(button_id).nodes) == 0
+
+        # "Cambiar de proyecto (Workspace)" sigue disponible — es la
+        # ruta de salida para resolver el contexto que falta, no
+        # navegación operativa.
+        assert len(dashboard_screen.query("#go-to-workspace").nodes) == 1
+
+
+async def test_dashboard_with_active_project_still_shows_all_four_buttons(
+    tmp_path, backend
+) -> None:
+    # Criterio de aceptación: "Con contexto resuelto, los 4 botones se
+    # comportan exactamente igual que hoy."
+    workspace_root = tmp_path / "workspace"
+    state_dir = tmp_path / "state"
+    _select_project_and_start_backend_session(workspace_root, state_dir)
+
+    app = FactoryBrainApp(
+        workspace_root=workspace_root, state_dir=state_dir, backend_client=backend
+    )
+    async with app.run_test() as pilot:
+        dashboard_screen = pilot.app.screen
+        assert isinstance(dashboard_screen, DashboardScreen)
+
+        for button_id in ("#go-to-agents", "#go-to-jobs", "#go-to-plan", "#go-to-scripts"):
+            assert len(dashboard_screen.query(button_id).nodes) == 1
+
+        assert len(dashboard_screen.query("#no-active-project-guidance").nodes) == 0

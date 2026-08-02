@@ -5,7 +5,7 @@ import pytest
 
 from brain.agents import DEVELOPER_ROLE, register_agent, register_critic, register_developer
 from brain.core import activate
-from brain.dashboard import launch_agent
+from brain.agents.launch import launch_agent
 from brain.models import DevelopmentSession, Runtime
 from brain.runtime import get_runtime_instance_for_agent
 from brain.runtime.agent_runtime_registry import _reset_registry_for_tests

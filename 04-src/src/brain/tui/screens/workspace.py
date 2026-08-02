@@ -14,7 +14,28 @@ que ese botón no se muestra. No se infiere de `App.screen_stack`
 (Textual mantiene ahí una pantalla `_default` de base incluso antes de
 empujar la primera pantalla real de la app, lo que haría que la
 inferencia fuera siempre `True`) — se recibe explícito de quien
-construye la pantalla."""
+construye la pantalla.
+
+## Mensaje de onboarding (T-FB019-US01-06)
+
+Paso 2 de la guía de primer arranque (conectar → elegir proyecto →
+navegación operativa revelada, mismo criterio NNG ya aplicado en la app,
+`T-FB017-US03-03`) — `can_return_to_dashboard` distingue el mensaje:
+mismo indicador que ya usaba la pantalla para el botón "Volver al
+Dashboard", reutilizado aquí porque describe exactamente la misma
+distinción semántica (¿hay un contexto ya resuelto detrás, o es el hueco
+real de "todavía no elegiste nada"?).
+
+- `can_return_to_dashboard=False` (arranque inicial, contexto no
+  resuelto): "No hay ningún proyecto activo. Elige uno de la lista para
+  continuar." — comunica explícitamente el estado y qué falta, no solo
+  la lista desnuda.
+- `can_return_to_dashboard=True` (cambiar de proyecto desde el
+  Dashboard, contexto YA resuelto): se mantiene el mensaje corto
+  "Selecciona un proyecto:" — no hay ningún vacío que justificar aquí,
+  el desarrollador ya tenía un proyecto activo y decidió cambiarlo por
+  su cuenta; el mensaje de onboarding sonaría fuera de lugar ("no hay
+  proyecto activo" sería falso en este momento)."""
 
 from pathlib import Path
 
@@ -56,8 +77,13 @@ class WorkspaceScreen(Screen):
                 )
             ]
         else:
+            selection_message = (
+                "Selecciona un proyecto:"
+                if self._can_return_to_dashboard
+                else "No hay ningún proyecto activo. Elige uno de la lista para continuar."
+            )
             widgets = [
-                Static("Selecciona un proyecto:"),
+                Static(selection_message, id="project-selection-message"),
                 ListView(
                     *[
                         ListItem(Static(project.name), id=f"project-{index}")

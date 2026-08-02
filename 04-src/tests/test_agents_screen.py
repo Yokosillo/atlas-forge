@@ -1,8 +1,10 @@
+import asyncio
 import sys
+import threading
 from pathlib import Path
 
 import pytest
-from textual.widgets import Select
+from textual.widgets import Button, Select
 
 sys.path.insert(0, str(Path(__file__).parent / "fixtures"))
 from backend_server import running_backend  # noqa: E402
@@ -12,7 +14,7 @@ from brain.core.session_registry import (
     _reset_registry_for_tests,
     resolve_startup_session,
 )
-from brain.dashboard import list_available_agent_options
+from brain.agents.agent_options import list_available_agent_options
 from brain.dispatcher.job_history_registry import (
     _reset_registry_for_tests as _reset_job_history_registry_for_tests,
 )
@@ -24,6 +26,31 @@ from brain.tui.backend_client import BackendClient
 from brain.tui.screens import AgentsScreen, DashboardScreen
 from brain.workspace.active_project import select_active_project
 from brain.workspace.discovery import discover_projects
+
+_COOPERATIVE_AGENT_SCRIPT = str(
+    Path(__file__).parent / "fixtures" / "cooperative_agent_sim.sh"
+)
+
+
+def _launch_cooperative_agent(
+    backend: BackendClient,
+    monkeypatch,
+    extra_env: str = "",
+    role: str = "developer",
+) -> dict:
+    # Mismo patrón que `test_jobs_screen.py::_launch_cooperative_agent`:
+    # doble cooperativo real (tmux real) en vez del binario real de
+    # Claude Code, lanzado a través de `POST /agents` para que el agente
+    # exista de verdad en el registro que la TUI consulta vía HTTP.
+    import brain.runtime.claude_code as claude_code_module
+
+    monkeypatch.setattr(
+        claude_code_module, "DEFAULT_CLAUDE_CODE_COMMAND", f"{extra_env} bash".strip()
+    )
+    monkeypatch.setattr(
+        claude_code_module, "DEFAULT_CLAUDE_CODE_ARGS", [_COOPERATIVE_AGENT_SCRIPT]
+    )
+    return backend.launch_agent(role, "claude-code", None)
 
 
 def _make_git_repo(path: Path) -> None:
@@ -272,6 +299,15 @@ async def test_stopping_an_agent_from_the_tui_is_reflected_via_the_api(
 
         stop_button_id = f"#stop-{agent['id']}"
         assert len(agents_screen.query(stop_button_id).nodes) == 1
+
+        import asyncio
+
+        # T-FB019-US01-03: "Detener" pide confirmación (patrón de
+        # "segunda pulsación") — primer clic pide confirmar, segundo clic
+        # detiene de verdad.
+        await pilot.click(stop_button_id)
+        await pilot.pause()
+        await asyncio.sleep(0.25)
         await pilot.click(stop_button_id)
         await pilot.pause()
 
@@ -288,3 +324,102 @@ async def test_stopping_an_agent_from_the_tui_is_reflected_via_the_api(
             a for a in agents_from_another_client if a["id"] == agent["id"]
         )
         assert stopped_agent["status"] == "stopped"
+
+
+async def test_stop_confirmation_and_a_single_click_does_not_stop_anything(
+    tmp_path, backend
+) -> None:
+    # Criterios de aceptación de T-FB019-US01-03: "Detener un agente desde
+    # la TUI pide confirmación antes de ejecutar la acción real" y
+    # "Cancelar la confirmación no ejecuta ninguna llamada al backend" —
+    # aquí "cancelar" es simplemente no dar el segundo clic.
+    workspace_root = tmp_path / "workspace"
+    state_dir = tmp_path / "state"
+    _select_project_and_start_backend_session(workspace_root, state_dir)
+
+    app = FactoryBrainApp(
+        workspace_root=workspace_root, state_dir=state_dir, backend_client=backend
+    )
+    async with app.run_test() as pilot:
+        agents_screen = AgentsScreen(
+            workspace_root=workspace_root, state_dir=state_dir, backend_client=backend
+        )
+        pilot.app.push_screen(agents_screen)
+        await pilot.pause()
+
+        select_widget = agents_screen.query_one("#agent-choice", Select)
+        _select_option(select_widget, DEVELOPER_ROLE, "claude-code")
+        await pilot.click("#launch-agent")
+        await pilot.pause()
+
+        agent = backend.get_agents()[0]
+        stop_button_id = f"#stop-{agent['id']}"
+
+        await pilot.click(stop_button_id)
+        await pilot.pause()
+
+        stop_button = agents_screen.query_one(stop_button_id, Button)
+        assert "seguro" in str(stop_button.label).lower()
+
+        # Ningún clic de confirmación llegó a darse: el agente sigue tal
+        # cual estaba, verificado desde OTRO cliente de la API (no solo
+        # inferido del estado de la pantalla).
+        other_client = BackendClient(base_url=backend._base_url)
+        unchanged_agent = next(
+            a for a in other_client.get_agents() if a["id"] == agent["id"]
+        )
+        assert unchanged_agent["status"] != "stopped"
+
+
+async def test_stop_confirmation_warns_when_agent_has_a_running_job(
+    tmp_path, backend, monkeypatch
+) -> None:
+    # Criterio de aceptación: "Si el agente tiene un Job en curso, la
+    # confirmación lo advierte explícitamente" — mismo criterio ya
+    # validado en la app Android (`agentsWithRunningJob`,
+    # T-FB017-US04-01), replicado aquí derivado de `GET /jobs`.
+    workspace_root = tmp_path / "workspace"
+    state_dir = tmp_path / "state"
+    _select_project_and_start_backend_session(workspace_root, state_dir)
+
+    app = FactoryBrainApp(
+        workspace_root=workspace_root, state_dir=state_dir, backend_client=backend
+    )
+    async with app.run_test() as pilot:
+        agent = _launch_cooperative_agent(backend, monkeypatch, extra_env="SIM_DELAY=10")
+
+        agents_screen = AgentsScreen(
+            workspace_root=workspace_root, state_dir=state_dir, backend_client=backend
+        )
+        pilot.app.push_screen(agents_screen)
+        await pilot.pause()
+
+        def _dispatch_slow_job():
+            backend.create_and_dispatch_job(agent["id"], "a running task")
+
+        thread = threading.Thread(target=_dispatch_slow_job, daemon=True)
+        thread.start()
+
+        # Espera activa a que el Job "running" aparezca en `GET /jobs`
+        # antes de pulsar "Detener" — igual que el mecanismo de
+        # localización ya usado en `test_jobs_screen.py`.
+        deadline = asyncio.get_event_loop().time() + 5.0
+        while asyncio.get_event_loop().time() < deadline:
+            jobs = backend.get_jobs()
+            if any(
+                job["description"] == "a running task" and job["status"] == "running"
+                for job in jobs
+            ):
+                break
+            await asyncio.sleep(0.05)
+
+        stop_button_id = f"#stop-{agent['id']}"
+        await pilot.click(stop_button_id)
+        await pilot.pause()
+
+        stop_button = agents_screen.query_one(stop_button_id, Button)
+        label_text = str(stop_button.label).lower()
+        assert "seguro" in label_text
+        assert "job en curso" in label_text or "tarea en curso" in label_text
+
+        thread.join(timeout=15.0)

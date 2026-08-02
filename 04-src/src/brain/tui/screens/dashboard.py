@@ -11,7 +11,29 @@ resumen de Jobs se consultan vía `BackendClient` (`GET /session`, `GET
 la lista de módulos prohibidos por el criterio de aceptación de esa Task,
 y es configuración de disco del propio cliente, no estado compartido
 entre procesos (ver `brain.tui.backend_client` para la justificación
-completa)."""
+completa).
+
+## Navegación condicionada al contexto resuelto (T-FB019-US01-05)
+
+"Contexto resuelto" para esta pantalla = backend conectado (ya
+garantizado ANTES de llegar aquí por `ConnectivityCheckScreen`,
+T-FB019-US01-04 — `DashboardScreen` nunca se construye sin haber pasado
+esa comprobación) + proyecto activo existente (`get_active_project`, ya
+consultado en `_refresh_state`).
+
+Camino real verificado: hoy `DashboardScreen` solo se construye desde dos
+sitios (`grep -rn "DashboardScreen(" brain/`) — `FactoryBrainApp._navigate_to_startup_screen`,
+solo alcanzable cuando `resolve_startup_project` devuelve
+`ProjectRecovered` (proyecto ya validado), y
+`WorkspaceScreen.on_list_view_selected`, justo después de
+`select_active_project`. En ambos casos el proyecto activo YA está
+garantizado por construcción antes de llegar aquí — no existe hoy ningún
+camino real de producto que aterrice en `DashboardScreen` sin proyecto
+activo. La condicionalidad de abajo es defensiva (documentada como tal,
+no un caso que se pueda disparar hoy desde la navegación real) y deja
+preparado el hueco que llenará `T-FB019-US01-06` (guía de "elige un
+proyecto" en vez de nada) si en el futuro se abre otro camino hacia esta
+pantalla."""
 
 from pathlib import Path
 
@@ -97,17 +119,41 @@ class DashboardScreen(Screen):
         else:
             jobs_line = "Jobs de la sesión: ninguno todavía"
 
-        yield Vertical(
+        widgets = [
             Static(project_line, id="active-project"),
             Static(session_line, id="session-state"),
             Static(agents_block, id="agents-list"),
             Static(jobs_line, id="jobs-summary"),
-            Button("Ver Agentes", id="go-to-agents"),
-            Button("Ver Jobs", id="go-to-jobs"),
-            Button("Ver Plan", id="go-to-plan"),
-            Button("Ver Scripts", id="go-to-scripts"),
-            Button("Cambiar de proyecto (Workspace)", id="go-to-workspace"),
-        )
+        ]
+
+        # T-FB019-US01-05: la navegación operativa (Agentes/Jobs/Plan/
+        # Scripts) requiere contexto resuelto — proyecto activo, además
+        # del backend ya garantizado por `ConnectivityCheckScreen` antes
+        # de llegar aquí. No hay hoy ningún camino real de producto que
+        # aterrice en esta pantalla sin proyecto activo (ver docstring de
+        # módulo) — esta rama es defensiva, y el hueco que llena
+        # (T-FB019-US01-06) es la guía real de qué falta.
+        if self._project is None:
+            widgets.append(
+                Static(
+                    "Sin proyecto activo: elige uno desde Workspace antes de "
+                    "acceder a Agentes, Jobs, Plan o Scripts.",
+                    id="no-active-project-guidance",
+                )
+            )
+        else:
+            widgets.extend(
+                [
+                    Button("Ver Agentes", id="go-to-agents"),
+                    Button("Ver Jobs", id="go-to-jobs"),
+                    Button("Ver Plan", id="go-to-plan"),
+                    Button("Ver Scripts", id="go-to-scripts"),
+                ]
+            )
+
+        widgets.append(Button("Cambiar de proyecto (Workspace)", id="go-to-workspace"))
+
+        yield Vertical(*widgets)
 
     def on_screen_resume(self) -> None:
         # Al volver de Agentes (tras lanzar un agente nuevo) hay que

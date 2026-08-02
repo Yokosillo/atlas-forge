@@ -37,13 +37,15 @@ def _make_git_repo(path: Path) -> None:
     (path / ".git").mkdir()
 
 
-async def test_workspace_screen_shows_discovered_projects(tmp_path) -> None:
+async def test_workspace_screen_shows_discovered_projects(tmp_path, backend_client) -> None:
     workspace_root = tmp_path / "workspace"
     _make_git_repo(workspace_root / "project-alpha")
     _make_git_repo(workspace_root / "project-beta")
     state_dir = tmp_path / "state"
 
-    app = FactoryBrainApp(workspace_root=workspace_root, state_dir=state_dir)
+    app = FactoryBrainApp(
+        workspace_root=workspace_root, state_dir=state_dir, backend_client=backend_client
+    )
     async with app.run_test() as pilot:
         screen = pilot.app.screen
         assert isinstance(screen, WorkspaceScreen)
@@ -56,14 +58,78 @@ async def test_workspace_screen_shows_discovered_projects(tmp_path) -> None:
         }
 
 
+async def test_initial_workspace_screen_explains_no_active_project(
+    tmp_path, backend_client
+) -> None:
+    # T-FB019-US01-06, criterio de aceptación 2: "arrancar con backend
+    # disponible pero sin proyecto activo lleva directamente a
+    # WorkspaceScreen con un mensaje suficientemente claro sobre qué
+    # hacer" — el caso "hay proyectos descubiertos pero ninguno elegido
+    # todavía" (a diferencia del mensaje ya correcto de "no se ha
+    # descubierto ningún repositorio", que esta Task da por bueno sin
+    # tocar).
+    workspace_root = tmp_path / "workspace"
+    _make_git_repo(workspace_root / "project-alpha")
+    state_dir = tmp_path / "state"
+
+    app = FactoryBrainApp(
+        workspace_root=workspace_root, state_dir=state_dir, backend_client=backend_client
+    )
+    async with app.run_test() as pilot:
+        screen = pilot.app.screen
+        assert isinstance(screen, WorkspaceScreen)
+
+        message_widget = screen.query_one("#project-selection-message")
+        message_text = str(message_widget.content).lower()
+        assert "no hay ningún proyecto activo" in message_text
+        assert "elige uno" in message_text
+
+
+async def test_workspace_screen_reached_from_dashboard_keeps_the_short_message(
+    tmp_path, backend_client
+) -> None:
+    # A diferencia del arranque inicial, aquí el contexto YA está
+    # resuelto (el desarrollador tenía un proyecto activo y decidió
+    # cambiarlo por su cuenta desde el Dashboard) — el mensaje de
+    # onboarding ("no hay ningún proyecto activo") sería directamente
+    # falso en este momento, así que debe mantenerse el mensaje corto
+    # preexistente.
+    workspace_root = tmp_path / "workspace"
+    _make_git_repo(workspace_root / "project-alpha")
+    _make_git_repo(workspace_root / "project-beta")
+    state_dir = tmp_path / "state"
+
+    discovered = discover_projects(workspace_root)
+    select_active_project(discovered[0], discovered=discovered, state_dir=state_dir)
+
+    app = FactoryBrainApp(
+        workspace_root=workspace_root, state_dir=state_dir, backend_client=backend_client
+    )
+    async with app.run_test() as pilot:
+        dashboard_screen = pilot.app.screen
+        assert isinstance(dashboard_screen, DashboardScreen)
+
+        await pilot.click("#go-to-workspace")
+        await pilot.pause()
+
+        workspace_screen = pilot.app.screen
+        assert isinstance(workspace_screen, WorkspaceScreen)
+
+        message_widget = workspace_screen.query_one("#project-selection-message")
+        message_text = str(message_widget.content).lower()
+        assert message_text == "selecciona un proyecto:"
+
+
 async def test_selecting_a_project_persists_it_active_and_navigates_to_dashboard(
-    tmp_path,
+    tmp_path, backend_client
 ) -> None:
     workspace_root = tmp_path / "workspace"
     _make_git_repo(workspace_root / "project-alpha")
     state_dir = tmp_path / "state"
 
-    app = FactoryBrainApp(workspace_root=workspace_root, state_dir=state_dir)
+    app = FactoryBrainApp(
+        workspace_root=workspace_root, state_dir=state_dir, backend_client=backend_client
+    )
     async with app.run_test() as pilot:
         screen = pilot.app.screen
         list_view = screen.query_one("#project-list")
@@ -80,13 +146,15 @@ async def test_selecting_a_project_persists_it_active_and_navigates_to_dashboard
 
 
 async def test_workspace_screen_shows_clear_message_when_no_repos_discovered(
-    tmp_path,
+    tmp_path, backend_client
 ) -> None:
     workspace_root = tmp_path / "empty-workspace"
     workspace_root.mkdir()
     state_dir = tmp_path / "state"
 
-    app = FactoryBrainApp(workspace_root=workspace_root, state_dir=state_dir)
+    app = FactoryBrainApp(
+        workspace_root=workspace_root, state_dir=state_dir, backend_client=backend_client
+    )
     async with app.run_test() as pilot:
         screen = pilot.app.screen
         assert isinstance(screen, WorkspaceScreen)
@@ -97,7 +165,7 @@ async def test_workspace_screen_shows_clear_message_when_no_repos_discovered(
 
 
 async def test_workspace_screen_as_initial_screen_has_no_return_to_dashboard_button(
-    tmp_path,
+    tmp_path, backend_client
 ) -> None:
     # Al arrancar sin proyecto activo, Workspace es la única pantalla del
     # stack — no hay Dashboard al que volver, así que el botón no debe
@@ -106,7 +174,9 @@ async def test_workspace_screen_as_initial_screen_has_no_return_to_dashboard_but
     _make_git_repo(workspace_root / "project-alpha")
     state_dir = tmp_path / "state"
 
-    app = FactoryBrainApp(workspace_root=workspace_root, state_dir=state_dir)
+    app = FactoryBrainApp(
+        workspace_root=workspace_root, state_dir=state_dir, backend_client=backend_client
+    )
     async with app.run_test() as pilot:
         screen = pilot.app.screen
         assert isinstance(screen, WorkspaceScreen)

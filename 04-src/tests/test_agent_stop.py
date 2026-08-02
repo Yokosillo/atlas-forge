@@ -5,7 +5,7 @@ import pytest
 
 from brain.agents import AgentRuntimeNotFoundError, mark_unavailable, stop_agent
 from brain.core.session_lifecycle import activate
-from brain.dashboard import launch_agent
+from brain.agents.launch import launch_agent
 from brain.dispatcher import JobCreationError, create_job
 from brain.models import Agent, DevelopmentSession
 from brain.runtime import is_runtime_alive

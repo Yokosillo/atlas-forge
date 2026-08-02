@@ -102,7 +102,7 @@ def test_registering_an_agent_with_an_explicit_model_associates_it_with_that_run
     (dashboard), que ya construye el `Runtime` con el `model` indicado —
     mecanismo preexistente, no nuevo en esta Task."""
     from brain.core.session_registry import DevelopmentSession, activate
-    from brain.dashboard import launch_agent
+    from brain.agents.launch import launch_agent
 
     session = DevelopmentSession(id="s1", project_id="p1")
     activate(session)
@@ -129,7 +129,7 @@ def test_not_indicating_a_model_keeps_the_current_default_behavior(
     """Criterio de aceptación: 'No indicar preferencia mantiene el
     comportamiento actual (runtime por defecto según rol).'"""
     from brain.core.session_registry import DevelopmentSession, activate
-    from brain.dashboard import launch_agent
+    from brain.agents.launch import launch_agent
 
     session = DevelopmentSession(id="s1", project_id="p1")
     activate(session)

@@ -2,11 +2,11 @@
 de agentes.
 
 T-FB016-US01-06: deja de invocar directamente
-`brain.core.session_registry`/`brain.dashboard.launch`/
+`brain.core.session_registry`/`brain.agents.launch`/
 `brain.agents.registry` — lanzar un agente y consultar la sesión/lista de
 agentes pasa por `BackendClient` (`GET /session`, `GET /agents`, `POST
 /agents`), el mismo backend que consumirá la app Android.
-`list_available_agent_options` (`brain.dashboard.agent_options`) sigue
+`list_available_agent_options` (`brain.agents.agent_options`) sigue
 siendo local: es un catálogo estático de combinaciones agente/runtime
 posibles, sin tocar ningún registro de estado — no hay ni falta ningún
 endpoint HTTP para esto (ver `brain.tui.backend_client`).
@@ -16,7 +16,21 @@ aplazado explícitamente hasta esta Task — antes no tenía sentido añadirlo
 sobre la pantalla que gestionaba su propio estado en memoria, porque
 quedaría obsoleto en cuanto se migrara a cliente del backend (mismo
 razonamiento ya aplicado en T-FB016-US01-03/-04 para no tocar `brain/tui/`
-antes de tiempo)."""
+antes de tiempo).
+
+## Confirmación al detener (T-FB019-US01-03)
+
+Mismo mecanismo idiomático ya decidido y validado en `jobs.py`/`plan.py`
+(T-FB019-US01-02): patrón de "segunda pulsación" en la etiqueta del propio
+botón, no `textual.widgets.ModalScreen` — ver docstring de módulo de
+`plan.py` para la decisión original. Se replica aquí por coherencia
+dentro de la misma TUI, sin introducir un segundo mecanismo de
+confirmación para el mismo producto.
+
+Aviso de "Job en curso" (paridad con `T-FB017-US04-01` en la app,
+`agentsWithRunningJob` en `AgentsViewModel.kt`): mismo cálculo, derivado
+de `GET /jobs` — el conjunto de `agent_id` con algún Job `running`, sin
+necesitar ningún endpoint nuevo."""
 
 from pathlib import Path
 
@@ -24,8 +38,16 @@ from textual.containers import Vertical
 from textual.screen import Screen
 from textual.widgets import Button, Input, Select, Static
 
-from brain.dashboard.agent_options import list_available_agent_options
+from brain.agents.agent_options import list_available_agent_options
 from brain.tui.backend_client import BackendClient, BackendUnavailableError, error_detail
+
+
+def _agents_with_running_job(jobs: list[dict]) -> set[str]:
+    """Mismo criterio que `agentsWithRunningJob` en la app Android
+    (`AgentsViewModel.kt`, T-FB017-US04-01): el conjunto de `agent_id` con
+    algún Job actualmente `running`, derivado de `GET /jobs` sin ningún
+    endpoint nuevo."""
+    return {job["agent_id"] for job in jobs if job["status"] == "running"}
 
 
 class AgentsScreen(Screen):
@@ -43,6 +65,12 @@ class AgentsScreen(Screen):
         self._backend = backend_client if backend_client is not None else BackendClient()
         self._options = list_available_agent_options()
         self._agents: list[dict] = []
+        # T-FB019-US01-03: confirmación de "segunda pulsación" — el
+        # `agent_id` con la confirmación pendiente, o `None` si no hay
+        # ninguna en curso. Un solo `str | None` basta (a diferencia de un
+        # `bool` en `JobsScreen`/`PlanScreen`) porque aquí puede haber
+        # varios botones "Detener" simultáneos, uno por agente.
+        self._stop_confirmation_pending_for: str | None = None
 
     def _render_agents_block(self) -> str:
         if not self._agents:
@@ -172,6 +200,31 @@ class AgentsScreen(Screen):
         self._refresh_agents_widget()
 
     def _stop_agent(self, agent_id: str) -> None:
+        # T-FB019-US01-03: patrón de "segunda pulsación" (mismo mecanismo
+        # ya validado en `JobsScreen`/`PlanScreen`, ver docstring de
+        # módulo) — el primer clic pide confirmar, advirtiendo si el
+        # agente tiene un Job en curso; el segundo clic mientras la
+        # confirmación sigue pendiente para ESE `agent_id` ejecuta la
+        # parada real.
+        if self._stop_confirmation_pending_for != agent_id:
+            self._stop_confirmation_pending_for = agent_id
+            try:
+                jobs = self._backend.get_jobs()
+            except BackendUnavailableError:
+                jobs = []
+            has_running_job = agent_id in _agents_with_running_job(jobs)
+            label = (
+                "¿Seguro? Tiene un Job en curso — se interrumpirá. Confirmar detener"
+                if has_running_job
+                else "¿Seguro? Confirmar detener"
+            )
+            try:
+                self.query_one(f"#stop-{agent_id}", Button).label = label
+            except Exception:
+                pass
+            return
+
+        self._stop_confirmation_pending_for = None
         result_widget = self.query_one("#launch-result", Static)
         try:
             agent = self._backend.stop_agent(agent_id)

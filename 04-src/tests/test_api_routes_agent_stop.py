@@ -9,7 +9,7 @@ import brain.api.routes as routes_module
 from brain.api import create_app
 from brain.core import resolve_startup_session
 from brain.core.session_registry import _reset_registry_for_tests
-from brain.dashboard import launch_agent
+from brain.agents.launch import launch_agent
 from brain.runtime import is_runtime_alive
 from brain.workspace import discover_projects, select_active_project
 
