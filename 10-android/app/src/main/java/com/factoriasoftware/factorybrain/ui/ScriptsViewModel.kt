@@ -32,7 +32,7 @@ sealed interface ScriptsUiState {
 sealed interface ScriptRunState {
     data object Idle : ScriptRunState
     data object Running : ScriptRunState
-    data class Finished(val result: ScriptRunResultDto) : ScriptRunState
+    data class Finished(val scriptId: String, val result: ScriptRunResultDto) : ScriptRunState
     data class Error(val message: String) : ScriptRunState
 }
 
@@ -71,13 +71,13 @@ class ScriptsViewModel(application: Application) : AndroidViewModel(application)
         }
     }
 
-    fun runScript(scriptId: String) {
+    fun runScript(scriptId: String, message: String? = null) {
         viewModelScope.launch {
             runGuard.runExclusive {
                 _runState.value = ScriptRunState.Running
                 try {
-                    val result = backendClient.runScript(baseUrl, scriptId)
-                    _runState.value = ScriptRunState.Finished(result)
+                    val result = backendClient.runScript(baseUrl, scriptId, message)
+                    _runState.value = ScriptRunState.Finished(scriptId, result)
                 } catch (error: BackendUnavailableException) {
                     _runState.value = ScriptRunState.Error(error.message ?: "Backend no disponible.")
                 }

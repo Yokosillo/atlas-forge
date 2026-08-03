@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -20,7 +21,9 @@ import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.foundation.background
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -36,8 +39,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import com.factoriasoftware.factorybrain.net.AgentDto
-import com.factoriasoftware.factorybrain.net.AgentLaunchOption
-import com.factoriasoftware.factorybrain.net.AgentLaunchOptions
+import com.factoriasoftware.factorybrain.net.AgentLaunchOptionDto
 
 /**
  * Pantalla de agentes (T-FB017-US01-02): lista con estado en tiempo real
@@ -85,22 +87,48 @@ internal fun visibleAgentsFor(agents: List<AgentDto>, showStopped: Boolean): Lis
  * desconocido (no debería ocurrir con el dominio actual, pero evita un
  * `when` no exhaustivo ante una futura ampliación del backend) usa el
  * mismo gris neutro que `stopped`.
+ *
+ * T-FB017-US04-06: vuelve a colores fijos independientes del tema. US05-02
+ * los mapeó a roles del `ColorScheme` (`primary`/`tertiary`/`outline`/
+ * `error`) y con Dynamic Color activo esos roles toman el tono del wallpaper
+ * del usuario (bug real: wallpaper rojo/terracota -> los 4 estados quedan en
+ * tonos rojizos casi indistinguibles). Un indicador tipo semáforo debe
+ * reconocerse de un vistazo igual siempre, sin importar el tema: estos
+ * colores NO dependen de `MaterialTheme.colorScheme` (el resto de la UI sí
+ * sigue el tema, criterio US05-02 intacto; esta corrección es exclusiva del
+ * indicador). Paleta revisada para mantener >=3:1 de contraste (WCAG
+ * 1.4.11) sobre los fondos del tema en claro (`0xFFFAFDFD`) y oscuro
+ * (`0xFF191C1C`) — los valores anteriores a US05-02 (verde `0xFF4CAF50`,
+ * ámbar `0xFFFFA000`, gris `0xFF9E9E9E`) quedaban a 2.0-2.7:1 en claro.
  */
 internal fun colorForAgentStatus(status: String): Color = when (status) {
-    "idle" -> Color(0xFF4CAF50) // verde suave — disponible
-    "working" -> Color(0xFFFFA000) // ámbar — ocupado
-    "stopped" -> Color(0xFF9E9E9E) // gris — inactivo a propósito
-    "unavailable" -> Color(0xFFE53935) // rojo — fallo no solicitado
-    else -> Color(0xFF9E9E9E)
+    "idle" -> Color(0xFF2E7D32) // verde (Green 800) — disponible
+    "working" -> Color(0xFFEF6C00) // ámbar/naranja (Orange 800) — ocupado
+    "stopped" -> Color(0xFF757575) // gris (Grey 600) — inactivo a propósito
+    "unavailable" -> Color(0xFFD32F2F) // rojo (Red 700) — fallo no solicitado
+    else -> Color(0xFF757575)
 }
+
+/**
+ * Acceso al color de estado para uso en composición. Los colores son fijos
+ * (independientes del tema, ver `colorForAgentStatus`), así que este
+ * `@Composable` ya no lee `MaterialTheme.colorScheme` — se mantiene solo
+ * como acceso con nombre semántico al color del indicador.
+ */
+@Composable
+fun agentStatusColor(status: String): Color = colorForAgentStatus(status)
 
 @Composable
 fun AgentsScreen(viewModel: AgentsViewModel) {
     val uiState by viewModel.uiState.collectAsState()
+    val optionsUiState by viewModel.optionsUiState.collectAsState()
     val actionMessage by viewModel.actionMessage.collectAsState()
     val isLaunching by viewModel.isLaunching.collectAsState()
     val isStopping by viewModel.isStopping.collectAsState()
+    val paneUiState by viewModel.paneUiState.collectAsState()
     var showStopped by remember { mutableStateOf(false) }
+
+    AgentPaneDialog(state = paneUiState, onDismiss = viewModel::dismissAgentPane)
 
     Column(modifier = Modifier.fillMaxSize().padding(16.dp)) {
         Row(
@@ -156,6 +184,7 @@ fun AgentsScreen(viewModel: AgentsViewModel) {
                             agents = visibleAgents,
                             agentsWithRunningJob = state.agentsWithRunningJob,
                             onStop = viewModel::stopAgent,
+                            onViewPane = viewModel::viewAgentPane,
                             isStopping = isStopping,
                             hiddenStoppedCount = hiddenStoppedCount,
                             modifier = Modifier.weight(1f),
@@ -165,7 +194,44 @@ fun AgentsScreen(viewModel: AgentsViewModel) {
             }
         }
 
-        LaunchAgentForm(onLaunch = viewModel::launchAgent, isLaunching = isLaunching)
+        // T-FB017-US01-10: el formulario de lanzamiento no se muestra
+        // hasta tener el catálogo real de `GET /agents/options` — un
+        // `Loading`/`Unavailable` aquí mostraría un `DropdownMenu` vacío
+        // o con datos obsoletos si se intentara construir sin opciones
+        // reales que ofrecer.
+        //
+        // Corrección de bug real (crash en dispositivo, 2026-08-02): un
+        // `Loaded` con `options` VACÍA es un caso distinto de `Unavailable`
+        // (la petición sí tuvo éxito, pero el catálogo no tenía ninguna
+        // combinación que ofrecer — no debería ocurrir hoy con el dominio
+        // actual, `list_available_agent_options()` siempre devuelve 4
+        // combinaciones, pero `LaunchAgentForm` no debe asumirlo) — se
+        // trata aquí, ANTES de invocar `LaunchAgentForm`, en vez de
+        // dejar que `options.first()` lance `NoSuchElementException`
+        // dentro del formulario. Mismo criterio que `Unavailable`: un
+        // mensaje explícito en vez de una pantalla en blanco o un crash.
+        when (val optionsState = optionsUiState) {
+            is AgentOptionsUiState.Loading -> Text(
+                "Cargando catálogo de agentes…",
+                modifier = Modifier.padding(vertical = 8.dp),
+            )
+            is AgentOptionsUiState.Unavailable -> Text(
+                "No se pudo cargar el catálogo de agentes: ${optionsState.message}",
+                modifier = Modifier.padding(vertical = 8.dp),
+            )
+            is AgentOptionsUiState.Loaded -> if (optionsState.options.isEmpty()) {
+                Text(
+                    "No hay ninguna combinación de agente/runtime disponible para lanzar.",
+                    modifier = Modifier.padding(vertical = 8.dp),
+                )
+            } else {
+                LaunchAgentForm(
+                    options = optionsState.options,
+                    onLaunch = viewModel::launchAgent,
+                    isLaunching = isLaunching,
+                )
+            }
+        }
     }
 }
 
@@ -174,6 +240,7 @@ private fun AgentsList(
     agents: List<AgentDto>,
     agentsWithRunningJob: Set<String>,
     onStop: (String) -> Unit,
+    onViewPane: (agentId: String, agentName: String) -> Unit,
     isStopping: Boolean = false,
     hiddenStoppedCount: Int = 0,
     modifier: Modifier = Modifier,
@@ -250,21 +317,39 @@ private fun AgentsList(
                                 modifier = Modifier
                                     .size(10.dp)
                                     .clip(CircleShape)
-                                    .background(colorForAgentStatus(agent.status)),
+                                    .background(agentStatusColor(agent.status)),
                             )
                             Text(" Estado: ${agent.status}")
                         }
+                        // T-FB017-US01-08: modelo mostrado solo cuando
+                        // existe (OpenCode con modelo indicado). Claude
+                        // Code / OpenCode sin modelo -> `null` -> se omite
+                        // limpiamente, sin un campo de modelo vacío/confuso.
+                        agent.model?.let { model ->
+                            Text(
+                                " Modelo: $model",
+                                style = MaterialTheme.typography.bodySmall,
+                            )
+                        }
                     }
-                    if (agent.status != "stopped") {
+                    Column(horizontalAlignment = Alignment.End) {
                         Button(
-                            onClick = { pendingStopAgent = agent },
-                            enabled = !isStopping,
+                            onClick = { onViewPane(agent.id, agent.name) },
                             modifier = Modifier.height(48.dp),
                         ) {
-                            if (isStopping) {
-                                CircularProgressIndicator(modifier = Modifier.size(20.dp))
-                            } else {
-                                Text("Detener")
+                            Text("Ver actividad")
+                        }
+                        if (agent.status != "stopped") {
+                            Button(
+                                onClick = { pendingStopAgent = agent },
+                                enabled = !isStopping,
+                                modifier = Modifier.height(48.dp),
+                            ) {
+                                if (isStopping) {
+                                    CircularProgressIndicator(modifier = Modifier.size(20.dp))
+                                } else {
+                                    Text("Detener")
+                                }
                             }
                         }
                     }
@@ -274,14 +359,94 @@ private fun AgentsList(
     }
 }
 
+/**
+ * Diálogo de actividad de un agente (T-FB017-US01-08): vista de SOLO
+ * LECTURA del contenido actual del pane de tmux del agente (`GET
+ * /agents/{id}/pane`), con scroll propio porque el contenido crudo puede
+ * ser largo. No es una consola interactiva. Estados: carga, contenido, o
+ * fallo con el motivo real (p. ej. agente detenido sin sesión tmux).
+ */
+@Composable
+private fun AgentPaneDialog(
+    state: AgentPaneUiState,
+    onDismiss: () -> Unit,
+) {
+    if (state is AgentPaneUiState.Closed) return
+
+    val title = when (state) {
+        is AgentPaneUiState.Open -> "Actividad de ${state.agentName}"
+        is AgentPaneUiState.Unavailable -> "Actividad de ${state.agentName}"
+        else -> "Actividad"
+    }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(title) },
+        text = {
+            when (state) {
+                is AgentPaneUiState.Loading -> Row(verticalAlignment = Alignment.CenterVertically) {
+                    CircularProgressIndicator(modifier = Modifier.size(20.dp))
+                    Text(" Consultando la sesión…", modifier = Modifier.padding(start = 8.dp))
+                }
+                is AgentPaneUiState.Unavailable -> Text(
+                    state.message,
+                    modifier = Modifier.padding(vertical = 8.dp),
+                )
+                is AgentPaneUiState.Open -> Column(
+                    modifier = Modifier
+                        .heightIn(max = 360.dp)
+                        .verticalScroll(rememberScrollState()),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    Text(
+                        "Solo lectura — estado actual de la sesión:",
+                        style = MaterialTheme.typography.labelMedium,
+                    )
+                    Text(
+                        state.content.ifBlank { "(pane vacío)" },
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                }
+                is AgentPaneUiState.Closed -> {}
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onDismiss) { Text("Cerrar") }
+        },
+    )
+}
+
+/**
+ * Etiqueta de rol capitalizada para mostrar en el formulario
+ * (T-FB017-US01-10) — `GET /agents/options` devuelve `agent_role` tal
+ * cual lo usa el dominio (`"developer"`/`"critic"`, ver
+ * `brain.agents.DEVELOPER_ROLE`/`CRITIC_ROLE`), sin una etiqueta de
+ * presentación separada (a diferencia de `runtime_name`, que el backend
+ * ya devuelve capitalizado — "Claude Code"/"OpenCode", ver
+ * `register_claude_code_runtime`/`register_opencode_runtime`). Derivar la
+ * capitalización aquí evita mantener un mapa Kotlin duplicado que solo
+ * podría desincronizarse si el dominio añadiera un rol nuevo.
+ */
+private fun AgentLaunchOptionDto.roleLabel(): String =
+    agent_role.replaceFirstChar { it.uppercase() }
+
+/**
+ * Precondición: `options` nunca vacía — el único llamador (`AgentsScreen`)
+ * ya filtra ese caso antes de invocar este composable (mensaje explícito
+ * de "catálogo vacío" en su lugar, ver el `when` sobre `AgentOptionsUiState`
+ * en `AgentsScreen`), así que `options.first()` es seguro por
+ * construcción aquí.
+ */
 @Composable
 private fun LaunchAgentForm(
-    onLaunch: (role: String, runtimeType: String, model: String?) -> Unit,
+    options: List<AgentLaunchOptionDto>,
+    onLaunch: (role: String, runtimeType: String, model: String?, initialJobDescription: String?) -> Unit,
     isLaunching: Boolean = false,
 ) {
     var expanded by remember { mutableStateOf(false) }
-    var selected by remember { mutableStateOf(AgentLaunchOptions.ALL.first()) }
+    var selected by remember(options) { mutableStateOf(options.first()) }
     var model by remember { mutableStateOf("") }
+    var initialJobDescription by remember { mutableStateOf("") }
 
     Column(
         modifier = Modifier.fillMaxWidth().padding(top = 16.dp),
@@ -295,17 +460,17 @@ private fun LaunchAgentForm(
                 modifier = Modifier.fillMaxWidth().height(48.dp),
             ) {
                 Text(
-                    "${selected.roleLabel} sobre ${selected.runtimeLabel}" +
-                        if (selected.supportsModel) " (admite modelo)" else " (no admite modelo)"
+                    "${selected.roleLabel()} sobre ${selected.runtime_name}" +
+                        if (selected.supports_model) " (admite modelo)" else " (no admite modelo)"
                 )
             }
             DropdownMenu(
                 expanded = expanded,
                 onDismissRequest = { expanded = false },
             ) {
-                AgentLaunchOptions.ALL.forEach { option: AgentLaunchOption ->
+                options.forEach { option: AgentLaunchOptionDto ->
                     DropdownMenuItem(
-                        text = { Text("${option.roleLabel} sobre ${option.runtimeLabel}") },
+                        text = { Text("${option.roleLabel()} sobre ${option.runtime_name}") },
                         onClick = {
                             selected = option
                             expanded = false
@@ -319,13 +484,34 @@ private fun LaunchAgentForm(
             value = model,
             onValueChange = { model = it },
             label = { Text("Modelo (opcional, solo si el runtime lo admite)") },
-            enabled = selected.supportsModel,
+            enabled = selected.supports_model,
             modifier = Modifier.fillMaxWidth(),
             singleLine = true,
         )
 
+        // T-FB017-US06-01: tarea inicial opcional — un Job que se
+        // despacharía automáticamente justo tras lanzar el agente (endpoint
+        // combinado de T-FB016-US01-16). Multilínea porque es una
+        // descripción libre; claramente marcado como opcional.
+        OutlinedTextField(
+            value = initialJobDescription,
+            onValueChange = { initialJobDescription = it },
+            label = { Text("Tarea inicial (opcional)") },
+            supportingText = { Text("Se despachará como un Job al lanzar el agente.") },
+            modifier = Modifier.fillMaxWidth(),
+            minLines = 2,
+            maxLines = 4,
+        )
+
         Button(
-            onClick = { onLaunch(selected.role, selected.runtimeType, model.trim().ifBlank { null }) },
+            onClick = {
+                onLaunch(
+                    selected.agent_role,
+                    selected.runtime_type,
+                    model.trim().ifBlank { null },
+                    initialJobDescription.trim().ifBlank { null },
+                )
+            },
             enabled = !isLaunching,
             modifier = Modifier.fillMaxWidth().height(48.dp),
         ) {

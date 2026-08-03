@@ -22,7 +22,6 @@ import androidx.compose.material.icons.filled.Build
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material3.Icon
-import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.Surface
@@ -52,6 +51,7 @@ import com.factoriasoftware.factorybrain.ui.SessionContextChip
 import com.factoriasoftware.factorybrain.ui.activeProjectNameFor
 import com.factoriasoftware.factorybrain.ui.isBackendConnected
 import com.factoriasoftware.factorybrain.ui.isSessionContextResolved
+import com.factoriasoftware.factorybrain.ui.theme.FactoryBrainTheme
 
 // T-FB017-US03-01: `HealthCheck`/`Project` dejan de ser destinos de
 // navegación de nivel superior — se fusionan en `SessionContextChip`
@@ -83,7 +83,7 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContent {
-            MaterialTheme {
+            FactoryBrainTheme {
                 Surface(modifier = Modifier.fillMaxSize()) {
                     var currentScreen by remember { mutableStateOf(AppScreen.Agents) }
                     // T-FB017-US03-03: elevado para que el botón de acción

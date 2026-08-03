@@ -15,10 +15,10 @@ US-FB014-01)
 
 Si Ollama no está corriendo, el modelo configurado no está descargado, o
 la respuesta llega con una estructura inesperada, toda operación de
-Scribe (`summarize_document`/`index_documents`) lanza
-`ScribeUnavailableError` — nunca una excepción genérica de `requests`
-(`ConnectionError`/`Timeout`/`HTTPError`) ni un colgado indefinido
-(`timeout_seconds` acota cada llamada HTTP).
+Scribe (`summarize_document`/`index_documents`/`resumir_estado_backlog`)
+lanza `ScribeUnavailableError` — nunca una excepción genérica de
+`requests` (`ConnectionError`/`Timeout`/`HTTPError`) ni un colgado
+indefinido (`timeout_seconds` acota cada llamada HTTP).
 
 **Contrato para quien invoque Scribe** (Developer/Critic hoy de forma
 manual; el Dispatcher en US-FB008-03 de forma automática): Scribe es una
@@ -47,6 +47,16 @@ _SUMMARIZE_PROMPT_TEMPLATE = (
 _INDEX_PROMPT_TEMPLATE = (
     "Construye un índice temático a partir de los siguientes documentos, "
     "listando los temas principales de cada uno:\n\n{documents}"
+)
+_BACKLOG_STATUS_PROMPT_TEMPLATE = (
+    "Redacta un resumen breve en prosa del estado de un backlog de "
+    "desarrollo, en 3-6 frases, fiel a los datos. Los datos ya están "
+    "calculados: no inventes cifras ni identificadores que no aparezcan. "
+    "Menciona el total de items, cuántas US y cuántas Tasks hay en cada "
+    "estado, cuántas Tasks están LISTAS (listas para empezar) y cuántas "
+    "BLOQUEADAS (y por qué dependencia pendiente), y el próximo foco "
+    "(la cadena de mayor apalancamiento, raíz y qué desbloquea). "
+    "Datos del backlog:\n\n{json_report}"
 )
 
 
@@ -142,4 +152,22 @@ def index_documents(
     fija e interna."""
     documents = "\n\n---\n\n".join(texts)
     prompt = _INDEX_PROMPT_TEMPLATE.format(documents=documents)
+    return _chat_completion(prompt, model, base_url, timeout_seconds)
+
+
+def resumir_estado_backlog(
+    resultado_json: str,
+    model: str = DEFAULT_MODEL,
+    base_url: str = DEFAULT_OLLAMA_BASE_URL,
+    timeout_seconds: float = 30.0,
+) -> str:
+    """Redacta un resumen breve en prosa del estado del backlog a partir del
+    JSON ya calculado por `build_backlog_report`/`brain backlog-status`
+    (T-FB018-US02-02). Scribe NO vuelve a leer ni a parsear los ficheros de
+    `02-backlog/`: recibe el JSON como única entrada y solo redacta sobre
+    esos datos ya resueltos (criterios de aceptación 1 y 2 de T-FB018-US02-03).
+    Capa opcional sobre el cálculo determinista — si el modelo local no está
+    disponible, `brain backlog-status` sigue funcionando igual. Plantilla
+    fija e interna, como el resto del catálogo."""
+    prompt = _BACKLOG_STATUS_PROMPT_TEMPLATE.format(json_report=resultado_json)
     return _chat_completion(prompt, model, base_url, timeout_seconds)

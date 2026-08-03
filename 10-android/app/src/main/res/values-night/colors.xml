@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Variante oscura del tema base XML (T-FB017-US05-01).
+
+  Replica el esquema de fallback oscuro de `ui/theme/Color.kt` para que, en
+  modo oscuro del sistema, el splash antes de Compose sea coherente con el
+  `darkColorScheme` del tema Compose (no un flash claro).
+-->
+<resources>
+    <color name="fab_primary">#80D4D7</color>
+    <color name="fab_on_primary">#00373A</color>
+    <color name="fab_primary_container">#004F52</color>
+    <color name="fab_background">#191C1C</color>
+    <color name="fab_surface">#191C1C</color>
+    <color name="fab_on_surface">#E0E3E3</color>
+    <color name="fab_surface_variant">#3F4949</color>
+    <color name="fab_on_surface_variant">#BEC8C8</color>
+    <color name="fab_error">#FFB4AB</color>
+</resources>

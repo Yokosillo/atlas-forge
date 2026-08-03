@@ -13,6 +13,7 @@ from brain.agents import (
     mark_working,
     register_critic,
     register_developer,
+    stop_agent,
 )
 from brain.core import activate, list_agents
 from brain.models import DevelopmentSession, Runtime
@@ -162,3 +163,55 @@ def test_registering_critic_twice_still_returns_the_same_instance(
     assert len(critics) == 1
 
     stop_runtime(first_instance, socket_name=isolated_socket)
+
+
+def test_stopping_and_relaunching_critic_starts_a_new_live_runtime(
+    isolated_socket: str, tmp_path
+) -> None:
+    """Reproduce el bug real (T-FB005-US01-06): registrar Critic,
+    detenerlo (`stop_agent`), volver a registrarlo con el mismo `role` en la
+    misma sesión. El segundo lanzamiento debe crear un RUNTIME NUEVO (sesión
+    tmux distinta) y VIVO (`is_runtime_alive`), NO reutilizar el mismo
+    agente `stopped` con su runtime muerto.
+
+    Revisado y decidido: el `Agent` `stopped` anterior se SUSTITUYE en
+    `session.agents` por el nuevo (no conviven ambos con el mismo `role`),
+    para que `_find_agent_by_role` de `dispatch_plan` resuelva siempre al
+    agente vivo. El histórico de Jobs es por `session_id` + `agent_id` como
+    string, independiente de `session.agents`, así que sustituir no borra
+    histórico.
+    """
+    session = _active_session()
+    runtime = _test_runtime()
+
+    first_agent, first_instance = register_critic(
+        session, runtime, str(tmp_path), socket_name=isolated_socket
+    )
+    time.sleep(0.3)
+    assert is_runtime_alive(first_instance, socket_name=isolated_socket) is True
+
+    stop_agent(first_agent, socket_name=isolated_socket)
+    assert first_agent.status == "stopped"
+    assert is_runtime_alive(first_instance, socket_name=isolated_socket) is False
+
+    second_agent, second_instance = register_critic(
+        session, runtime, str(tmp_path), socket_name=isolated_socket
+    )
+    time.sleep(0.3)
+
+    # Un agente DISTINTO (nuevo), no el mismo objeto `stopped`.
+    assert second_agent is not first_agent
+    assert second_agent.id != first_agent.id
+    assert second_agent.status == "idle"
+
+    # Runtime nuevo: sesión tmux distinta y VIVA (no la misma ya muerta).
+    assert second_instance.session_name != first_instance.session_name
+    assert is_runtime_alive(first_instance, socket_name=isolated_socket) is False
+    assert is_runtime_alive(second_instance, socket_name=isolated_socket) is True
+
+    # Decisión de sustitución: el `stopped` histórico queda fuera de la
+    # lista; solo hay UN Critic en la sesión, y es el nuevo (vivo).
+    critics = [a for a in list_agents(session) if a.role == CRITIC_ROLE]
+    assert critics == [second_agent]
+
+    stop_runtime(second_instance, socket_name=isolated_socket)

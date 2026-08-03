@@ -7,6 +7,7 @@ import requests
 from brain.local_tools import (
     ScribeUnavailableError,
     index_documents,
+    resumir_estado_backlog,
     summarize_document,
 )
 
@@ -75,6 +76,67 @@ def test_summarize_document_does_not_accept_arbitrary_prompt_parameter() -> None
 
     signature = inspect.signature(summarize_document)
     assert "prompt" not in signature.parameters
+
+
+def test_resumir_estado_backlog_sends_the_fixed_prompt_template_without_real_ollama() -> (
+    None
+):
+    # T-FB018-US02-03: misma disciplina que las demás operaciones del
+    # catálogo cerrado — plantilla fija e interna, mockeando la llamada HTTP
+    # (no requiere Ollama corriendo). El JSON del informe se incrusta como
+    # única entrada, sin que Scribe relea ningún fichero de 02-backlog/.
+    ejemplo_json = '{"total": {"items": 5, "tasks": {"TODO": 3}, "errors": 0}}'
+    with patch("brain.local_tools.scribe.requests.post") as mock_post:
+        mock_post.return_value = _mock_ollama_response(
+            "Hay 5 items. Hay 3 tasks TODO listas para empezar."
+        )
+
+        result = resumir_estado_backlog(ejemplo_json, model="test-model")
+
+        assert result == "Hay 5 items. Hay 3 tasks TODO listas para empezar."
+        mock_post.assert_called_once()
+        call_args, call_kwargs = mock_post.call_args
+        assert call_args[0] == "http://localhost:11434/v1/chat/completions"
+        sent_payload = call_kwargs["json"]
+        assert sent_payload["model"] == "test-model"
+        prompt = sent_payload["messages"][0]["content"]
+        # El JSON ya calculado llega incrustado en el prompt (única entrada).
+        assert '{"total": {"items": 5' in prompt
+        # Plantilla fija de esta operación, no prompt libre.
+        assert "resumen breve en prosa" in prompt
+        assert "Datos del backlog" in prompt
+
+
+def test_resumir_estado_backlog_does_not_accept_arbitrary_prompt_parameter() -> None:
+    import inspect
+
+    signature = inspect.signature(resumir_estado_backlog)
+    assert "prompt" not in signature.parameters
+
+
+def test_resumir_estado_backlog_only_touches_the_http_layer_not_the_backlog() -> None:
+    # Criterio de aceptación 2 de T-FB018-US02-03: Scribe NO relee ningún
+    # fichero de 02-backlog/ — solo recibe el JSON ya calculado como entrada.
+    # Se verifica que la operación no hace NINGUNA lectura de ficheros:
+    # patching `Path.open` para que falle haría fallar el test si la
+    # operación intentara leer algo del disco.
+    ejemplo_json = '{"empty": true}'
+    with patch("brain.local_tools.scribe.requests.post") as mock_post:
+        mock_post.return_value = _mock_ollama_response("El backlog está vacío.")
+        with patch("pathlib.Path.open", side_effect=AssertionError("leyó un fichero")):
+            result = resumir_estado_backlog(ejemplo_json, model="test-model")
+
+    assert result == "El backlog está vacío."
+
+
+def test_resumir_estado_backlog_raises_explicit_unavailable_error() -> None:
+    # Misma degradación explícita que el resto del catálogo: modelo local no
+    # disponible -> ScribeUnavailableError, no un error de red genérico.
+    with patch("brain.local_tools.scribe.requests.post") as mock_post:
+        mock_post.side_effect = requests.ConnectionError("connection refused")
+
+        with pytest.raises(ScribeUnavailableError):
+            resumir_estado_backlog('{"empty": true}')
 
 
 def test_scribe_raises_explicit_unavailable_error_when_ollama_is_unreachable() -> None:

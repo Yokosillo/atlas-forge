@@ -45,6 +45,22 @@ sealed interface PlanUiState {
     data class Error(val message: String) : PlanUiState
 }
 
+/**
+ * Plan `proposed` (pendiente de decisión) a recuperar al reabrir la app
+ * (T-FB017-US01-09) — función pura extraída para testearla sin instanciar
+ * un `AndroidViewModel`, mismo criterio ya aplicado a
+ * `agentsWithRunningJob`/`visibleAgentsFor`.
+ *
+ * `GET /plans` devuelve los planes en orden de registro
+ * (`list_plans`, `brain/api/plan_registry.py`), sin purgar los ya
+ * decididos — el ÚLTIMO `proposed` de la lista es el MÁS RECIENTE.
+ * Criterio explícito ante más de un plan `proposed` (caso límite, no se
+ * espera en uso normal): recuperar el más reciente, documentado aquí.
+ * `null` si no hay ningún plan pendiente.
+ */
+internal fun mostRecentPendingPlan(plans: List<PlanDto>): PlanDto? =
+    plans.lastOrNull { it.status == "proposed" }
+
 class PlanViewModel(application: Application) : AndroidViewModel(application) {
     private val backendClient = BackendClient()
     private val moshi = Moshi.Builder().add(KotlinJsonAdapterFactory()).build()
@@ -69,6 +85,39 @@ class PlanViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch {
             baseUrl = BackendConfig.baseUrlFlow(getApplication()).first()
             connectWebSocket()
+            // T-FB017-US01-09: recuperar un plan `proposed` pendiente al
+            // reabrir la app — `currentPlanId` solo vivía en memoria y si
+            // el proceso se mata en segundo plano se perdía la referencia
+            // al plan sin decidir. Se consulta `GET /plans` y, si existe,
+            // se restaura como plan actual (en vez de partir siempre de
+            // cero).
+            recoverPendingPlan()
+        }
+    }
+
+    /**
+     * Recupera el plan `proposed` más reciente de la sesión al arrancar
+     * (T-FB017-US01-09, `GET /plans`). Si existe, se fija como
+     * `currentPlanId` y se muestra; si no hay ninguno, la pantalla se
+     * comporta como hoy (estado inicial `NoPlanRequested`).
+     *
+     * Un fallo de red o del backend en este paso de recuperación es
+     * SILENCIOSO (se queda el estado inicial vacío): no debe tumbar ni
+     * bloquear la pantalla de Plan en un arranque en frío — el usuario
+     * siempre puede solicitar un plan nuevo. Documentado como decisión.
+     */
+    private suspend fun recoverPendingPlan() {
+        try {
+            val plans = backendClient.getPlans(baseUrl)
+            val pending = mostRecentPendingPlan(plans)
+            if (pending != null) {
+                currentPlanId = pending.plan_id
+                _uiState.value = PlanUiState.Loaded(pending)
+            }
+        } catch (error: BackendUnavailableException) {
+            // Silencioso por diseño (ver docstring de la función).
+        } catch (error: BackendRequestException) {
+            // Ídem.
         }
     }
 

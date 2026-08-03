@@ -212,23 +212,34 @@ class BackendClient:
         return response.json()
 
     def get_scripts(self) -> list[dict]:
-        """`GET /scripts` (T-FB001-US03-03) — lista vacía si no hay sesión
-        activa, mismo criterio ya aplicado en `get_agents`/`get_jobs`."""
+        """`GET /scripts` (T-FB001-US03-03, T-FB018-US01-03) — catálogo
+        combinado de scripts genéricos (`origin: "generic"`) y particulares
+        (`origin: "particular"`) del proyecto activo. Lista vacía si no hay
+        sesión activa, mismo criterio ya aplicado en `get_agents`/
+        `get_jobs`."""
         response = self._request("GET", "/scripts")
         if response.status_code == 404:
             return []
         response.raise_for_status()
         return response.json()
 
-    def run_script(self, script_id: str) -> dict:
-        """`POST /scripts/{script_id}/run` (T-FB001-US03-03) — devuelve el
-        resultado estructurado (`success`/`exit_code`/`stdout`/`stderr`/
-        `error_message`) tal cual, sea el script válido, desconocido, o
-        fallido: el endpoint nunca traduce esos casos a un código HTTP de
-        error (ver docstring de `post_script_run`,
-        `brain/api/routes.py`)."""
+    def run_script(self, script_id: str, message: str | None = None) -> dict:
+        """`POST /scripts/{script_id}/run` (T-FB001-US03-03,
+        T-FB018-US01-03) — ejecuta el script catalogado; `message` es el
+        parámetro opcional que necesita el genérico `commit` (los demás
+        scripts se ejecutan sin él). Devuelve el resultado estructurado
+        (`success`/`exit_code`/`stdout`/`stderr`/`error_message`) tal cual,
+        sea el script válido, desconocido, o fallido: el endpoint nunca
+        traduce esos casos a un código HTTP de error (ver docstring de
+        `post_script_run`, `brain/api/routes.py`)."""
+        payload: dict = {}
+        if message is not None:
+            payload["message"] = message
         response = self._request(
-            "POST", f"/scripts/{script_id}/run", timeout=_JOB_DISPATCH_TIMEOUT_SECONDS
+            "POST",
+            f"/scripts/{script_id}/run",
+            json=payload,
+            timeout=_JOB_DISPATCH_TIMEOUT_SECONDS,
         )
         response.raise_for_status()
         return response.json()

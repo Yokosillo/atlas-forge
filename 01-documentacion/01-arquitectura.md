@@ -12,7 +12,7 @@ El desacoplamiento entre componentes es un requisito fundamental.
 
 # Tipo de aplicación
 
-Factory Brain es una aplicación TUI (Terminal User Interface).
+Factory Brain nació como una aplicación TUI (Terminal User Interface) y ese sigue siendo su cliente de referencia, pero el dominio (agentes, sesiones, Jobs, Dispatcher) no pertenece a la TUI ni a ningún cliente concreto — vive detrás de una API propia (`brain/api/`, FastAPI) que cualquier interfaz puede consumir.
 
 No es una colección de scripts.
 
@@ -20,7 +20,7 @@ No es una utilidad de línea de comandos.
 
 No es un conjunto de comandos Bash.
 
-La aplicación debe comportarse como herramientas profesionales como:
+La TUI debe comportarse como herramientas profesionales como:
 
 - LazyGit
 - k9s
@@ -29,7 +29,21 @@ La aplicación debe comportarse como herramientas profesionales como:
 
 La CLI únicamente servirá para arrancar la aplicación o ejecutar procesos automáticos.
 
-Toda la interacción del usuario se realizará desde la TUI.
+Dentro de la TUI, toda la interacción del usuario se realiza desde ahí — no hay comandos sueltos.
+
+---
+
+# Clientes
+
+Factory Brain expone su dominio a través de una única API HTTP/WebSocket (`brain/api/`), de la que penden todos sus clientes. Ningún cliente accede al dominio de otra forma que no sea esa API — incluida la propia TUI, que es cliente HTTP como cualquier otro, no un caso especial con acceso directo.
+
+Clientes existentes o previstos:
+
+- **TUI** (`brain/tui/`, Textual) — cliente de referencia, primero en recibir cada capacidad nueva.
+- **App Android** (`10-android/`, Kotlin/Compose) — control remoto vía Tailscale, misma API que la TUI.
+- **Interfaz web** (futura, sin Epic todavía) — mismo principio: cliente HTTP sobre la API existente, sin necesitar dominio nuevo ni acceso directo a `brain/agents`, `brain/dispatcher`, `brain/core`, etc.
+
+Un cliente nuevo no debe requerir cambios en el dominio, solo en la capa de Presentación de ese cliente y, si acaso, un endpoint nuevo en `brain/api/` que envuelva capacidad de dominio ya existente. Las excepciones documentadas donde la TUI importa dominio directamente (catálogo estático de `brain/agents/agent_options`, configuración de disco local vía `brain/workspace`) son eso — excepciones acotadas y verificadas por test (`04-src/tests/test_module_boundaries.py`), no el patrón a seguir por clientes nuevos. Un cliente sin proceso local (como una interfaz web) no tiene ni siquiera esa opción: depende de la API en su totalidad.
 
 ---
 
@@ -93,6 +107,7 @@ PROD-006-factory-brain/
 │   ├──src
 │   │   └──brain
 │   │       ├──agents
+│   │       ├──api
 │   │       ├──cli
 │   │       ├──context
 │   │       ├──core
@@ -100,21 +115,23 @@ PROD-006-factory-brain/
 │   │       ├──git
 │   │       ├──indexer
 │   │       ├──knowledge
+│   │       ├──local_tools
+│   │       ├──models
 │   │       ├──plugins
 │   │       ├──runtime
 │   │       ├──search
 │   │       ├──storage
 │   │       ├──tmux
 │   │       ├──tui
-│   │       │   ├──screens
-│   │       │   └──widgets
+│   │       │   └──screens
 │   │       └──workspace
 │   └──tests
 ├──05-database
 ├──06-runtime
 ├──07-informes
 ├──08-logs
-└──09-cache
+├──09-cache
+└──10-android
 
 ---
 
@@ -124,11 +141,11 @@ La aplicación se dividirá en cuatro capas principales.
 
 ## Presentación
 
-Implementada mediante Textual.
+Hoy implementada mediante Textual (TUI) y Kotlin/Compose (app Android); en el futuro, cualquier framework web sobre el mismo contrato HTTP/WebSocket de `brain/api/`.
 
 Responsable de la navegación y la interacción con el usuario.
 
-No contendrá lógica de negocio.
+No contendrá lógica de negocio, en ningún cliente — esta regla no es específica de la TUI, aplica igual a la app Android y a cualquier interfaz futura (web incluida). Un cliente nuevo se apoya en `brain/api/`, nunca reimplementa ni bypassa el dominio.
 
 ---
 

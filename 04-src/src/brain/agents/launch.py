@@ -1,7 +1,9 @@
 from brain.agents import register_critic, register_developer
 from brain.agents.critic import CRITIC_ROLE
 from brain.agents.developer import DEVELOPER_ROLE
-from brain.models import Agent, DevelopmentSession
+from brain.dispatcher.job_dispatch import dispatch_job
+from brain.dispatcher.job_orchestration import create_and_record_job
+from brain.models import Agent, DevelopmentSession, Job
 from brain.runtime import RuntimeInstance, register_claude_code_runtime, register_opencode_runtime
 from brain.tmux.manager import DEFAULT_SOCKET_NAME
 
@@ -82,3 +84,60 @@ def launch_agent(
     return register_agent_for_role(
         session, runtime, project_path, socket_name=socket_name
     )
+
+
+def launch_agent_with_initial_job(
+    role: str,
+    runtime_type: str,
+    model: str | None,
+    session: DevelopmentSession,
+    project_path: str,
+    initial_job_description: str | None = None,
+    socket_name: str = DEFAULT_SOCKET_NAME,
+    job_timeout_seconds: float = 30.0,
+    job_poll_interval_seconds: float = 0.2,
+) -> tuple[Agent, RuntimeInstance, Job | None]:
+    """Lanza el agente (mismo mecanismo que `launch_agent`, sin cambiar su
+    firma ni su retorno de 2-tupla — T-FB008-US06-01) y, si
+    `initial_job_description` viene informado, crea y despacha su Job
+    inicial inmediatamente tras el registro, en un solo paso.
+
+    El despacho reutiliza EXACTAMENTE el mismo mecanismo que hoy usa
+    `POST /jobs` (`create_and_record_job` + `dispatch_job` bloqueante),
+    sin reimplementar nada: si `dispatch_job` falla (timeout esperando el
+    reporte del agente, runtime que no responde, etc.) captura el fallo
+    internamente y deja `job.status == "failed"` con el motivo en
+    `job.result` — el agente permanece registrado y vuelve a `idle`, y el
+    Job fallido queda en el histórico de la sesión, consultable igual que
+    cualquier otro Job (criterio de aceptación explícito de la Task:
+    un fallo de despacho NUNCA revierte el registro del agente).
+
+    Publicación en `jobs_hub`: NO es responsabilidad de esta función de
+    dominio — el dominio no conoce a sus observadores (ver
+    `brain/api/events.py`); quien invoque este flujo combinado desde la
+    capa de API publica los eventos de transición del Job, igual que ya
+    hace `POST /jobs`.
+
+    Si `initial_job_description` es `None`, el comportamiento es idéntico
+    al de `launch_agent` sin ningún efecto secundario nuevo — el tercer
+    elemento del retorno es `None` para que el llamador distinga
+    unívocamente "no había Job inicial" de "el Job inicial falló" (en ese
+    caso el Job devuelto sí está, en estado `failed`)."""
+
+    agent, runtime_instance = launch_agent(
+        role, runtime_type, model, session, project_path, socket_name=socket_name
+    )
+
+    if initial_job_description is None:
+        return agent, runtime_instance, None
+
+    job = create_and_record_job(initial_job_description, agent, session)
+    dispatch_job(
+        job,
+        agent,
+        runtime_instance,
+        timeout_seconds=job_timeout_seconds,
+        poll_interval_seconds=job_poll_interval_seconds,
+        socket_name=socket_name,
+    )
+    return agent, runtime_instance, job

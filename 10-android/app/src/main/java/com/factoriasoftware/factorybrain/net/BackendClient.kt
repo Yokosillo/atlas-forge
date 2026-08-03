@@ -23,12 +23,57 @@ data class AgentDto(
     val name: String,
     val role: String,
     val status: String,
+    /**
+     * Modelo usado por el agente (T-FB017-US01-08), reflejo directo de
+     * `model` en `_serialize_agent` (`brain/api/routes.py`): presente solo
+     * para agentes sobre OpenCode con modelo indicado en el lanzamiento —
+     * `null` para Claude Code (que no admite modelo) o OpenCode sin
+     * modelo. Se omite limpiamente en la UI cuando no aplica.
+     */
+    val model: String? = null,
 )
 
 internal data class LaunchAgentRequestDto(
     val role: String,
     val runtime_type: String,
     val model: String?,
+    /**
+     * Tarea inicial (Job) opcional a despachar justo tras lanzar el agente
+     * (T-FB017-US06-01, consume T-FB016-US01-16). `null` si el usuario no
+     * escribió nada — Moshi omite los nulos por defecto, así que el campo
+     * ni siquiera viaja en el payload (compatibilidad total con el backend
+     * actual, que todavía no lo acepta; el despacho real queda bloqueado a
+     * T-FB016-US01-16).
+     */
+    val initial_job_description: String? = null,
+)
+
+/**
+ * Una combinación disponible de agente + runtime para elegir antes de
+ * lanzar (T-FB017-US01-10), reflejo directo del JSON de
+ * `GET /agents/options` (`get_agents_options`, `brain/api/routes.py`,
+ * envoltura de `list_available_agent_options`, FB-005). Sustituye al
+ * catálogo Kotlin hardcodeado que existía antes de `T-FB016-US01-18` — la
+ * app y la TUI comparten ahora la misma fuente de verdad en vez de
+ * duplicar estos 4 valores en dos lenguajes.
+ */
+data class AgentLaunchOptionDto(
+    val agent_role: String,
+    val runtime_type: String,
+    val runtime_name: String,
+    val supports_model: Boolean,
+)
+
+/**
+ * Contenido actual del pane de tmux de un agente (T-FB017-US01-08),
+ * reflejo directo del JSON de `GET /agents/{agent_id}/pane`
+ * (`get_agent_pane`, `brain/api/routes.py`, T-FB016-US01-12): la sesión
+ * real del runtime como texto crudo, solo lectura — no una consola
+ * interactiva.
+ */
+data class AgentPaneDto(
+    val agent_id: String,
+    val content: String,
 )
 
 /**
@@ -70,6 +115,21 @@ internal data class CreateJobRequestDto(
 )
 
 /**
+ * Respuesta de `POST /agents` (T-FB017-US06-01): envoltura del shape que
+ * devuelve el endpoint combinado de T-FB016-US01-16 cuando
+ * `initial_job_description` viene informado (`{"agent": {...}, "job":
+ * {...}}`), reflejo directo del JSON real de `brain.api.routes::post_agents`
+ * (agente + Job despachado, o su fallo — el agente queda registrado en
+ * cualquier caso). `job` es `null` cuando no se envió tarea inicial (el
+ * backend entonces devuelve el `AgentDto` plano de siempre, sin envoltura —
+ * ver [BackendClient.launchAgent], que distingue ambos shapes).
+ */
+data class LaunchAgentResultDto(
+    val agent: AgentDto,
+    val job: JobDto? = null,
+)
+
+/**
  * Un paso del plan propuesto por el Critic (US-FB008-04), reflejo directo
  * de `get_plan_progress` (`brain/dispatcher/job_plan_dispatch.py`) — se
  * muestra tal cual (descripción y mecanismo), sin reformular ni resumir
@@ -103,14 +163,29 @@ internal data class CreatePlanRequestDto(
 )
 
 /**
- * Script particular catalogado del proyecto activo (T-FB001-US03-03),
- * reflejo directo del JSON de `GET /scripts`.
+ * Cuerpo de `POST /scripts/{script_id}/run` (T-FB018-US01-03): `message`
+ * es el único parámetro que necesita algún script del catálogo (el
+ * genérico `commit`); los particulares y el resto de genéricos se ejecutan
+ * sin él. Moshi omite los campos `null`, así que cuando no hay mensaje se
+ * envía `{}` y el backend lo trata como ausencia del parámetro.
+ */
+internal data class RunScriptRequestDto(
+    val message: String? = null,
+)
+
+/**
+ * Script catalogado del proyecto activo (T-FB001-US03-03, T-FB018-US01-03),
+ * reflejo directo del JSON de `GET /scripts`. `origin` distingue el
+ * catálogo de origen: `"generic"` (scripts genéricos de Factory Brain,
+ * T-FB018-US01-01 — `command`/`description` son `null`) o `"particular"`
+ * (scripts del manifiesto del proyecto, T-FB001-US03-01).
  */
 data class ScriptEntryDto(
     val id: String,
     val name: String,
-    val command: String,
-    val description: String,
+    val command: String? = null,
+    val description: String? = null,
+    val origin: String = "particular",
 )
 
 /**
@@ -118,6 +193,11 @@ data class ScriptEntryDto(
  * directo del JSON de `POST /scripts/{script_id}/run` — `exitCode` es
  * `null` cuando el script nunca llegó a ejecutarse (id desconocido,
  * manifiesto roto, timeout), no `0` ni ningún valor inventado.
+ *
+ * T-FB018-US02-04: para `backlog_status`, `data` trae el informe ya
+ * parseado (para presentarlo con formato, no como JSON crudo) y `prose`
+ * la síntesis opcional en prosa de T-FB018-US02-03 cuando Scribe está
+ * disponible. Ambos son `null` para el resto de scripts.
  */
 data class ScriptRunResultDto(
     val success: Boolean,
@@ -125,6 +205,42 @@ data class ScriptRunResultDto(
     val stdout: String,
     val stderr: String,
     val error_message: String?,
+    val data: BacklogReportDto? = null,
+    val prose: String? = null,
+)
+
+/**
+ * Informe estructurado del estado del backlog (T-FB018-US02-02), reflejo
+ * del JSON de `build_backlog_report`/`brain backlog-status --json` que la
+ * API incluye como `data` en `POST /scripts/backlog_status/run` — los
+ * campos que la app presenta con formato (conteo por Epic, Tasks listas y
+ * cadena de mayor apalancamiento), sin que el usuario tenga que leer el
+ * JSON crudo.
+ */
+data class BacklogReportDto(
+    val empty: Boolean = true,
+    val total: BacklogTotalDto? = null,
+    val by_epic: List<BacklogEpicDto> = emptyList(),
+    val items_lista: List<BacklogItemSummaryDto> = emptyList(),
+    val max_leverage_chain: List<BacklogItemSummaryDto> = emptyList(),
+)
+
+data class BacklogTotalDto(
+    val items: Int = 0,
+    val user_stories: Map<String, Int> = emptyMap(),
+    val tasks: Map<String, Int> = emptyMap(),
+    val errors: Int = 0,
+)
+
+data class BacklogEpicDto(
+    val epic: String = "",
+    val user_stories: Map<String, Int> = emptyMap(),
+    val tasks: Map<String, Int> = emptyMap(),
+)
+
+data class BacklogItemSummaryDto(
+    val id: String = "",
+    val priority: String? = null,
 )
 
 /**
@@ -170,6 +286,11 @@ class BackendClient(
         moshi.adapter<List<AgentDto>>(Types.newParameterizedType(List::class.java, AgentDto::class.java))
     private val agentAdapter = moshi.adapter(AgentDto::class.java)
     private val launchRequestAdapter = moshi.adapter(LaunchAgentRequestDto::class.java)
+    private val launchResultAdapter = moshi.adapter(LaunchAgentResultDto::class.java)
+    private val agentOptionListAdapter =
+        moshi.adapter<List<AgentLaunchOptionDto>>(
+            Types.newParameterizedType(List::class.java, AgentLaunchOptionDto::class.java)
+        )
     private val projectListAdapter =
         moshi.adapter<List<ProjectDto>>(Types.newParameterizedType(List::class.java, ProjectDto::class.java))
     private val projectAdapter = moshi.adapter(ProjectDto::class.java)
@@ -179,10 +300,14 @@ class BackendClient(
         moshi.adapter<List<JobDto>>(Types.newParameterizedType(List::class.java, JobDto::class.java))
     private val createJobRequestAdapter = moshi.adapter(CreateJobRequestDto::class.java)
     private val planAdapter = moshi.adapter(PlanDto::class.java)
+    private val planListAdapter =
+        moshi.adapter<List<PlanDto>>(Types.newParameterizedType(List::class.java, PlanDto::class.java))
     private val createPlanRequestAdapter = moshi.adapter(CreatePlanRequestDto::class.java)
     private val scriptListAdapter =
         moshi.adapter<List<ScriptEntryDto>>(Types.newParameterizedType(List::class.java, ScriptEntryDto::class.java))
     private val scriptRunResultAdapter = moshi.adapter(ScriptRunResultDto::class.java)
+    private val runScriptRequestAdapter = moshi.adapter(RunScriptRequestDto::class.java)
+    private val agentPaneAdapter = moshi.adapter(AgentPaneDto::class.java)
 
     // `POST /jobs` y `POST /plans/{id}/approve` son bloqueantes del lado
     // del backend (la respuesta solo llega cuando el Job/plan entero ya
@@ -251,15 +376,42 @@ class BackendClient(
      * `detail` ya construido por el dominio (criterio de aceptación
      * explícito de T-FB017-US01-02: "muestra el motivo real devuelto por
      * la API, no un mensaje genérico").
+     *
+     * T-FB017-US06-01: `initialJobDescription` opcional. Si viene
+     * informado viaja en el payload para el endpoint combinado de
+     * T-FB016-US01-16; si es `null`/vacío se omite (Moshi no serializa
+     * nulos) y la petición es idéntica a la de antes de esta Task.
+     *
+     * El tipo de retorno [LaunchAgentResultDto] distingue los dos shapes
+     * que el backend puede devolver según si se envió tarea inicial:
+     * sin tarea el cuerpo es el `AgentDto` plano de siempre (se envuelve
+     * con `job = null`); con tarea el cuerpo es `{"agent": {...}, "job":
+     * {...}}` (se parsea con [launchResultAdapter], `job` presente cuando
+     * el Job se despachó y ya terminó — `completed`/`failed` — o `null`
+     * si el agente se registró pero el Job no llegó a crearse).
      */
-    suspend fun launchAgent(baseUrl: String, role: String, runtimeType: String, model: String?): AgentDto =
+    suspend fun launchAgent(
+        baseUrl: String,
+        role: String,
+        runtimeType: String,
+        model: String?,
+        initialJobDescription: String? = null,
+    ): LaunchAgentResultDto =
         withContext(Dispatchers.IO) {
-            val body = launchRequestAdapter.toJson(LaunchAgentRequestDto(role, runtimeType, model))
-                .toRequestBody(JSON_MEDIA_TYPE)
+            val body = launchRequestAdapter.toJson(
+                LaunchAgentRequestDto(role, runtimeType, model, initialJobDescription)
+            ).toRequestBody(JSON_MEDIA_TYPE)
             val request = Request.Builder().url("$baseUrl/agents").post(body).build()
             executeOrThrow(request, baseUrl) { response ->
-                agentAdapter.fromJson(response.body!!.string())
-                    ?: throw BackendRequestException("Respuesta vacía del backend al lanzar el agente.")
+                if (initialJobDescription.isNullOrBlank()) {
+                    LaunchAgentResultDto(
+                        agent = agentAdapter.fromJson(response.body!!.string())
+                            ?: throw BackendRequestException("Respuesta vacía del backend al lanzar el agente.")
+                    )
+                } else {
+                    launchResultAdapter.fromJson(response.body!!.string())
+                        ?: throw BackendRequestException("Respuesta vacía del backend al lanzar el agente con tarea inicial.")
+                }
             }
         }
 
@@ -276,6 +428,39 @@ class BackendClient(
                 ?: throw BackendRequestException("Respuesta vacía del backend al detener el agente.")
         }
     }
+
+    /**
+     * `GET /agents/{agent_id}/pane` (T-FB017-US01-08) — contenido actual
+     * del pane de tmux del agente (T-FB016-US01-12). Un 404 (agente sin
+     * sesión tmux viva, p. ej. detenido) se propaga como
+     * [BackendRequestException] con el `detail` real del backend.
+     */
+    suspend fun getAgentPane(baseUrl: String, agentId: String): AgentPaneDto =
+        withContext(Dispatchers.IO) {
+            val request = Request.Builder()
+                .url("$baseUrl/agents/$agentId/pane")
+                .get()
+                .build()
+            executeOrThrow(request, baseUrl) { response ->
+                agentPaneAdapter.fromJson(response.body!!.string())
+                    ?: throw BackendRequestException("Respuesta vacía del backend al consultar la actividad.")
+            }
+        }
+
+    /**
+     * `GET /agents/options` (T-FB016-US01-18/T-FB017-US01-10) — catálogo
+     * de combinaciones agente/runtime/modelo disponibles para lanzar.
+     * Información estática sin estado (no depende de sesión activa,
+     * mismo criterio que el propio endpoint documenta) — no necesita
+     * `treatNotFoundAsEmpty` ni ningún tratamiento especial de 404.
+     */
+    suspend fun getAgentOptions(baseUrl: String): List<AgentLaunchOptionDto> =
+        withContext(Dispatchers.IO) {
+            val request = Request.Builder().url("$baseUrl/agents/options").get().build()
+            executeOrThrow(request, baseUrl) { response ->
+                agentOptionListAdapter.fromJson(response.body!!.string()) ?: emptyList()
+            }
+        }
 
     /**
      * `GET /projects` (T-FB016-US01-11) — repositorios descubiertos en el
@@ -409,6 +594,20 @@ class BackendClient(
     }
 
     /**
+     * `GET /plans` (T-FB016-US01-14/T-FB017-US01-09) — todos los planes
+     * registrados del proceso, en orden de registro (`list_plans`,
+     * `brain/api/plan_registry.py`), cada uno con su estado final o
+     * `proposed`. Lo consume `PlanViewModel` al iniciar para recuperar un
+     * plan `proposed` pendiente tras reabrir la app.
+     */
+    suspend fun getPlans(baseUrl: String): List<PlanDto> = withContext(Dispatchers.IO) {
+        val request = Request.Builder().url("$baseUrl/plans").get().build()
+        executeOrThrow(request, baseUrl) { response ->
+            planListAdapter.fromJson(response.body!!.string()) ?: emptyList()
+        }
+    }
+
+    /**
      * `POST /plans/{plan_id}/approve` (T-FB008-US04-02/03) — aprueba el
      * plan completo y despacha su secuencia entera de Jobs, sin
      * aprobación por paso individual (criterio de aceptación explícito
@@ -466,19 +665,27 @@ class BackendClient(
      * el resultado siempre es 200 con el detalle completo en el cuerpo,
      * así que no hace falta [BackendRequestException] aquí — solo un
      * fallo real de red o de sesión (404 sin proyecto activo, que sí se
-     * propaga como excepción).
+     * propaga como excepción). `message` es el parámetro opcional que
+     * necesita el genérico `commit` (T-FB018-US01-03); cuando es `null` se
+     * envía un body vacío, como antes.
      */
-    suspend fun runScript(baseUrl: String, scriptId: String): ScriptRunResultDto =
-        withContext(Dispatchers.IO) {
-            val request = Request.Builder()
-                .url("$baseUrl/scripts/$scriptId/run")
-                .post("".toRequestBody(null))
-                .build()
-            executeOrThrow(request, baseUrl, client = longRunningDispatchHttpClient) { response ->
-                scriptRunResultAdapter.fromJson(response.body!!.string())
-                    ?: throw BackendRequestException("Respuesta vacía del backend al ejecutar el script.")
-            }
+    suspend fun runScript(
+        baseUrl: String,
+        scriptId: String,
+        message: String? = null,
+    ): ScriptRunResultDto = withContext(Dispatchers.IO) {
+        val body = runScriptRequestAdapter
+            .toJson(RunScriptRequestDto(message))
+            .toRequestBody(JSON_MEDIA_TYPE)
+        val request = Request.Builder()
+            .url("$baseUrl/scripts/$scriptId/run")
+            .post(body)
+            .build()
+        executeOrThrow(request, baseUrl, client = longRunningDispatchHttpClient) { response ->
+            scriptRunResultAdapter.fromJson(response.body!!.string())
+                ?: throw BackendRequestException("Respuesta vacía del backend al ejecutar el script.")
         }
+    }
 
     /**
      * Ejecuta la petición y aplica la misma traducción de errores en los

@@ -79,6 +79,31 @@ def test_launch_critic_on_claude_code_and_developer_on_opencode_with_model(
     stop_runtime(developer_instance, socket_name=isolated_socket)
 
 
+def test_launching_critic_on_opencode_is_still_supported_directly(
+    isolated_socket: str, tmp_path
+) -> None:
+    """Criterio de aceptación (T-FB016-US01-19): el filtro es solo de
+    presentación. El dominio `launch_agent` sigue admitiendo la combinación
+    Critic + OpenCode cuando se invoca directamente (no aparece como opción
+    en `GET /agents/options`, pero técnicamente es válida y reversible)."""
+    session = _active_session()
+
+    critic_agent, critic_instance = launch_agent(
+        CRITIC_ROLE,
+        "opencode",
+        None,
+        session,
+        str(tmp_path),
+        socket_name=isolated_socket,
+    )
+
+    assert critic_agent.role == CRITIC_ROLE
+    assert critic_agent in list_agents(session)
+    assert is_runtime_alive(critic_instance, socket_name=isolated_socket) is True
+
+    stop_runtime(critic_instance, socket_name=isolated_socket)
+
+
 def test_indicating_model_for_claude_code_is_rejected_without_launching_anything(
     isolated_socket: str, tmp_path
 ) -> None:

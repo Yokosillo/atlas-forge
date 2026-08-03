@@ -22,7 +22,6 @@ import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 
 /**
@@ -137,11 +136,17 @@ fun SessionContextChip(
         // Indicador de color complementario al texto (mismo criterio ya
         // aplicado en `colorForAgentStatus`, T-FB017-US04-05: nunca
         // sustituye al texto, solo lo refuerza visualmente).
+        // T-FB016-US05-02: color integrado en el tema (rol semántico), ya
+        // no fijo ajeno al `ColorScheme` — conectado usa `primary`, caído
+        // `outline` (gris neutro del tema).
         Box(
             modifier = Modifier
                 .size(10.dp)
                 .clip(CircleShape)
-                .background(if (isConnected) Color(0xFF4CAF50) else Color(0xFF9E9E9E)),
+                .background(
+                    if (isConnected) MaterialTheme.colorScheme.primary
+                    else MaterialTheme.colorScheme.outline
+                ),
         )
         Text(
             text = sessionContextText(isConnected, projectName),

@@ -14,7 +14,7 @@ from brain.core.session_registry import (
     _reset_registry_for_tests,
     resolve_startup_session,
 )
-from brain.agents.agent_options import list_available_agent_options
+from brain.tui.screens.agents import _eligible_agent_options
 from brain.dispatcher.job_history_registry import (
     _reset_registry_for_tests as _reset_job_history_registry_for_tests,
 )
@@ -260,10 +260,13 @@ async def test_catalog_matches_list_available_agent_options(tmp_path, backend) -
         select_widget = agents_screen.query_one("#agent-choice", Select)
         expected_keys = {
             (option.agent_role, option.runtime_type)
-            for option in list_available_agent_options()
+            for option in _eligible_agent_options()
         }
         actual_keys = {value for _label, value in select_widget._options}
         assert actual_keys == expected_keys
+        # T-FB016-US01-19: la opción Critic + OpenCode ya no se ofrece en la
+        # TUI (mismo criterio de producto que `GET /agents/options`).
+        assert ("critic", "opencode") not in actual_keys
 
 
 async def test_stopping_an_agent_from_the_tui_is_reflected_via_the_api(

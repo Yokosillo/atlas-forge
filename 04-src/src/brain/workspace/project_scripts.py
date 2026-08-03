@@ -159,6 +159,69 @@ def discover_project_scripts(project_path: str) -> list[ScriptEntry]:
     ]
 
 
+def run_subprocess(
+    command: str | list[str],
+    cwd: str,
+    timeout_seconds: float,
+    *,
+    shell: bool = False,
+    action_description: str,
+) -> ScriptRunResult:
+    """Ejecuta `command` como subproceso real con `cwd` como directorio de
+    trabajo y traduce el resultado a un [ScriptRunResult] — el mecanismo de
+    ejecución de T-FB001-US03-02, extraído para que lo compartan
+    `run_project_script` (scripts particulares, comando de shell declarado
+    en un manifiesto, `shell=True`) y `run_generic_script` (T-FB018-US01-01,
+    comandos git como lista de argumentos sin shell, `shell=False`).
+
+    Nunca lanza una excepción no controlada: un timeout agotado o un fallo
+    al arrancar el subproceso (p. ej. el shell no disponible) se traduce a
+    un `ScriptRunResult` con `success=False`, `exit_code=None` y
+    `error_message` explicando el motivo. Un comando que sí se ejecuta pero
+    termina con código de salida distinto de cero es `success=False` con su
+    `exit_code` real y su `stdout`/`stderr` disponibles para diagnóstico
+    (distinto del caso anterior: aquí el comando SÍ corrió, solo que falló).
+    """
+    try:
+        completed = subprocess.run(
+            command,
+            shell=shell,
+            cwd=cwd,
+            capture_output=True,
+            text=True,
+            timeout=timeout_seconds,
+        )
+    except subprocess.TimeoutExpired as error:
+        return ScriptRunResult(
+            success=False,
+            exit_code=None,
+            stdout=error.stdout or "",
+            stderr=error.stderr or "",
+            error_message=(
+                f"{action_description.capitalize()} no terminó en "
+                f"{timeout_seconds}s (timeout agotado)."
+            ),
+        )
+    except OSError as error:
+        # El propio subproceso no pudo arrancar (p. ej. el shell del
+        # sistema no está disponible) — distinto de "el comando arrancó y
+        # falló" (ese caso ya tiene su propio exit_code real, más abajo).
+        return ScriptRunResult(
+            success=False,
+            exit_code=None,
+            stdout="",
+            stderr="",
+            error_message=f"No se pudo ejecutar {action_description}: {error}",
+        )
+
+    return ScriptRunResult(
+        success=completed.returncode == 0,
+        exit_code=completed.returncode,
+        stdout=completed.stdout,
+        stderr=completed.stderr,
+    )
+
+
 def run_project_script(
     script_id: str,
     project_path: str,
@@ -201,41 +264,10 @@ def run_project_script(
             ),
         )
 
-    try:
-        completed = subprocess.run(
-            script.command,
-            shell=True,
-            cwd=project_path,
-            capture_output=True,
-            text=True,
-            timeout=timeout_seconds,
-        )
-    except subprocess.TimeoutExpired as error:
-        return ScriptRunResult(
-            success=False,
-            exit_code=None,
-            stdout=error.stdout or "",
-            stderr=error.stderr or "",
-            error_message=(
-                f"El script '{script_id}' no terminó en {timeout_seconds}s "
-                f"(timeout agotado)."
-            ),
-        )
-    except OSError as error:
-        # El propio subproceso no pudo arrancar (p. ej. el shell del
-        # sistema no está disponible) — distinto de "el script arrancó y
-        # falló" (ese caso ya tiene su propio exit_code real, más abajo).
-        return ScriptRunResult(
-            success=False,
-            exit_code=None,
-            stdout="",
-            stderr="",
-            error_message=f"No se pudo ejecutar el script '{script_id}': {error}",
-        )
-
-    return ScriptRunResult(
-        success=completed.returncode == 0,
-        exit_code=completed.returncode,
-        stdout=completed.stdout,
-        stderr=completed.stderr,
+    return run_subprocess(
+        script.command,
+        project_path,
+        timeout_seconds,
+        shell=True,
+        action_description=f"el script '{script_id}'",
     )

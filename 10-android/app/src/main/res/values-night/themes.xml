@@ -1,23 +1,16 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
-  Tema base de Factory Brain (T-FB017-US05-001).
-
-  En lugar de heredar sin más de `android:Theme.Material.Light.NoActionBar`,
-  este tema explicita los colores del arranque base (el que se ve en el
-  splash antes de que Compose cargue) de forma coherente con el esquema de
-  fallback claro de `ui/theme/Color.kt`, para que la transición
-  splash -> Compose no cambie bruscamente de paleta.
-
-  Solo se usan atributos del framework (`android:*`): este módulo no depende
-  de appcompat ni de Material Components, así que aquí no hay atributos de
-  librería (`colorPrimaryVariant`, etc.).
+  Variante oscura del tema base (ver la variante clara en values/themes.xml).
+  Replica el esquema fallback oscuro de `ui/theme/Color.kt` para que, en
+  modo oscuro del sistema, el splash antes de Compose sea coherente con el
+  `darkColorScheme` del tema Compose.
 -->
 <resources>
-    <style name="Theme.FactoryBrain" parent="android:Theme.Material.Light.NoActionBar">
+    <style name="Theme.FactoryBrain" parent="android:Theme.Material.NoActionBar">
         <item name="android:windowBackground">@color/fab_background</item>
         <item name="android:colorBackground">@color/fab_background</item>
         <item name="android:statusBarColor">@color/fab_background</item>
-        <item name="android:windowLightStatusBar">true</item>
+        <item name="android:windowLightStatusBar">false</item>
         <item name="android:navigationBarColor">@color/fab_background</item>
         <item name="android:textColorPrimary">@color/fab_on_surface</item>
         <item name="android:textColorSecondary">@color/fab_on_surface_variant</item>

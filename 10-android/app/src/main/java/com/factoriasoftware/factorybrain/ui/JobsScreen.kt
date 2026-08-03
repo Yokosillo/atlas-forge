@@ -27,6 +27,7 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -43,11 +44,39 @@ import com.factoriasoftware.factorybrain.net.JobDto
  * completo sin truncar con scroll (criterio de aceptación explícito,
  * mismo criterio ya aplicado en la pantalla Jobs de la TUI), e histórico
  * de la sesión.
+ *
+ * ## Refresco de agentes al entrar en la pantalla (T-FB017-US01-11)
+ *
+ * Decisión tomada — **Opción A (refrescar al entrar), no Opción B (polling
+ * continuo)**:
+ * - `JobsViewModel.agents` solo se refrescaba en el `init` del ViewModel
+ *   (una sola vez, porque `by viewModels()` instancia todos los ViewModel
+ *   por adelantado) y en `LaunchedEffect(activeProjectId)` de MainActivity
+ *   (solo si cambia el proyecto). Lanzar un agente nuevo desde Agentes sin
+ *   cambiar de proyecto dejaba la lista de Jobs congelada en el snapshot
+ *   viejo.
+ * - En `MainActivity` el `when(currentScreen)` solo compone la pantalla
+ *   activa, así que este `LaunchedEffect(Unit)` se ejecuta cada vez que se
+ *   navega a Jobs (se entra, se sale, se vuelve a entrar -> re-composición
+ *   -> se lanza de nuevo). La lista de agentes cambia con poca frecuencia
+ *   (solo al lanzar/detener, que ocurre en Agentes), así que NO necesita el
+ *   polling de 3 s de agentes (que ahí es por el estado de un Job en
+ *   curso) — refrescar el catálogo de agentes una vez al entrar, y no
+ *   mientras se está dentro, es suficiente y más ligero (no hay trabajo de
+ *   fondo sobre gastado mientras el usuario está en Jobs).
  */
 @Composable
 fun JobsScreen(viewModel: JobsViewModel) {
     val agents by viewModel.agents.collectAsState()
     val history by viewModel.history.collectAsState()
+
+    // T-FB017-US01-11: refrescar la lista de agentes cada vez que la
+    // pantalla Jobs se compone (o se vuelve a componer al navegar desde
+    // otra pantalla, p. ej. tras lanzar un agente nuevo en Agentes), para
+    // que el desplegable de "Elige agente destinatario" muestre el agente
+    // recién lanzado sin tener que reiniciar la app ni cambiar de proyecto.
+    LaunchedEffect(Unit) { viewModel.refreshAgents() }
+
     val progress by viewModel.progress.collectAsState()
 
     // T-FB017-US04-04: elevado desde CreateJobForm para que

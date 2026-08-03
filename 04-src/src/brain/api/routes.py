@@ -7,6 +7,7 @@ fina... no se duplica lógica de validación"). Las excepciones de dominio
 `HTTPException` con el mismo mensaje ya construido por el dominio — nunca
 un texto reinventado en esta capa."""
 
+import json
 import time
 from pathlib import Path
 
@@ -25,7 +26,12 @@ from brain.core.session_registry import (
     shutdown_current_session,
 )
 from brain.agents.agent_options import list_available_agent_options
-from brain.agents.launch import AgentLaunchError, launch_agent
+from brain.agents import CRITIC_ROLE
+from brain.agents.launch import (
+    AgentLaunchError,
+    launch_agent,
+    launch_agent_with_initial_job,
+)
 from brain.dispatcher.job_cancellation import (
     JobCancellationRejectedError,
     request_cancellation,
@@ -44,8 +50,9 @@ from brain.dispatcher.job_plan_dispatch import dispatch_plan, get_plan_progress
 from brain.dispatcher.job_plan_lifecycle import InvalidJobPlanTransitionError
 from brain.models import Agent, Job
 from brain.runtime.agent_runtime_registry import get_runtime_instance_for_agent
-from brain.runtime.generic import extract_model_from_runtime
+from brain.runtime.generic import extract_model_from_runtime, is_runtime_alive
 from brain.tmux.manager import DEFAULT_SOCKET_NAME
+from brain.tmux import capture_pane_lines
 from brain.workspace.active_project import (
     ProjectNotDiscoveredError,
     get_active_project,
@@ -57,6 +64,8 @@ from brain.workspace.project_scripts import (
     discover_project_scripts,
     run_project_script,
 )
+from brain.workspace.generic_scripts import list_generic_scripts, run_generic_script
+from brain.local_tools import ScribeUnavailableError, resumir_estado_backlog
 
 router = APIRouter()
 
@@ -66,6 +75,13 @@ router = APIRouter()
 # tests puedan aislarse en un servidor tmux propio via monkeypatch, mismo
 # patrón ya usado en test_launch_agent.py para los comandos de runtime.
 _SOCKET_NAME = DEFAULT_SOCKET_NAME
+
+# T-FB018-US02-04: la síntesis en prosa (T-FB018-US02-03) es una capa
+# opcional dentro de la respuesta de `POST /scripts/backlog_status/run`.
+# Se acota su timeout (menor que el por defecto de Scribe) para que un
+# Ollama lento no cuelgue el endpoint: la capa es opcional, nunca una
+# dependencia dura del resto de la respuesta.
+_BACKLOG_PROSE_TIMEOUT_SECONDS = 15.0
 
 # Mismo patrón que `_SOCKET_NAME` (T-FB016-US01-11): `None` en producción
 # resuelve al directorio de trabajo real del proceso / ubicación por
@@ -86,6 +102,7 @@ class LaunchAgentRequest(BaseModel):
     role: str
     runtime_type: str
     model: str | None = None
+    initial_job_description: str | None = None
 
 
 class CreateJobRequest(BaseModel):
@@ -104,6 +121,16 @@ class SelectProjectRequest(BaseModel):
     # que menciona la Descripción de la Task ("project_id o path"), sin
     # necesitar dos campos redundantes que pudieran discreparse entre sí.
     project_id: str
+
+
+class RunScriptRequest(BaseModel):
+    # T-FB018-US01-03: `message` es el único parámetro que necesita algún
+    # script del catálogo (el genérico `commit`); los particulares y el
+    # resto de genéricos (`push`, `changed_files`, `diff_stat`,
+    # `language_stats`, `backlog_status`) se ejecutan sin él. Campo
+    # opcional (default None): un cliente que solo hace un POST sin body
+    # sigue funcionando como antes.
+    message: str | None = None
 
 
 def _serialize_project(project) -> dict:
@@ -285,7 +312,15 @@ def get_agents_options() -> list[dict]:
     reimplementar su contenido. T-FB016-US01-18: ajusta un consumidor real
     (la app Android) que solo puede hablar HTTP y que antes duplicaba este
     catálogo en Kotlin; desde aquí la app y la TUI comparten la misma fuente
-    de verdad. No requiere sesión activa: es información estática sin estado."""
+    de verdad. No requiere sesión activa: es información estática sin estado.
+
+    T-FB016-US01-19: decisión de producto, NO técnica — por el momento el
+    Critic siempre debe lanzarse con Claude Code, así que la combinación
+    Critic + OpenCode no se ofrece a ningún cliente. Este filtro solo se
+    aplica en la envoltura HTTP (lo que se MUESTRA como opción elegible); la
+    lógica de dominio `list_available_agent_options`/`launch_agent` permanece
+    intacta (sigue admitiendo Critic+OpenCode) para poder revertir esta
+    decisión sin reintroducir código."""
     return [
         {
             "agent_role": option.agent_role,
@@ -294,6 +329,7 @@ def get_agents_options() -> list[dict]:
             "supports_model": option.supports_model,
         }
         for option in list_available_agent_options()
+        if not (option.agent_role == CRITIC_ROLE and option.runtime_type == "opencode")
     ]
 
 
@@ -308,30 +344,53 @@ def post_agents(body: LaunchAgentRequest) -> dict:
     Cualquier rechazo de `launch_agent` (`AgentLaunchError`) o de sesión
     no activa (`SessionNotActiveError`) se traduce a 400 con el mismo
     mensaje de motivo ya construido por el dominio — criterio de
-    aceptación explícito de la Task, nunca un texto reinventado aquí."""
+    aceptación explícito de la Task, nunca un texto reinventado aquí.
+
+    Si `initial_job_description` viene informado (T-FB016-US01-16, expone
+    T-FB008-US06-01), el lanzamiento encadena el despacho del Job inicial
+    en el mismo paso (`launch_agent_with_initial_job`) y la respuesta 201
+    incluye tanto los datos del agente como los del Job despachado (o su
+    fallo: si el despacho falla por timeout/runtime, el agente sigue
+    registrado e `idle`, `job.status == "failed"` con el motivo en
+    `job.result`). Sin el campo, la respuesta es idéntica a la actual
+    (solo datos del agente)."""
     session = get_current_session()
     if session is None:
         raise HTTPException(
             status_code=404, detail="No hay ninguna sesión de desarrollo activa."
         )
 
-    project = get_active_project()
+    project = get_active_project(state_dir=_STATE_DIR)
     if project is None:
         raise HTTPException(status_code=404, detail="No hay ningún proyecto activo.")
 
     try:
-        agent, _runtime_instance = launch_agent(
+        if body.initial_job_description is None:
+            agent, _runtime_instance = launch_agent(
+                body.role,
+                body.runtime_type,
+                body.model,
+                session,
+                project.path,
+                socket_name=_SOCKET_NAME,
+            )
+            return _serialize_agent(agent)
+
+        agent, _runtime_instance, job = launch_agent_with_initial_job(
             body.role,
             body.runtime_type,
             body.model,
             session,
             project.path,
+            initial_job_description=body.initial_job_description,
             socket_name=_SOCKET_NAME,
         )
-    except (AgentLaunchError, SessionNotActiveError) as error:
+    except (AgentLaunchError, SessionNotActiveError, JobCreationError) as error:
         raise HTTPException(status_code=400, detail=str(error)) from error
 
-    return _serialize_agent(agent)
+    jobs_hub.publish({"event": "job_status", **_serialize_job(job)})
+
+    return {"agent": _serialize_agent(agent), "job": _serialize_job(job)}
 
 
 def _find_agent_by_id(session, agent_id: str) -> Agent | None:
@@ -370,6 +429,51 @@ def post_agent_stop(agent_id: str) -> dict:
         raise HTTPException(status_code=400, detail=str(error)) from error
 
     return _serialize_agent(agent)
+
+
+@router.get("/agents/{agent_id}/pane")
+def get_agent_pane(agent_id: str) -> dict:
+    """Contenido actual del pane de tmux del agente `agent_id` de la sesión
+    activa (T-FB016-US01-12). Reutiliza `capture_pane_lines` sin reimplementar:
+    devuelve el contenido visual CRUDO de la sesión real del runtime — no es
+    una consola interactiva, es una vista de solo lectura del estado actual
+    (incluye cualquier señal visual de "esperando prompt" que OpenCode muestre
+    en su TUI, sin interpretarla semánticamente). 404 explícito si no hay
+    sesión activa, si el agente no existe en ella, o si el agente no tiene un
+    runtime registrado del que capturar pane."""
+    session = get_current_session()
+    if session is None:
+        raise HTTPException(
+            status_code=404, detail="No hay ninguna sesión de desarrollo activa."
+        )
+
+    agent = _find_agent_by_id(session, agent_id)
+    if agent is None:
+        raise HTTPException(
+            status_code=404, detail=f"No existe ningún agente con id '{agent_id}'."
+        )
+
+    runtime_instance = get_runtime_instance_for_agent(agent.id)
+    if runtime_instance is None:
+        raise HTTPException(
+            status_code=404,
+            detail=f"No hay ningún runtime registrado para el agente '{agent_id}'.",
+        )
+
+    # Agente `stopped`: la sesión tmux ya se mató (ver `stop_agent`) —
+    # capturar un pane inexistente lanzaría un AttributeError (500). Se
+    # devuelve un 404 limpio con el motivo, mismo estilo de detalle que el
+    # resto de endpoints.
+    if not is_runtime_alive(runtime_instance, socket_name=_SOCKET_NAME):
+        raise HTTPException(
+            status_code=404,
+            detail=f"El agente '{agent_id}' no tiene una sesión tmux viva que mostrar.",
+        )
+
+    content = capture_pane_lines(
+        runtime_instance.session_name, socket_name=_SOCKET_NAME
+    )
+    return {"agent_id": agent_id, "content": "\n".join(content)}
 
 
 def _find_job_by_id(session, job_id: str) -> Job | None:
@@ -787,31 +891,39 @@ def _serialize_script(script) -> dict:
         "name": script.name,
         "command": script.command,
         "description": script.description,
+        "origin": "particular",
+    }
+
+
+def _serialize_generic_script(script) -> dict:
+    return {
+        "id": script.id,
+        "name": script.name,
+        "command": None,
+        "description": None,
+        "origin": "generic",
     }
 
 
 @router.get("/scripts")
 def get_scripts() -> list[dict]:
-    """Catálogo de scripts particulares del proyecto activo
-    (`discover_project_scripts`, T-FB001-US03-01) — solo particulares por
-    ahora (T-FB001-US03-03: "si [FB-018 scripts genéricos] no está
-    implementado antes, esta Task expone solo particulares" — verificado
-    explícitamente que FB-018 no tiene ninguna implementación real todavía,
-    solo su fichero de Epic, `Estado: TODO` en su única Task).
+    """Catálogo combinado de scripts del proyecto activo (T-FB018-US01-03):
+    genéricos (`list_generic_scripts`, T-FB018-US01-01) + particulares
+    (`discover_project_scripts`, T-FB001-US03-01), distinguibles por el
+    cliente mediante el campo `origin` (`"generic"`/`"particular"`) — no
+    fusionados en una lista indistinguible, porque `commit` necesita un
+    parámetro (`message`) que los particulares no tienen.
 
-    Lista vacía si el proyecto activo no tiene manifiesto (criterio de
-    aceptación explícito: "proyecto sin scripts... sin error, lista vacía
-    visible") — mismo caso ya cubierto por `discover_project_scripts` en
-    dominio, aquí solo se propaga tal cual. `MalformedScriptManifestError`
+    Un proyecto sin scripts particulares sigue mostrando el catálogo
+    genérico con normalidad (criterio de aceptación explícito: "no depende
+    de que existan ambos") — el catálogo genérico es fijo e igual para
+    cualquier proyecto del workspace. `MalformedScriptManifestError`
     (manifiesto presente pero roto) se traduce a 400 con el mismo mensaje
     ya construido por el dominio, nunca un 500 genérico.
 
     `get_active_project(state_dir=_STATE_DIR)`, no el valor por defecto
     implícito — mismo bug ya corregido una vez en `GET /project`
-    (T-FB016-US01-11): sin pasar `_STATE_DIR` explícito, este endpoint
-    leería el filesystem real del usuario en vez del estado de proyecto
-    activo aislado en tests, dando siempre lista vacía en cualquier test
-    que no coincida por casualidad con el proyecto real de esta VM."""
+    (T-FB016-US01-11)."""
     project = get_active_project(state_dir=_STATE_DIR)
     if project is None:
         raise HTTPException(status_code=404, detail="No hay ningún proyecto activo.")
@@ -821,35 +933,84 @@ def get_scripts() -> list[dict]:
     except MalformedScriptManifestError as error:
         raise HTTPException(status_code=400, detail=str(error)) from error
 
-    return [_serialize_script(script) for script in scripts]
+    generic = [_serialize_generic_script(script) for script in list_generic_scripts()]
+    particular = [_serialize_script(script) for script in scripts]
+    return generic + particular
 
 
 @router.post("/scripts/{script_id}/run")
-def post_script_run(script_id: str) -> dict:
-    """Ejecuta el script catalogado `script_id` del proyecto activo
-    (`run_project_script`, T-FB001-US03-02) y devuelve su resultado
-    completo (`success`, `exit_code`, `stdout`, `stderr`, `error_message`).
+def post_script_run(script_id: str, request: RunScriptRequest | None = None) -> dict:
+    """Ejecuta el script catalogado `script_id` del proyecto activo y
+    devuelve su resultado completo (`success`, `exit_code`, `stdout`,
+    `stderr`, `error_message`).
+
+    T-FB018-US01-03: resuelve `script_id` contra AMBOS catálogos — si
+    pertenece al catálogo genérico (T-FB018-US01-01) delega en
+    `run_generic_script`, si no en `run_project_script` (T-FB001-US03-02).
+    `message` (body opcional) es el parámetro que necesita el genérico
+    `commit`; el resto de scripts se ejecutan sin parámetros adicionales.
+
+    T-FB018-US02-04: para `backlog_status` (T-FB018-US02-02), además de la
+    salida estructurada en `stdout` (el JSON del informe), la respuesta
+    incluye `data` (el informe ya parseado como dict, para que el cliente
+    pueda presentarlo con formato — tabla de conteo por Epic, lista de
+    Tasks listas, cadena de mayor apalancamiento) y `prose` (la capa
+    opcional de síntesis en prosa de T-FB018-US02-03, cuando Scribe/Ollama
+    está disponible — si no, `null` y la respuesta no pierde nada). Para el
+    resto de scripts ambos campos son `null`.
 
     A diferencia de `POST /agents`/`POST /jobs`, este endpoint nunca
-    traduce un fallo a un código HTTP de error — `run_project_script` ya
-    devuelve un `ScriptRunResult` con toda la información del fallo
-    (`script_id` desconocido, script que falla, timeout, manifiesto roto)
-    de forma estructurada; convertir eso a una `HTTPException` perdería la
-    salida/motivo detallado que el criterio de aceptación exige mostrar
-    ("con su salida disponible para diagnóstico"). El único 404 real de
-    este endpoint es la ausencia de sesión activa — no encontrar el
-    script en sí es un resultado válido de `ScriptRunResult`, no un error
-    de la petición HTTP. Mismo motivo que `get_scripts` para pasar
-    `state_dir=_STATE_DIR` explícito."""
+    traduce un fallo a un código HTTP de error — tanto `run_generic_script`
+    como `run_project_script` devuelven un `ScriptRunResult` con toda la
+    información del fallo (`script_id` desconocido, script que falla,
+    timeout, manifiesto roto) de forma estructurada; convertir eso a una
+    `HTTPException` perdería la salida/motivo detallado que el criterio de
+    aceptación exige mostrar. El único 404 real de este endpoint es la
+    ausencia de sesión activa — no encontrar el script en sí es un
+    resultado válido de `ScriptRunResult`, no un error de la petición
+    HTTP. Mismo motivo que `get_scripts` para pasar `state_dir=_STATE_DIR`
+    explícito."""
     project = get_active_project(state_dir=_STATE_DIR)
     if project is None:
         raise HTTPException(status_code=404, detail="No hay ningún proyecto activo.")
 
-    result = run_project_script(script_id, project.path)
+    generic_ids = {script.id for script in list_generic_scripts()}
+    if script_id in generic_ids:
+        params = {}
+        if request is not None and request.message:
+            params["message"] = request.message
+        result = run_generic_script(script_id, project.path, **params)
+    else:
+        result = run_project_script(script_id, project.path)
+
+    data: dict | None = None
+    prose: str | None = None
+    if script_id == "backlog_status" and result.success:
+        # T-FB018-US02-04: el informe estructurado ya calculado (JSON en
+        # stdout) se expone parseado para que el cliente lo presente con
+        # formato, y la capa opcional de síntesis en prosa (T-FB018-US02-03)
+        # se incluye cuando está disponible — nunca una dependencia dura: si
+        # Scribe/Ollama no está disponible, `prose` es `null` y el resto de
+        # la respuesta no cambia.
+        try:
+            data = json.loads(result.stdout)
+        except (json.JSONDecodeError, TypeError):
+            data = None
+        if data is not None and not data.get("empty"):
+            try:
+                prose = resumir_estado_backlog(
+                    json.dumps(data, ensure_ascii=False),
+                    timeout_seconds=_BACKLOG_PROSE_TIMEOUT_SECONDS,
+                )
+            except ScribeUnavailableError:
+                prose = None
+
     return {
         "success": result.success,
         "exit_code": result.exit_code,
         "stdout": result.stdout,
         "stderr": result.stderr,
         "error_message": result.error_message,
+        "data": data,
+        "prose": prose,
     }

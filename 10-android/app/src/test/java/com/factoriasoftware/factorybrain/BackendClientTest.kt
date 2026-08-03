@@ -112,15 +112,16 @@ class BackendClientTest {
             ),
         )
 
-        val agent = client.launchAgent(
+        val result = client.launchAgent(
             server.url("/").toString().trimEnd('/'),
             role = "critic",
             runtimeType = "opencode",
             model = "deepseek/deepseek-chat",
         )
 
-        assertEquals("a2", agent.id)
-        assertEquals("critic", agent.role)
+        assertEquals("a2", result.agent.id)
+        assertEquals("critic", result.agent.role)
+        assertEquals(null, result.job)
 
         val recordedRequest = server.takeRequest()
         assertEquals("POST", recordedRequest.method)
@@ -129,7 +130,82 @@ class BackendClientTest {
         assertTrue(sentBody.contains("\"role\":\"critic\""))
         assertTrue(sentBody.contains("\"runtime_type\":\"opencode\""))
         assertTrue(sentBody.contains("\"model\":\"deepseek/deepseek-chat\""))
+        assertTrue(!sentBody.contains("initial_job_description"))
     }
+
+    @Test
+    fun `launchAgent without initial job sends no initial_job_description and parses the flat agent`() =
+        runBlocking {
+            server.enqueue(
+                MockResponse().setResponseCode(201).setBody(
+                    """{"id":"a3","name":"agent-3","role":"developer","status":"idle"}"""
+                ),
+            )
+
+            val result = client.launchAgent(
+                server.url("/").toString().trimEnd('/'),
+                role = "developer",
+                runtimeType = "claude-code",
+                model = null,
+                initialJobDescription = null,
+            )
+
+            assertEquals("a3", result.agent.id)
+            assertEquals(null, result.job)
+            assertTrue(!server.takeRequest().body.readUtf8().contains("initial_job_description"))
+        }
+
+    @Test
+    fun `launchAgent with an initial job parses the wrapped agent and the finished job`() = runBlocking {
+        server.enqueue(
+            MockResponse().setResponseCode(201).setBody(
+                """{"agent":{"id":"a4","name":"agent-4","role":"developer","status":"idle"},
+                     "job":{"id":"j9","session_id":"s1","agent_id":"a4","description":"Analizar el modelo de dominio","status":"completed","result":"hecho"}}"""
+            ),
+        )
+
+        val result = client.launchAgent(
+            server.url("/").toString().trimEnd('/'),
+            role = "developer",
+            runtimeType = "opencode",
+            model = "deepseek/deepseek-chat",
+            initialJobDescription = "Analizar el modelo de dominio",
+        )
+
+        assertEquals("a4", result.agent.id)
+        assertEquals("idle", result.agent.status)
+        assertEquals("j9", result.job!!.id)
+        assertEquals("Analizar el modelo de dominio", result.job!!.description)
+        assertEquals("completed", result.job!!.status)
+
+        val recordedRequest = server.takeRequest()
+        val sentBody = recordedRequest.body.readUtf8()
+        assertTrue(sentBody.contains("\"initial_job_description\":\"Analizar el modelo de dominio\""))
+    }
+
+    @Test
+    fun `launchAgent with an initial job that failed keeps the agent registered and reports the failure`() =
+        runBlocking {
+            server.enqueue(
+                MockResponse().setResponseCode(201).setBody(
+                    """{"agent":{"id":"a5","name":"agent-5","role":"developer","status":"idle"},
+                         "job":{"id":"j10","session_id":"s1","agent_id":"a5","description":"hacer X","status":"failed","result":"El agente no tiene la herramienta necesaria"}}"""
+                ),
+            )
+
+            val result = client.launchAgent(
+                server.url("/").toString().trimEnd('/'),
+                role = "developer",
+                runtimeType = "opencode",
+                model = "deepseek/deepseek-chat",
+                initialJobDescription = "hacer X",
+            )
+
+            assertEquals("a5", result.agent.id)
+            assertEquals("idle", result.agent.status)
+            assertEquals("failed", result.job!!.status)
+            assertEquals("El agente no tiene la herramienta necesaria", result.job!!.result)
+        }
 
     @Test
     fun `launchAgent propagates the real domain reason on a rejected combination`() = runBlocking {
@@ -413,15 +489,99 @@ class BackendClientTest {
     fun `getScripts parses the real JSON list returned by GET scripts`() = runBlocking {
         server.enqueue(
             MockResponse().setResponseCode(200).setBody(
-                """[{"id":"lint","name":"Lint","command":"ruff check .","description":"Runs the linter."}]"""
+                """[{"id":"commit","name":"Commit de cambios","command":null,"description":null,"origin":"generic"},{"id":"lint","name":"Lint","command":"ruff check .","description":"Runs the linter.","origin":"particular"}]"""
             ),
         )
 
         val scripts = client.getScripts(server.url("/").toString().trimEnd('/'))
 
-        assertEquals(1, scripts.size)
-        assertEquals("lint", scripts[0].id)
-        assertEquals("ruff check .", scripts[0].command)
+        assertEquals(2, scripts.size)
+        assertEquals("commit", scripts[0].id)
+        assertEquals(null, scripts[0].command)
+        assertEquals("generic", scripts[0].origin)
+        assertEquals("lint", scripts[1].id)
+        assertEquals("ruff check .", scripts[1].command)
+        assertEquals("particular", scripts[1].origin)
+    }
+
+    @Test
+    fun `runScript sends the commit message in the request body`() = runBlocking {
+        server.enqueue(
+            MockResponse().setResponseCode(200).setBody(
+                """{"success":true,"exit_code":0,"stdout":"","stderr":"","error_message":null}"""
+            ),
+        )
+
+        client.runScript(server.url("/").toString().trimEnd('/'), "commit", "mi mensaje")
+
+        val recordedRequest = server.takeRequest()
+        assertEquals("POST", recordedRequest.method)
+        assertEquals("/scripts/commit/run", recordedRequest.path)
+        assertTrue(recordedRequest.body.readUtf8().contains("mi mensaje"))
+    }
+
+    @Test
+    fun `runScript parses the backlog_status structured data and prose`() = runBlocking {
+        // T-FB018-US02-04: `POST /scripts/backlog_status/run` devuelve el
+        // informe estructurado en `data` (para presentarlo con formato, no
+        // como JSON crudo) y la síntesis opcional en prosa en `prose`.
+        server.enqueue(
+            MockResponse().setResponseCode(200).setBody(
+                """
+                {
+                  "success": true,
+                  "exit_code": 0,
+                  "stdout": "{\"empty\":false}",
+                  "stderr": "",
+                  "error_message": null,
+                  "data": {
+                    "empty": false,
+                    "total": {"items": 3, "errors": 0,
+                      "user_stories": {"DONE": 1, "TODO": 1},
+                      "tasks": {"TODO": 1}},
+                    "by_epic": [
+                      {"epic": "FB-999 · Epic de prueba",
+                       "user_stories": {"DONE": 1, "TODO": 1},
+                       "tasks": {"TODO": 1}}
+                    ],
+                    "items_lista": [
+                      {"id": "T-FB999-01", "priority": "Crítica."},
+                      {"id": "US-FB999-02", "priority": "Alta."}
+                    ],
+                    "max_leverage_chain": [
+                      {"id": "US-FB999-01"}, {"id": "US-FB999-02"}
+                    ]
+                  },
+                  "prose": "Hay 3 items en el backlog."
+                }
+                """.trimIndent(),
+            ),
+        )
+
+        val result = client.runScript(server.url("/").toString().trimEnd('/'), "backlog_status")
+
+        assertTrue(result.success)
+        assertEquals(false, result.data?.empty)
+        assertEquals(3, result.data?.total?.items)
+        assertEquals("FB-999 · Epic de prueba", result.data?.by_epic?.first()?.epic)
+        assertEquals("T-FB999-01", result.data?.items_lista?.first()?.id)
+        assertEquals("US-FB999-02", result.data?.max_leverage_chain?.last()?.id)
+        assertEquals("Hay 3 items en el backlog.", result.prose)
+    }
+
+    @Test
+    fun `runScript tolerates null data and prose for non-backlog scripts`() = runBlocking {
+        server.enqueue(
+            MockResponse().setResponseCode(200).setBody(
+                """{"success":true,"exit_code":0,"stdout":"out","stderr":"","error_message":null,"data":null,"prose":null}"""
+            ),
+        )
+
+        val result = client.runScript(server.url("/").toString().trimEnd('/'), "greet")
+
+        assertTrue(result.success)
+        assertEquals(null, result.data)
+        assertEquals(null, result.prose)
     }
 
     @Test
@@ -506,4 +666,54 @@ class BackendClientTest {
             assertTrue(error.message!!.contains("debe estar 'running'"))
         }
     }
+
+    @Test
+    fun `getAgentOptions parses the real JSON catalog returned by GET agents options`() = runBlocking {
+        server.enqueue(
+            MockResponse().setResponseCode(200).setBody(
+                """[{"agent_role":"developer","runtime_type":"claude-code","runtime_name":"Claude Code","supports_model":false},
+                    {"agent_role":"developer","runtime_type":"opencode","runtime_name":"OpenCode","supports_model":true}]"""
+            ),
+        )
+
+        val options = client.getAgentOptions(server.url("/").toString().trimEnd('/'))
+
+        assertEquals(2, options.size)
+        assertEquals("developer", options[0].agent_role)
+        assertEquals("claude-code", options[0].runtime_type)
+        assertEquals("Claude Code", options[0].runtime_name)
+        assertEquals(false, options[0].supports_model)
+        assertEquals(true, options[1].supports_model)
+    }
+
+    @Test
+    fun `getAgentOptions throws BackendRequestException on a real backend error, not BackendUnavailableException`() =
+        runBlocking {
+            // Bug real corregido (crash en dispositivo, 2026-08-02): un
+            // backend systemd que todavía no había recargado la ruta
+            // `/agents/options` devolvía 404 — `AgentsViewModel.loadAgentOptions()`
+            // solo capturaba `BackendUnavailableException` (fallo de
+            // red/conexión), así que este `BackendRequestException` (una
+            // respuesta HTTP de error real, no un fallo de conexión) se
+            // propagaba sin capturar y tumbaba el `ViewModel`. Este test
+            // fija el contrato del cliente que `loadAgentOptions()` debe
+            // capturar: verificado aquí a nivel de `BackendClient` (donde
+            // sí es testeable en JVM puro sin Robolectric, a diferencia de
+            // `AgentsViewModel`, que requiere `Application`) — el `catch`
+            // añadido en el `ViewModel` se verifica por lectura de código,
+            // replicando el mismo patrón de dos `catch` ya usado y
+            // testeado en `launchAgent`/`stopAgent` en este mismo fichero.
+            server.enqueue(
+                MockResponse().setResponseCode(404).setBody(
+                    """{"detail":"Not Found"}"""
+                ),
+            )
+
+            try {
+                client.getAgentOptions(server.url("/").toString().trimEnd('/'))
+                fail("Expected BackendRequestException")
+            } catch (error: BackendRequestException) {
+                assertEquals("Not Found", error.message)
+            }
+        }
 }
