@@ -34,6 +34,9 @@ _BRAIN_ROOT = Path(__file__).resolve().parents[1] / "src" / "brain"
 # las excepciones que el código actual necesita (NUNCA una lista abierta):
 #   - tui/screens/agents.py  -> brain.agents.agent_options  (catálogo estático).
 #   - tui/screens/jobs.py    -> brain.agents  (solo las dos constantes de rol).
+#   - tui/screens/backlog.py -> brain.agents  (solo DEVELOPER_ROLE, para filtrar
+#                               el selector de "Lanzar desarrollo", T-FB020-US02-02
+#                               — mismo criterio ya aceptado en jobs.py).
 #   - tui/app.py, tui/screens/dashboard.py, tui/screens/workspace.py
 #                            -> brain.workspace.* (config de disco local /
 #                               selección de proyecto; la pantalla Workspace es
@@ -50,6 +53,9 @@ _TUI_ALLOWED = {
     },
     "tui/screens/jobs.py": {
         "brain.agents": {"CRITIC_ROLE", "DEVELOPER_ROLE"}
+    },
+    "tui/screens/backlog.py": {
+        "brain.agents": {"DEVELOPER_ROLE"}
     },
     "tui/app.py": {
         "brain.workspace.startup": {"ProjectRecovered", "resolve_startup_project"}

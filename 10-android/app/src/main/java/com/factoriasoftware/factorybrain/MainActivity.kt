@@ -20,6 +20,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.List
 import androidx.compose.material.icons.filled.Build
 import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material3.Icon
 import androidx.compose.material3.NavigationBar
@@ -37,6 +38,8 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.unit.dp
 import com.factoriasoftware.factorybrain.ui.AgentsScreen
 import com.factoriasoftware.factorybrain.ui.AgentsViewModel
+import com.factoriasoftware.factorybrain.ui.BacklogScreen
+import com.factoriasoftware.factorybrain.ui.BacklogViewModel
 import com.factoriasoftware.factorybrain.ui.HealthCheckViewModel
 import com.factoriasoftware.factorybrain.ui.JobsScreen
 import com.factoriasoftware.factorybrain.ui.JobsViewModel
@@ -70,6 +73,7 @@ private enum class AppScreen(val label: String, val icon: ImageVector) {
     Jobs("Jobs", Icons.AutoMirrored.Filled.List),
     Plan("Plan Critic", Icons.Filled.CheckCircle),
     Scripts("Scripts", Icons.Filled.Build),
+    Backlog("Backlog", Icons.Filled.Info),
 }
 
 class MainActivity : ComponentActivity() {
@@ -79,6 +83,7 @@ class MainActivity : ComponentActivity() {
     private val jobsViewModel: JobsViewModel by viewModels()
     private val planViewModel: PlanViewModel by viewModels()
     private val scriptsViewModel: ScriptsViewModel by viewModels()
+    private val backlogViewModel: BacklogViewModel by viewModels()
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -118,11 +123,21 @@ class MainActivity : ComponentActivity() {
                     // usuario siempre pide un plan explícito con
                     // `requestPlan`), así que no hay ningún dato
                     // "heredado" del proyecto anterior que limpiar ahí.
+                    // `BacklogViewModel` (T-FB020-US01-02) SÍ carga
+                    // automáticamente en `init` (igual que Jobs/Scripts) y
+                    // además conserva estado de navegación (Epic/item
+                    // abierto) — sin este refresco seguiría mostrando el
+                    // backlog Y la posición de navegación del proyecto
+                    // anterior; `refresh()` vuelve siempre al nivel de
+                    // lista con los datos del nuevo proyecto (criterio de
+                    // aceptación explícito de la Task: "no mezcla datos de
+                    // ambos").
                     LaunchedEffect(activeProjectId) {
                         if (activeProjectId != null) {
                             jobsViewModel.refreshAgents()
                             jobsViewModel.refreshHistory()
                             scriptsViewModel.refresh()
+                            backlogViewModel.refresh()
                         }
                     }
 
@@ -145,6 +160,7 @@ class MainActivity : ComponentActivity() {
                                     AppScreen.Jobs -> JobsScreen(viewModel = jobsViewModel)
                                     AppScreen.Plan -> PlanScreen(viewModel = planViewModel)
                                     AppScreen.Scripts -> ScriptsScreen(viewModel = scriptsViewModel)
+                                    AppScreen.Backlog -> BacklogScreen(viewModel = backlogViewModel)
                                 }
                             }
 

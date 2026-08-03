@@ -19,6 +19,9 @@ from brain.agents.liveness import refresh_agent_liveness
 from brain.agents.stop import AgentRuntimeNotFoundError, stop_agent
 from brain.api.events import jobs_hub, plans_hub
 from brain.api.plan_registry import get_plan, get_plan_lock, list_plans, register_plan
+from brain.backlog.detail import build_epic_detail, build_item_detail, is_epic_item_id
+from brain.backlog.parser import load_backlog
+from brain.backlog.report import build_backlog_report
 from brain.core.session_lifecycle import SessionNotActiveError, list_agents
 from brain.core.session_registry import (
     get_current_session,
@@ -41,7 +44,11 @@ from brain.dispatcher.job_dispatch import dispatch_job
 from brain.dispatcher.job_history_registry import list_jobs_for_session
 from brain.dispatcher.job_orchestration import create_and_record_job
 from brain.dispatcher.job_plan_approval import present_plan_for_approval
-from brain.dispatcher.job_plan_builder import build_job_plan_for_story
+from brain.dispatcher.job_plan_builder import (
+    _pending_task_files_for_story,
+    _read_task_title,
+    build_job_plan_for_story,
+)
 from brain.dispatcher.job_plan_cancellation import (
     JobPlanCancellationRejectedError,
     request_cancellation as request_plan_cancellation,
@@ -49,6 +56,7 @@ from brain.dispatcher.job_plan_cancellation import (
 from brain.dispatcher.job_plan_dispatch import dispatch_plan, get_plan_progress
 from brain.dispatcher.job_plan_lifecycle import InvalidJobPlanTransitionError
 from brain.models import Agent, Job
+from brain.models.backlog import ITEM_KIND_USER_STORY
 from brain.runtime.agent_runtime_registry import get_runtime_instance_for_agent
 from brain.runtime.generic import extract_model_from_runtime, is_runtime_alive
 from brain.tmux.manager import DEFAULT_SOCKET_NAME
@@ -109,6 +117,10 @@ class CreateJobRequest(BaseModel):
     agent_id: str
     description: str
     previous_job_id: str | None = None
+
+
+class LaunchDevelopmentRequest(BaseModel):
+    agent_id: str
 
 
 class CreatePlanRequest(BaseModel):
@@ -883,6 +895,197 @@ def post_plan_cancel(plan_id: str) -> dict:
     plans_hub.publish({"event": "plan_progress", **result})
 
     return result
+
+
+@router.get("/backlog")
+def get_backlog() -> dict:
+    """Informe estructurado del `02-backlog/` del proyecto activo
+    (T-FB020-US01-01): envoltura fina de `build_backlog_report`
+    (T-FB018-US02-02) — mismo dict que ya usa `POST
+    /scripts/backlog_status/run` en su campo `data`, expuesto ahora
+    también como lectura directa (`GET`, sin ejecutar nada). 404 explícito
+    si no hay proyecto activo, mismo criterio que `GET /scripts`."""
+    project = get_active_project(state_dir=_STATE_DIR)
+    if project is None:
+        raise HTTPException(status_code=404, detail="No hay ningún proyecto activo.")
+
+    backlog_path = Path(project.path) / "02-backlog"
+    return build_backlog_report(backlog_path)
+
+
+@router.get("/backlog/{item_id}")
+def get_backlog_item(item_id: str) -> dict:
+    """Detalle de una Epic/User Story/Task concreta del `02-backlog/` del
+    proyecto activo (T-FB020-US01-01), sin reimplementar el parseo de
+    Markdown: reusa `load_backlog` (T-FB018-US02-01) para el grafo ya
+    calculado y `brain.backlog.detail` para extraer las secciones
+    convencionales (objetivo/historia, criterios de aceptación) del
+    fichero de `item_id` — parseo de texto simple por encabezados `##`,
+    igual de determinista que el resto del parser.
+
+    Un `item_id` con forma `FB-xxx` (p. ej. `FB-020`) se resuelve como
+    Epic (no es un nodo de `BacklogGraph` — vive en
+    `02-backlog/epics/`); cualquier otro se busca como Task/User Story en
+    el grafo. 404 explícito con `detail` si no existe en ninguno de los
+    dos casos — nunca un error genérico ni un 500 (criterio de aceptación
+    explícito de la Task)."""
+    project = get_active_project(state_dir=_STATE_DIR)
+    if project is None:
+        raise HTTPException(status_code=404, detail="No hay ningún proyecto activo.")
+
+    backlog_path = Path(project.path) / "02-backlog"
+    graph = load_backlog(backlog_path)
+
+    if is_epic_item_id(item_id):
+        detail = build_epic_detail(backlog_path, graph, item_id)
+    else:
+        detail = build_item_detail(graph, item_id)
+
+    if detail is None:
+        # Un `item_id` cuyo fichero existe pero no siguió la convención de
+        # `## Estado`/`## Dependencias` no llega a `graph.items` (se reporta
+        # en `graph.errors`, mismo criterio que `GET /backlog`) — el 404
+        # sigue siendo el código correcto (el item no es consultable), pero
+        # el motivo real del fallo de parseo es más útil que "no existe".
+        parse_error = next(
+            (error for error in graph.errors if error.item_id == item_id), None
+        )
+        detail_message = (
+            f"El item de backlog '{item_id}' no se pudo cargar: {parse_error.reason}."
+            if parse_error is not None
+            else f"No existe ningún item de backlog con id '{item_id}'."
+        )
+        raise HTTPException(status_code=404, detail=detail_message)
+
+    return detail
+
+
+def _job_plan_builder_story_id(story_id: str) -> str:
+    """Convierte el `story_id` de `GET /backlog/{item_id}` (p. ej.
+    `US-FB020-01`) al formato que espera `_pending_task_files_for_story`/
+    `build_job_plan_for_story` (`job_plan_builder.py`): SIN el prefijo
+    `US-`, con el número de Story pegado tras `US` (`FB020-US01`) — el
+    mismo prefijo literal que ya usan los nombres reales de fichero de
+    Task en `02-backlog/tasks/` (`T-FB020-US01-01-...md`, NO
+    `T-US-FB020-01-...md`). Verificado directamente contra el `02-backlog/`
+    real de este proyecto y contra `test_job_plan_builder.py` (que
+    construye sus Tasks de prueba con `story_id = "FB999-US01"`, nunca
+    `"US-FB999-01"`) — sin esta conversión, `_pending_task_files_for_story`
+    nunca encuentra ningún fichero real, aunque la Story sí tenga Tasks
+    `TODO` (el 400 de 'sin Tasks pendientes' se dispararía siempre,
+    incorrectamente)."""
+    epic, story_number = story_id.removeprefix("US-").split("-", 1)
+    return f"{epic}-US{story_number}"
+
+
+def _build_launch_development_description(story_id: str, story_detail: dict, tasks_dir: Path) -> str:
+    """`description` del Job de "lanzar desarrollo de una User Story"
+    (T-FB020-US02-01): objetivo/historia real de la US (ya resuelto por
+    `build_item_detail`, `GET /backlog/{item_id}`) + títulos de sus Tasks
+    `TODO`, reutilizando `_pending_task_files_for_story`/`_read_task_title`
+    (`brain.dispatcher.job_plan_builder`) tal cual — mismo mecanismo ya
+    usado por `build_job_plan_for_story` para encontrar las Tasks
+    pendientes de una Story, sin reimplementar esa búsqueda aquí."""
+    lines = [f"Lanzar desarrollo de {story_id}."]
+    objetivo = story_detail.get("objetivo")
+    if objetivo:
+        lines.append(f"\nObjetivo: {objetivo}")
+
+    task_titles = []
+    for task_path in _pending_task_files_for_story(
+        _job_plan_builder_story_id(story_id), tasks_dir
+    ):
+        text = task_path.read_text(encoding="utf-8")
+        task_titles.append(_read_task_title(text, fallback=task_path.stem))
+
+    lines.append("\nTasks pendientes:")
+    lines.extend(f"- {title}" for title in task_titles)
+
+    return "\n".join(lines)
+
+
+@router.post("/backlog/{story_id}/launch-development", status_code=201)
+def post_launch_development(story_id: str, body: LaunchDevelopmentRequest) -> dict:
+    """Lanza el desarrollo de la User Story `story_id` con contexto ya
+    resuelto (T-FB020-US02-01): construye la `description` del Job
+    concatenando el objetivo/historia real de la US (mismo contenido que
+    `GET /backlog/{item_id}`, T-FB020-US01-01) y los títulos de sus Tasks
+    en `TODO` (reutilizando `_pending_task_files_for_story`/
+    `_read_task_title` de `job_plan_builder.py` tal cual — no un segundo
+    mecanismo de búsqueda de Tasks pendientes), y despacha con el mismo
+    motor ya existente (`create_and_record_job`/`dispatch_job`,
+    FB-005/FB-008) — no un despachador paralelo. El Job resultante es
+    indistinguible de uno creado por `POST /jobs` normal desde
+    `GET /jobs` (mismo criterio de aceptación explícito): mismo
+    mecanismo, sin tabla/campo propio.
+
+    Una User Story sin ninguna Task `TODO` (todas `DONE`, o ninguna
+    creada todavía) responde 400 con `detail` explícito, SIN llegar a
+    invocar `create_and_record_job`/`dispatch_job` — nunca se despacha un
+    Job vacío (criterio de aceptación explícito). `story_id` inexistente
+    en el backlog responde 404, mismo patrón que `GET /backlog/{item_id}`.
+    Un `agent_id` inválido (no pertenece a la sesión, no está `idle`, sin
+    runtime registrado) reutiliza exactamente la misma validación que
+    `POST /jobs` — no se duplica aquí."""
+    session = get_current_session()
+    if session is None:
+        raise HTTPException(
+            status_code=404, detail="No hay ninguna sesión de desarrollo activa."
+        )
+
+    project = get_active_project(state_dir=_STATE_DIR)
+    if project is None:
+        raise HTTPException(status_code=404, detail="No hay ningún proyecto activo.")
+
+    backlog_path = Path(project.path) / "02-backlog"
+    graph = load_backlog(backlog_path)
+
+    story_detail = build_item_detail(graph, story_id)
+    if story_detail is None or story_detail.get("kind") != ITEM_KIND_USER_STORY:
+        raise HTTPException(
+            status_code=404,
+            detail=f"No existe ninguna User Story con id '{story_id}' en el backlog.",
+        )
+
+    tasks_dir = backlog_path / "tasks"
+    pending_tasks = _pending_task_files_for_story(
+        _job_plan_builder_story_id(story_id), tasks_dir
+    )
+    if not pending_tasks:
+        raise HTTPException(
+            status_code=400,
+            detail=f"La User Story {story_id} no tiene Tasks pendientes; "
+            "no se lanza un Job vacío.",
+        )
+
+    agent = _find_agent_by_id(session, body.agent_id)
+    if agent is None:
+        raise HTTPException(
+            status_code=404, detail=f"No existe ningún agente con id '{body.agent_id}'."
+        )
+
+    runtime_instance = get_runtime_instance_for_agent(agent.id)
+    if runtime_instance is None:
+        raise HTTPException(
+            status_code=400,
+            detail=f"El agente '{agent.name}' no tiene un runtime registrado "
+            "— debe estar lanzado antes de despachar un Job.",
+        )
+
+    description = _build_launch_development_description(story_id, story_detail, tasks_dir)
+
+    try:
+        job = create_and_record_job(description, agent, session)
+    except JobCreationError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+
+    jobs_hub.publish({"event": "job_status", **_serialize_job(job)})
+
+    dispatch_job(job, agent, runtime_instance, socket_name=_SOCKET_NAME)
+
+    jobs_hub.publish({"event": "job_status", **_serialize_job(job)})
+
+    return _serialize_job(job)
 
 
 def _serialize_script(script) -> dict:

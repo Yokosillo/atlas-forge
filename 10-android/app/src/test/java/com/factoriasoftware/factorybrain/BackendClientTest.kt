@@ -716,4 +716,301 @@ class BackendClientTest {
                 assertEquals("Not Found", error.message)
             }
         }
+
+    // -------------------------------------------------------------------
+    // T-FB020-US01-02: `getBacklog`/`getBacklogItem`, consumiendo
+    // `GET /backlog`/`GET /backlog/{item_id}` (T-FB020-US01-01). Los
+    // cuerpos de prueba reflejan el shape REAL devuelto por
+    // `build_backlog_report`/`build_epic_detail`/`build_item_detail`
+    // (`brain/backlog/*.py`), no una simplificación.
+    // -------------------------------------------------------------------
+
+    @Test
+    fun `getBacklog parses the real report shape returned by GET backlog`() = runBlocking {
+        server.enqueue(
+            MockResponse().setResponseCode(200).setBody(
+                """
+                {
+                  "backlog_path": "/ws/project-a/02-backlog",
+                  "empty": false,
+                  "total": {"items": 3, "errors": 0,
+                    "user_stories": {"TODO": 1}, "tasks": {"TODO": 1, "DONE": 1}},
+                  "by_epic": [
+                    {"epic": "FB-999 · Epic de prueba",
+                     "user_stories": {"TODO": 1}, "tasks": {"TODO": 1, "DONE": 1}}
+                  ],
+                  "items_lista": [{"id": "T-FB999-01", "kind": "T", "epic": "FB-999 · Epic de prueba", "priority": "Alta."}],
+                  "items_bloqueada": [],
+                  "max_leverage_chain": [],
+                  "errors": []
+                }
+                """.trimIndent(),
+            ),
+        )
+
+        val report = client.getBacklog(server.url("/").toString().trimEnd('/'))
+
+        assertEquals(false, report.empty)
+        assertEquals(3, report.total?.items)
+        assertEquals(1, report.by_epic.size)
+        assertEquals("FB-999 · Epic de prueba", report.by_epic[0].epic)
+        assertEquals(1, report.by_epic[0].user_stories["TODO"])
+        assertEquals(1, report.by_epic[0].tasks["TODO"])
+        assertEquals(1, report.by_epic[0].tasks["DONE"])
+
+        val recordedRequest = server.takeRequest()
+        assertEquals("GET", recordedRequest.method)
+        assertEquals("/backlog", recordedRequest.path)
+    }
+
+    @Test
+    fun `getBacklog propagates the real domain reason when there is no active project (404)`() = runBlocking {
+        server.enqueue(
+            MockResponse().setResponseCode(404).setBody(
+                """{"detail":"No hay ningún proyecto activo."}"""
+            ),
+        )
+
+        try {
+            client.getBacklog(server.url("/").toString().trimEnd('/'))
+            fail("Expected BackendRequestException")
+        } catch (error: BackendRequestException) {
+            assertEquals("No hay ningún proyecto activo.", error.message)
+        }
+    }
+
+    @Test
+    fun `getBacklogItem parses an Epic detail with its User Stories breakdown`() = runBlocking {
+        server.enqueue(
+            MockResponse().setResponseCode(200).setBody(
+                """
+                {
+                  "id": "FB-020",
+                  "kind": "epic",
+                  "objetivo": "Convertir la pantalla de Plan en gestión de backlog completa.",
+                  "user_stories": [
+                    {"id": "US-FB020-01", "state": "TODO"},
+                    {"id": "US-FB020-02", "state": "TODO"}
+                  ]
+                }
+                """.trimIndent(),
+            ),
+        )
+
+        val detail = client.getBacklogItem(server.url("/").toString().trimEnd('/'), "FB-020")
+
+        assertEquals("FB-020", detail.id)
+        assertEquals("epic", detail.kind)
+        assertEquals("Convertir la pantalla de Plan en gestión de backlog completa.", detail.objetivo)
+        assertEquals(2, detail.user_stories.size)
+        assertEquals("US-FB020-01", detail.user_stories[0].id)
+        assertEquals("TODO", detail.user_stories[0].state)
+        assertEquals(null, detail.parse_warning)
+
+        val recordedRequest = server.takeRequest()
+        assertEquals("GET", recordedRequest.method)
+        assertEquals("/backlog/FB-020", recordedRequest.path)
+    }
+
+    @Test
+    fun `getBacklogItem parses a User Story detail with objective, criteria and its Tasks`() = runBlocking {
+        server.enqueue(
+            MockResponse().setResponseCode(200).setBody(
+                """
+                {
+                  "id": "US-FB020-01",
+                  "kind": "US",
+                  "epic": "FB-020 · Gestión de Backlog",
+                  "state": "TODO",
+                  "priority": "Alta.",
+                  "dependencies": [],
+                  "objetivo": "Como desarrollador quiero ver el backlog para saber su estado.",
+                  "criterios_aceptacion": "- El listado muestra el conteo.\n- El detalle muestra la historia.",
+                  "tasks": [
+                    {"id": "T-FB020-US01-01", "state": "DONE"},
+                    {"id": "T-FB020-US01-02", "state": "TODO"}
+                  ]
+                }
+                """.trimIndent(),
+            ),
+        )
+
+        val detail = client.getBacklogItem(server.url("/").toString().trimEnd('/'), "US-FB020-01")
+
+        assertEquals("US", detail.kind)
+        assertEquals("TODO", detail.state)
+        assertEquals(
+            "Como desarrollador quiero ver el backlog para saber su estado.",
+            detail.objetivo,
+        )
+        assertEquals(2, detail.tasks.size)
+        assertEquals("T-FB020-US01-01", detail.tasks[0].id)
+        assertEquals("DONE", detail.tasks[0].state)
+    }
+
+    @Test
+    fun `getBacklogItem parses a Task detail without a tasks field`() = runBlocking {
+        server.enqueue(
+            MockResponse().setResponseCode(200).setBody(
+                """
+                {
+                  "id": "T-FB020-US01-02",
+                  "kind": "T",
+                  "epic": "FB-020 · Gestión de Backlog",
+                  "state": "TODO",
+                  "priority": "Alta.",
+                  "dependencies": ["US-FB020-01"],
+                  "objetivo": "Integrar los endpoints en ambos clientes.",
+                  "criterios_aceptacion": "- Vista en Android.\n- Vista en TUI."
+                }
+                """.trimIndent(),
+            ),
+        )
+
+        val detail = client.getBacklogItem(server.url("/").toString().trimEnd('/'), "T-FB020-US01-02")
+
+        assertEquals("T", detail.kind)
+        assertEquals("Integrar los endpoints en ambos clientes.", detail.objetivo)
+        // El backend nunca envía `tasks` para una Task (solo para una US)
+        // — el valor por defecto de Moshi (lista vacía) refleja "ausente",
+        // no "US sin Tasks".
+        assertTrue(detail.tasks.isEmpty())
+        assertEquals(listOf("US-FB020-01"), detail.dependencies)
+    }
+
+    @Test
+    fun `getBacklogItem surfaces a parse_warning without treating it as an error`() = runBlocking {
+        // Criterio de aceptación explícito de T-FB020-US01-01: una
+        // sección mal formada no rompe la respuesta — se refleja como
+        // `parse_warning` en un 200 normal, no como excepción.
+        server.enqueue(
+            MockResponse().setResponseCode(200).setBody(
+                """
+                {
+                  "id": "T-FB999-01",
+                  "kind": "T",
+                  "epic": "FB-999 · Epic de prueba",
+                  "state": "TODO",
+                  "priority": "Media.",
+                  "dependencies": [],
+                  "objetivo": null,
+                  "criterios_aceptacion": null,
+                  "parse_warning": "sección `## Objetivo`/`## Historia` ausente o vacía; sección `## Criterios de aceptación` ausente o vacía"
+                }
+                """.trimIndent(),
+            ),
+        )
+
+        val detail = client.getBacklogItem(server.url("/").toString().trimEnd('/'), "T-FB999-01")
+
+        assertEquals(null, detail.objetivo)
+        assertEquals(null, detail.criterios_aceptacion)
+        assertTrue(detail.parse_warning!!.contains("Objetivo"))
+        assertTrue(detail.parse_warning!!.contains("Criterios de aceptación"))
+    }
+
+    @Test
+    fun `getBacklogItem propagates the real 404 reason for an unknown item_id`() = runBlocking {
+        server.enqueue(
+            MockResponse().setResponseCode(404).setBody(
+                """{"detail":"No existe ningún item de backlog con id 'US-FB999-99'."}"""
+            ),
+        )
+
+        try {
+            client.getBacklogItem(server.url("/").toString().trimEnd('/'), "US-FB999-99")
+            fail("Expected BackendRequestException")
+        } catch (error: BackendRequestException) {
+            assertTrue(error.message!!.contains("US-FB999-99"))
+        }
+    }
+
+    // -------------------------------------------------------------------
+    // T-FB020-US02-02: `launchDevelopment`, consumiendo
+    // `POST /backlog/{story_id}/launch-development` (T-FB020-US02-01).
+    // -------------------------------------------------------------------
+
+    @Test
+    fun `launchDevelopment posts the agent_id and parses the dispatched job`() = runBlocking {
+        server.enqueue(
+            MockResponse().setResponseCode(201).setBody(
+                """{"id":"j1","session_id":"s1","agent_id":"a1","description":"Lanzar desarrollo de US-FB999-01.\n\nObjetivo: ...","status":"completed","result":"done"}"""
+            ),
+        )
+
+        val job = client.launchDevelopment(
+            server.url("/").toString().trimEnd('/'), "US-FB999-01", "a1"
+        )
+
+        assertEquals("j1", job.id)
+        assertEquals("completed", job.status)
+        assertEquals("done", job.result)
+
+        val recordedRequest = server.takeRequest()
+        assertEquals("POST", recordedRequest.method)
+        assertEquals("/backlog/US-FB999-01/launch-development", recordedRequest.path)
+        assertTrue(recordedRequest.body.readUtf8().contains("\"agent_id\":\"a1\""))
+    }
+
+    @Test
+    fun `launchDevelopment propagates the real 400 reason when the story has no pending tasks`() =
+        runBlocking {
+            // Criterio de aceptación explícito de T-FB020-US02-02: "Si la
+            // User Story no tiene Tasks pendientes, la acción se rechaza
+            // con el motivo explícito del backend, sin lanzar nada" — el
+            // mensaje REAL del dominio, no reformulado aquí.
+            server.enqueue(
+                MockResponse().setResponseCode(400).setBody(
+                    """{"detail":"La User Story US-FB999-02 no tiene Tasks pendientes; no se lanza un Job vacío."}"""
+                ),
+            )
+
+            try {
+                client.launchDevelopment(
+                    server.url("/").toString().trimEnd('/'), "US-FB999-02", "a1"
+                )
+                fail("Expected BackendRequestException")
+            } catch (error: BackendRequestException) {
+                assertEquals(
+                    "La User Story US-FB999-02 no tiene Tasks pendientes; no se lanza un Job vacío.",
+                    error.message,
+                )
+            }
+        }
+
+    @Test
+    fun `launchDevelopment propagates the real 404 reason for an unknown story_id`() = runBlocking {
+        server.enqueue(
+            MockResponse().setResponseCode(404).setBody(
+                """{"detail":"No existe ninguna User Story con id 'US-FB999-99' en el backlog."}"""
+            ),
+        )
+
+        try {
+            client.launchDevelopment(
+                server.url("/").toString().trimEnd('/'), "US-FB999-99", "a1"
+            )
+            fail("Expected BackendRequestException")
+        } catch (error: BackendRequestException) {
+            assertTrue(error.message!!.contains("US-FB999-99"))
+        }
+    }
+
+    @Test
+    fun `launchDevelopment propagates the real 404 reason for an unknown agent`() = runBlocking {
+        server.enqueue(
+            MockResponse().setResponseCode(404).setBody(
+                """{"detail":"No existe ningún agente con id 'does-not-exist'."}"""
+            ),
+        )
+
+        try {
+            client.launchDevelopment(
+                server.url("/").toString().trimEnd('/'), "US-FB999-01", "does-not-exist"
+            )
+            fail("Expected BackendRequestException")
+        } catch (error: BackendRequestException) {
+            assertTrue(error.message!!.contains("does-not-exist"))
+        }
+    }
 }

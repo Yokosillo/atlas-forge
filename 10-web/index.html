@@ -1,0 +1,25 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Factory Brain</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <header class="topbar">
+    <h1>Factory Brain</h1>
+  </header>
+  <main class="content" id="app-root">
+    <!-- T-FB021-US02-01: el contenido operativo se renderiza desde app.js
+         EN BLANCO hasta que la verificación de conectividad (getHealth)
+         confirme que el backend responde. Sin esto, ningún dato a medio
+         cargar es visible antes de tiempo. -->
+  </main>
+  <script src="backend-client.js"></script>
+  <!-- T-FB021-US04-01: reconexión WebSocket, cargado ANTES que app.js
+       (la sección Jobs construye `new ReconnectingWebSocket(...)`). -->
+  <script src="reconnecting-websocket.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>

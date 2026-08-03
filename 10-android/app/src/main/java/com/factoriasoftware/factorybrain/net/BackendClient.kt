@@ -211,11 +211,14 @@ data class ScriptRunResultDto(
 
 /**
  * Informe estructurado del estado del backlog (T-FB018-US02-02), reflejo
- * del JSON de `build_backlog_report`/`brain backlog-status --json` que la
- * API incluye como `data` en `POST /scripts/backlog_status/run` — los
- * campos que la app presenta con formato (conteo por Epic, Tasks listas y
- * cadena de mayor apalancamiento), sin que el usuario tenga que leer el
- * JSON crudo.
+ * del JSON de `build_backlog_report` — usado tanto por
+ * `POST /scripts/backlog_status/run` (campo `data`) como, desde
+ * T-FB020-US01-02, directamente por `GET /backlog` (T-FB020-US01-01,
+ * mismo dict, lectura directa sin ejecutar el script). Solo se declaran
+ * aquí los campos que algún cliente presenta con formato (conteo por
+ * Epic, Tasks listas y cadena de mayor apalancamiento) — Moshi ignora
+ * cualquier campo del JSON real no declarado (`items_bloqueada`,
+ * `errors`, `backlog_path`), sin que eso rompa el parseo.
  */
 data class BacklogReportDto(
     val empty: Boolean = true,
@@ -241,6 +244,55 @@ data class BacklogEpicDto(
 data class BacklogItemSummaryDto(
     val id: String = "",
     val priority: String? = null,
+)
+
+/**
+ * Estado y detalle de una Epic/User Story/Task del backlog
+ * (T-FB020-US01-02, consume `GET /backlog/{item_id}`, T-FB020-US01-01) —
+ * un único DTO cubre ambas variantes reales que devuelve el backend
+ * (`build_epic_detail`/`build_item_detail`, `brain/backlog/detail.py`):
+ * campos de Epic (`kind == "epic"`: `objetivo`, `user_stories`) o de
+ * Task/US (`kind == "T"`/`"US"`: `epic`, `state`, `priority`,
+ * `dependencies`, `objetivo`, `criterios_aceptacion`, y `tasks` SOLO
+ * presente para una US). `parse_warning` es común a ambas variantes —
+ * presente solo si el fichero tenía una sección mal formada u opcional
+ * ausente (criterio de aceptación explícito de T-FB020-US01-01: nunca
+ * rompe la respuesta entera).
+ */
+data class BacklogItemDetailDto(
+    val id: String,
+    val kind: String,
+    val epic: String? = null,
+    val state: String? = null,
+    val priority: String? = null,
+    val dependencies: List<String> = emptyList(),
+    val objetivo: String? = null,
+    val criterios_aceptacion: String? = null,
+    val user_stories: List<BacklogItemStateDto> = emptyList(),
+    val tasks: List<BacklogItemStateDto> = emptyList(),
+    val parse_warning: String? = null,
+)
+
+/**
+ * Referencia mínima a un item del backlog con su estado (id + state) —
+ * reflejo de las entradas de `user_stories`/`tasks` en
+ * `BacklogItemDetailDto` (`brain/backlog/detail.py::build_epic_detail`/
+ * `build_item_detail`), NO el mismo shape que [BacklogItemSummaryDto]
+ * (que trae `priority`, no `state` — usado por `items_lista`/
+ * `max_leverage_chain` de [BacklogReportDto], un cálculo distinto).
+ */
+data class BacklogItemStateDto(
+    val id: String = "",
+    val state: String = "",
+)
+
+/**
+ * Cuerpo de `POST /backlog/{story_id}/launch-development` (T-FB020-US02-01/
+ * T-FB020-US02-02): único campo que el endpoint necesita — el resto del
+ * contexto (objetivo, Tasks pendientes) lo resuelve el propio backend.
+ */
+internal data class LaunchDevelopmentRequestDto(
+    val agent_id: String,
 )
 
 /**
@@ -308,6 +360,9 @@ class BackendClient(
     private val scriptRunResultAdapter = moshi.adapter(ScriptRunResultDto::class.java)
     private val runScriptRequestAdapter = moshi.adapter(RunScriptRequestDto::class.java)
     private val agentPaneAdapter = moshi.adapter(AgentPaneDto::class.java)
+    private val backlogReportAdapter = moshi.adapter(BacklogReportDto::class.java)
+    private val backlogItemDetailAdapter = moshi.adapter(BacklogItemDetailDto::class.java)
+    private val launchDevelopmentRequestAdapter = moshi.adapter(LaunchDevelopmentRequestDto::class.java)
 
     // `POST /jobs` y `POST /plans/{id}/approve` son bloqueantes del lado
     // del backend (la respuesta solo llega cuando el Job/plan entero ya
@@ -686,6 +741,77 @@ class BackendClient(
                 ?: throw BackendRequestException("Respuesta vacía del backend al ejecutar el script.")
         }
     }
+
+    /**
+     * `GET /backlog` (T-FB020-US01-01/T-FB020-US01-02) — informe
+     * estructurado del backlog del proyecto activo (conteo por Epic,
+     * mismo dict que `POST /scripts/backlog_status/run` ya presentaba en
+     * `data`). 404 (sin proyecto activo) se propaga como
+     * [BackendRequestException] — a diferencia de [getAgents]/[getJobs],
+     * NO es un estado válido "lista vacía": sin proyecto activo no hay
+     * nada que listar y la UI debe distinguir ese caso de "proyecto
+     * activo con backlog vacío" (`empty = true`, un 200 real).
+     */
+    suspend fun getBacklog(baseUrl: String): BacklogReportDto = withContext(Dispatchers.IO) {
+        val request = Request.Builder().url("$baseUrl/backlog").get().build()
+        executeOrThrow(request, baseUrl) { response ->
+            backlogReportAdapter.fromJson(response.body!!.string())
+                ?: throw BackendRequestException("Respuesta vacía del backend al consultar el backlog.")
+        }
+    }
+
+    /**
+     * `GET /backlog/{item_id}` (T-FB020-US01-01/T-FB020-US01-02) —
+     * detalle de una Epic (`itemId` con forma `FB-xxx`)/User Story/Task
+     * concreta. Un `item_id` inexistente (404, con el motivo real —
+     * incluido el de un fallo de parseo, ver `brain/backlog/detail.py`)
+     * se propaga como [BackendRequestException], sin tratamiento
+     * especial: a diferencia de `GET /backlog`, aquí un 404 siempre es un
+     * error real de navegación (el usuario pidió un id que no existe),
+     * nunca un estado válido.
+     */
+    suspend fun getBacklogItem(baseUrl: String, itemId: String): BacklogItemDetailDto =
+        withContext(Dispatchers.IO) {
+            val request = Request.Builder().url("$baseUrl/backlog/$itemId").get().build()
+            executeOrThrow(request, baseUrl) { response ->
+                backlogItemDetailAdapter.fromJson(response.body!!.string())
+                    ?: throw BackendRequestException("Respuesta vacía del backend al consultar el item de backlog.")
+            }
+        }
+
+    /**
+     * `POST /backlog/{story_id}/launch-development` (T-FB020-US02-01/
+     * T-FB020-US02-02) — lanza el desarrollo de la User Story `storyId`
+     * con contexto ya resuelto por el backend (objetivo + Tasks `TODO`
+     * concatenados en la `description` del Job) y lo despacha al agente
+     * `agentId`. Bloqueante como `POST /jobs` (mismo motor de despacho,
+     * la respuesta solo llega cuando el Job ya terminó) — usa
+     * [longRunningDispatchHttpClient], mismo criterio que
+     * [createAndDispatchJob].
+     *
+     * 400 (User Story sin ninguna Task `TODO`) y 404 (`story_id`
+     * inexistente, o `agentId` desconocido) se propagan como
+     * [BackendRequestException] con el `detail` REAL del backend — NUNCA
+     * reformulado aquí (criterio de aceptación explícito de
+     * T-FB020-US02-02: "mostrar el motivo explícito devuelto por el
+     * backend, no un error genérico").
+     */
+    suspend fun launchDevelopment(baseUrl: String, storyId: String, agentId: String): JobDto =
+        withContext(Dispatchers.IO) {
+            val body = launchDevelopmentRequestAdapter
+                .toJson(LaunchDevelopmentRequestDto(agentId))
+                .toRequestBody(JSON_MEDIA_TYPE)
+            val request = Request.Builder()
+                .url("$baseUrl/backlog/$storyId/launch-development")
+                .post(body)
+                .build()
+            executeOrThrow(request, baseUrl, client = longRunningDispatchHttpClient) { response ->
+                jobAdapter.fromJson(response.body!!.string())
+                    ?: throw BackendRequestException(
+                        "Respuesta vacía del backend al lanzar el desarrollo de la User Story."
+                    )
+            }
+        }
 
     /**
      * Ejecuta la petición y aplica la misma traducción de errores en los

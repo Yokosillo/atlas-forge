@@ -211,6 +211,53 @@ class BackendClient:
         response.raise_for_status()
         return response.json()
 
+    def get_backlog(self) -> dict:
+        """`GET /backlog` (T-FB020-US01-01) — informe estructurado del
+        backlog del proyecto activo (conteo de Epics/User Stories/Tasks
+        por estado). A diferencia de `get_agents`/`get_jobs`, un 404
+        (sin proyecto activo) SÍ se propaga como `requests.HTTPError` —
+        no es un estado "lista vacía" equivalente: sin proyecto activo no
+        hay nada que listar, y la pantalla debe distinguirlo de un
+        backlog con proyecto activo pero sin Epics todavía (`empty: true`
+        en un 200 real, ver `build_backlog_report`)."""
+        response = self._request("GET", "/backlog")
+        response.raise_for_status()
+        return response.json()
+
+    def get_backlog_item(self, item_id: str) -> dict:
+        """`GET /backlog/{item_id}` (T-FB020-US01-01) — detalle de una
+        Epic (`item_id` con forma `FB-xxx`)/User Story/Task concreta. Un
+        `item_id` inexistente propaga `requests.HTTPError` (404) con el
+        motivo real del backend (incluido el de un fallo de parseo, ver
+        `brain/backlog/detail.py`) — aquí SIEMPRE es un error real de
+        navegación (el usuario pidió un id que no existe), nunca un
+        estado válido a silenciar."""
+        response = self._request("GET", f"/backlog/{item_id}")
+        response.raise_for_status()
+        return response.json()
+
+    def launch_development(self, story_id: str, agent_id: str) -> dict:
+        """`POST /backlog/{story_id}/launch-development` (T-FB020-US02-01/
+        T-FB020-US02-02) — lanza el desarrollo de la User Story `story_id`
+        con contexto ya resuelto por el backend (objetivo + Tasks `TODO`
+        concatenados en la `description` del Job) y lo despacha al agente
+        `agent_id`. Bloqueante como `create_and_dispatch_job` (mismo motor
+        de despacho): la respuesta solo llega cuando el Job ya terminó —
+        mismo timeout extendido.
+
+        400 (sin Tasks `TODO`) y 404 (`story_id`/`agent_id` inválido) se
+        propagan como `requests.HTTPError` con el `detail` REAL del
+        backend — nunca reformulado aquí (criterio de aceptación
+        explícito de T-FB020-US02-02)."""
+        response = self._request(
+            "POST",
+            f"/backlog/{story_id}/launch-development",
+            json={"agent_id": agent_id},
+            timeout=_JOB_DISPATCH_TIMEOUT_SECONDS,
+        )
+        response.raise_for_status()
+        return response.json()
+
     def get_scripts(self) -> list[dict]:
         """`GET /scripts` (T-FB001-US03-03, T-FB018-US01-03) — catálogo
         combinado de scripts genéricos (`origin: "generic"`) y particulares

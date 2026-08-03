@@ -148,6 +148,7 @@ class DashboardScreen(Screen):
                     Button("Ver Jobs", id="go-to-jobs"),
                     Button("Ver Plan", id="go-to-plan"),
                     Button("Ver Scripts", id="go-to-scripts"),
+                    Button("Ver Backlog", id="go-to-backlog"),
                 ]
             )
 
@@ -164,6 +165,7 @@ class DashboardScreen(Screen):
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
         from brain.tui.screens.agents import AgentsScreen
+        from brain.tui.screens.backlog import BacklogScreen
         from brain.tui.screens.jobs import JobsScreen
         from brain.tui.screens.plan import PlanScreen
         from brain.tui.screens.scripts import ScriptsScreen
@@ -198,6 +200,14 @@ class DashboardScreen(Screen):
         elif event.button.id == "go-to-scripts":
             self.app.push_screen(
                 ScriptsScreen(
+                    workspace_root=self._workspace_root,
+                    state_dir=self._state_dir,
+                    backend_client=self._backend,
+                )
+            )
+        elif event.button.id == "go-to-backlog":
+            self.app.push_screen(
+                BacklogScreen(
                     workspace_root=self._workspace_root,
                     state_dir=self._state_dir,
                     backend_client=self._backend,

@@ -41,6 +41,7 @@ from pathlib import Path
 
 from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.responses import FileResponse
+from fastapi.staticfiles import StaticFiles
 
 from brain.api import routes as routes_module
 from brain.api.events import jobs_hub, plans_hub, register_event_loops
@@ -59,6 +60,13 @@ from brain.core.session_registry import (
 # usuario) por ser un artefacto de sistema del servicio, no un dato de
 # usuario — movido desde ~/factory-brain-releases/ el 2026-08-01.
 DEFAULT_APK_PATH = Path("/opt/factory-brain/releases/factory-brain-latest.apk")
+
+# T-FB021-US01-01: directorio raíz de la interfaz web estática (`10-web/`,
+# mismo nivel que `10-android/` — coherente con la nomenclatura de clientes).
+# Se ancla al propio `app.py` (`parents[4]` = raíz del repo) y NO al cwd, de
+# modo que `create_app()` sirva la web igual se lance uvicorn desde la raíz
+# del repo o desde dentro de `04-src/`.
+WEB_ROOT = Path(__file__).resolve().parents[4] / "10-web"
 
 
 @asynccontextmanager
@@ -113,6 +121,25 @@ async def _lifespan(app: FastAPI):
 def create_app() -> FastAPI:
     app = FastAPI(title="Factory Brain API", lifespan=_lifespan)
     app.include_router(router)
+
+    # T-FB021-US01-01: servir la interfaz web estática bajo un PREFIJO
+    # dedicado (`/ui`), NO en la raíz `GET /`. Motivos documentados:
+    #
+    #   1. `GET /` no es un endpoint de dominio (ver listado completo de
+    #      rutas más abajo); montar StaticFiles en la raíz haría que Starlette
+    #      sirviera CUALQUIER path desconocido desde el directorio estático,
+    #      enmascarando 404s legítimos de la API (un typo de `/scripts` u
+    #      otro endpoint devolvería el index.html/404 de la web en vez de un
+    #      404 de dominio JSON, rompiendo el contrato de errores de la API).
+    #   2. Un prefijo dedicado (`/ui`) mantiene la API de dominio en su propio
+    #      namespace, sin colisión con los 26 endpoints existentes y sin
+    #      entorpecer el análisis de rutas del router.
+    #   3. `html=True` hace que `GET /ui/` sirva `index.html` y `GET /ui`
+    #      responda con un redirect 307 a `/ui/` — la "URL raíz elegida" de
+    #      la web es `/ui/`.
+    # La verificación explícita de que ningún endpoint de dominio usa esta
+    # ruta está en `tests/test_api_static_web.py` (no solo asumido aquí).
+    app.mount("/ui", StaticFiles(directory=WEB_ROOT, html=True), name="web-ui")
 
     @app.get("/health")
     def health() -> dict:

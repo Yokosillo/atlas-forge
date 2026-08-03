@@ -1,0 +1,666 @@
+/* Factory Brain — interfaz web (FB-021).
+   Base mínima de estilos. El resto de Tasks de la Epic reutilizan estas
+   reglas base en vez de fijar tamaños por su cuenta.
+
+   T-FB021-US01-01: tamaño mínimo de área clicable. Equivalente web del
+   criterio de "objetivos de toque de al menos 48dp" ya exigido en la app
+   Android: elementos interactivos (botones, enlaces de navegación) ofrecen
+   una zona de toque/pulsación de al menos 48px de alto (y 48px de ancho
+   para objetivos aislados), evitando pulsaciones accidentales. */
+button,
+input[type="button"],
+input[type="submit"],
+a[role="button"],
+summary {
+  min-height: 48px;
+  min-width: 48px;
+}
+
+/* Enlaces de navegación: por defecto en línea, pero se les exige el área
+   clicable mínima igualmente para el objetivo de toque. */
+a {
+  display: inline-block;
+  min-height: 48px;
+  line-height: 48px;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  font-family: system-ui, sans-serif;
+}
+
+.topbar {
+  padding: 16px;
+  background: #20232a;
+  color: #fff;
+}
+
+.topbar h1 {
+  margin: 0;
+  font-size: 20px;
+}
+
+.content {
+  padding: 16px;
+}
+
+/* ------------------------------------------------------------------ */
+/* FB-021 · Navegación y contexto (T-FB021-US02-03)                    */
+/* ------------------------------------------------------------------ */
+
+.context-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 0;
+}
+
+.context-chip {
+  font-weight: 600;
+}
+
+.section-nav {
+  display: flex;
+  gap: 8px;
+  border-bottom: 2px solid #ddd;
+  padding: 8px 0 0;
+  margin-bottom: 8px;
+}
+
+.section-tab {
+  background: none;
+  border: none;
+  border-bottom: 3px solid transparent;
+  cursor: pointer;
+  font-size: 15px;
+}
+
+.section-tab.active {
+  border-bottom-color: #20232a;
+  font-weight: 700;
+}
+
+/* ------------------------------------------------------------------ */
+/* FB-021 · Sección Agentes (T-FB021-US03-01)                          */
+/* ------------------------------------------------------------------ */
+
+/* Paleta de estado (misma que `colorForAgentStatus`, Android):
+   colores fijos independientes del tema, verificados a >=3:1 de
+   contraste (WCAG 1.4.11) sobre los fondos claro (#FAFDFD/#FFFFFF) y
+   oscuro (#191C1C). El color es un indicador COMPLEMENTARIO: el texto de
+   estado siempre lo acompaña (criterio 4). */
+:root {
+  --status-idle: #2e7d32;
+  --status-working: #ef6c00;
+  --status-stopped: #757575;
+  --status-unavailable: #d32f2f;
+}
+
+.agents-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.agents-title {
+  font-weight: 700;
+  font-size: 16px;
+}
+
+.status-dot {
+  display: inline-block;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  margin-right: 6px;
+  vertical-align: middle;
+  background-color: var(--status-stopped);
+}
+
+.agent-status-row {
+  display: flex;
+  align-items: center;
+  margin-top: 4px;
+}
+
+.status-text {
+  font-size: 14px;
+}
+
+.agent-card {
+  border: 1px solid #ddd;
+  border-radius: 8px;
+  padding: 10px 12px;
+  margin: 8px 0;
+}
+
+.agent-name {
+  font-weight: 600;
+}
+
+.agent-model {
+  font-size: 13px;
+  color: #444;
+  margin-top: 2px;
+}
+
+.agent-message {
+  padding: 8px;
+  border-radius: 6px;
+  background: #eef6ef;
+}
+
+.stale-note {
+  padding: 8px;
+  border-radius: 6px;
+  background: #fff4e0;
+}
+
+.agent-error {
+  color: #b00020;
+}
+
+.launch-form {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px 0;
+}
+
+.launch-select,
+.launch-form input[type="text"],
+.launch-form textarea {
+  width: 100%;
+  padding: 10px;
+  font-size: 15px;
+  border: 1px solid #999;
+  border-radius: 6px;
+}
+
+.launch-form textarea {
+  min-height: 72px;
+  resize: vertical;
+}
+
+.launch-title {
+  font-weight: 700;
+  margin-top: 12px;
+}
+
+/* ------------------------------------------------------------------ */
+/* FB-021 · Acciones por agente (T-FB021-US03-02)                      */
+/* ------------------------------------------------------------------ */
+
+/* Fila de acciones alineada a la derecha, "Detener" el último elemento:
+   al crecer su etiqueta con el aviso combinado de confirmación se expande
+   hacia la izquierda y su borde derecho (el que el usuario vuelve a
+   pulsar) no se desplaza entre el primer y el segundo clic. */
+.agent-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 8px;
+  flex-wrap: wrap;
+}
+
+.agent-actions .agent-stop {
+  max-width: 100%;
+  white-space: normal;
+  line-height: 1.25;
+}
+
+/* Panel del pane de actividad: solo lectura, con scroll si es largo. */
+.pane-panel {
+  border: 1px solid #999;
+  border-radius: 8px;
+  padding: 12px;
+  margin: 8px 0;
+  background: #f7f7f7;
+}
+
+.pane-title {
+  font-weight: 700;
+  margin-bottom: 6px;
+}
+
+.pane-view {
+  white-space: pre-wrap;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 13px;
+  max-height: 320px;
+  overflow-y: auto;
+  background: #fff;
+  border: 1px solid #ddd;
+  border-radius: 4px;
+  padding: 8px;
+  margin-bottom: 8px;
+}
+
+/* ------------------------------------------------------------------ */
+/* FB-021 · Sección Jobs (T-FB021-US04-01)                             */
+/* ------------------------------------------------------------------ */
+
+.ws-status-note {
+  font-size: 13px;
+  color: #444;
+  margin: 4px 0;
+}
+
+/* Progreso del Job en curso / resultado: con scroll si el resultado es
+   largo (criterio de aceptación: el resultado completo, sin truncar, es
+   legible con scroll). */
+.job-progress {
+  border: 1px solid #999;
+  border-radius: 8px;
+  padding: 12px;
+  margin: 8px 0;
+  background: #f7f7f7;
+}
+
+.job-progress-title {
+  font-weight: 700;
+  margin-bottom: 6px;
+}
+
+.job-progress-message {
+  white-space: pre-wrap;
+  max-height: 320px;
+  overflow-y: auto;
+  margin: 4px 0 8px;
+}
+
+/* El aviso de confirmación de cancelación crece en la ETIQUETA del propio
+   botón (misma lección que "Detener" y que la TUI): el texto no reposiciona
+   nada del resto del layout entre el primer y el segundo clic. */
+/* "Cancelar Job" comparte el patrón "el aviso crece en la etiqueta" con
+   "Detener" (ver arriba) pero es UNA ACCIÓN DISTINTA, de alcance
+   distinto: un Job individual, no el agente entero. Por eso su
+   identidad visual es distinta de `.agent-stop` (borde rojo, tinte de
+   confirmación) para que nunca se confundan. */
+.job-cancel {
+  max-width: 100%;
+  white-space: normal;
+  line-height: 1.25;
+  border: 1px solid #b3261e;
+  color: #b3261e;
+  background: #fff6f5;
+}
+
+/* Histórico (T-FB021-US04-02): tarjeta expandible con detalle completo
+   y acción de encadenamiento solo para Jobs `completed`. */
+.job-line {
+  cursor: pointer;
+  user-select: none;
+}
+
+.job-line:hover {
+  text-decoration: underline;
+}
+
+.job-status-run {
+  color: #1a73e8;
+}
+
+.job-status-ok {
+  color: #188038;
+}
+
+.job-status-ko {
+  color: #b3261e;
+}
+
+.job-line-selected {
+  text-decoration: underline;
+}
+
+.job-card-selected {
+  border-color: #1a73e8;
+  box-shadow: 0 0 0 1px #1a73e8;
+}
+
+.job-hint {
+  font-size: 12px;
+  color: #666;
+  margin-top: 2px;
+}
+
+.job-detail {
+  margin-top: 8px;
+  border-top: 1px solid #eee;
+  padding-top: 8px;
+}
+
+.job-detail-field {
+  font-size: 13px;
+  color: #444;
+  margin-top: 2px;
+}
+
+.job-detail-label {
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+  color: #555;
+  margin-top: 10px;
+}
+
+.job-detail-text {
+  white-space: pre-wrap;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 13px;
+  max-height: 240px;
+  overflow-y: auto;
+  background: #fff;
+  border: 1px solid #ddd;
+  border-radius: 4px;
+  padding: 8px;
+  margin-top: 4px;
+}
+
+.job-use-prev {
+  margin-top: 10px;
+}
+
+.jobs-form-title,
+.jobs-history-title {
+  font-weight: 700;
+  margin-top: 12px;
+}
+
+.jobs-form {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px 0;
+}
+
+.field-label {
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.jobs-form textarea {
+  width: 100%;
+  padding: 10px;
+  font-size: 15px;
+  border: 1px solid #999;
+  border-radius: 6px;
+  min-height: 72px;
+  resize: vertical;
+}
+
+.job-card {
+  border: 1px solid #ddd;
+  border-radius: 8px;
+  padding: 10px 12px;
+  margin: 8px 0;
+}
+
+.job-line {
+  font-weight: 600;
+}
+
+.job-result {
+  white-space: pre-wrap;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 13px;
+  max-height: 240px;
+  overflow-y: auto;
+  background: #fff;
+  border: 1px solid #ddd;
+  border-radius: 4px;
+  padding: 8px;
+  margin-top: 6px;
+}
+
+/* ------------------------------------------------------------------ */
+/* FB-021 · Sección Plan (T-FB021-US05-01)                             */
+/* ------------------------------------------------------------------ */
+
+.plans-form {
+  margin: 10px 0;
+}
+
+.plans-form input {
+  width: 100%;
+  padding: 10px;
+  font-size: 15px;
+  border: 1px solid #999;
+  border-radius: 6px;
+  margin: 6px 0;
+}
+
+.plan-submit {
+  margin-top: 4px;
+}
+
+.plan-card {
+  border: 1px solid #ddd;
+  border-radius: 8px;
+  padding: 12px;
+  margin: 8px 0;
+  background: #f7f7f7;
+}
+
+.plan-goal {
+  font-weight: 700;
+}
+
+.plan-status {
+  margin-top: 4px;
+  font-weight: 600;
+}
+
+.plan-status-run {
+  color: #1a73e8;
+}
+
+.plan-status-ko {
+  color: #b3261e;
+}
+
+.plan-step {
+  border: 1px solid #ddd;
+  border-radius: 6px;
+  padding: 10px 12px;
+  margin-top: 8px;
+  background: #fff;
+}
+
+.plan-step-title {
+  font-weight: 600;
+  white-space: pre-wrap;
+}
+
+.plan-step-field {
+  font-size: 13px;
+  color: #444;
+  margin-top: 4px;
+  white-space: pre-wrap;
+}
+
+.plan-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 12px;
+  flex-wrap: wrap;
+}
+
+.plan-actions .plan-approve {
+  max-width: 100%;
+  white-space: normal;
+  line-height: 1.25;
+}
+
+/* "Cancelar plan" (T-FB021-US05-02): comparte el patrón "el aviso crece en
+   la etiqueta" con "Cancelar Job"/"Detener", pero es UNA ACCIÓN DISTINTA,
+   de alcance distinto (detiene el despacho de un plan, no un Job suelto ni
+   un agente). Por eso su identidad visual es distinta de `.plan-approve`:
+   borde rojo destructivo (mismo tinte que `.job-cancel`) para que nunca se
+   confunda con la aprobación. El texto de confirmación crece hacia la
+   izquierda sin desplazar el borde derecho que se vuelve a pulsar. */
+.plan-actions .plan-cancel {
+  max-width: 100%;
+  white-space: normal;
+  line-height: 1.25;
+  border: 1px solid #b3261e;
+  color: #b3261e;
+  background: #fff6f5;
+}
+
+/* Histórico de planes (T-FB021-US05-02): tarjeta expandible con el detalle
+   completo del plan consultado vía `GET /plans/{id}` (mismo patrón de
+   cabecera clicable que el histórico de Jobs, US04-02). */
+.plans-history-title {
+  font-weight: 700;
+  margin-top: 12px;
+}
+
+.plan-history-card {
+  border: 1px solid #ddd;
+  border-radius: 8px;
+  padding: 10px 12px;
+  margin: 8px 0;
+}
+
+.plan-history-selected {
+  border-color: #1a73e8;
+  box-shadow: 0 0 0 1px #1a73e8;
+}
+
+.plan-history-line {
+  cursor: pointer;
+  user-select: none;
+  font-weight: 600;
+}
+
+.plan-history-line:hover {
+  text-decoration: underline;
+}
+
+.plan-line-selected {
+  text-decoration: underline;
+}
+
+.plan-history-detail {
+  margin-top: 8px;
+  border-top: 1px solid #eee;
+  padding-top: 8px;
+}
+
+/* ------------------------------------------------------------------ */
+/* FB-021 · Sección Scripts (T-FB021-US06-01)                          */
+/* ------------------------------------------------------------------ */
+
+.scripts-title {
+  font-weight: 700;
+  margin-top: 12px;
+}
+
+.scripts-group-title {
+  font-weight: 700;
+  margin-top: 12px;
+}
+
+.script-card {
+  border: 1px solid #ddd;
+  border-radius: 8px;
+  padding: 10px 12px;
+  margin: 8px 0;
+}
+
+.script-card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.script-name {
+  font-weight: 600;
+}
+
+/* Indicador de origen: el catálogo combinado distingue genéricos de
+   particulares sin mezclarlos en una lista indistinguible (punto 1). */
+.script-origin {
+  font-size: 12px;
+  font-weight: 600;
+  padding: 2px 8px;
+  border-radius: 10px;
+}
+
+.script-origin-generic {
+  background: #e8f0fe;
+  color: #1a73e8;
+}
+
+.script-origin-particular {
+  background: #eef6ef;
+  color: #188038;
+}
+
+.script-description {
+  font-size: 13px;
+  color: #444;
+  margin-top: 4px;
+}
+
+.script-command {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 12px;
+  color: #555;
+  margin-top: 4px;
+  white-space: pre-wrap;
+}
+
+.script-field-label {
+  font-size: 14px;
+  font-weight: 600;
+  margin-top: 8px;
+}
+
+.script-card input[type="text"] {
+  width: 100%;
+  padding: 10px;
+  font-size: 15px;
+  border: 1px solid #999;
+  border-radius: 6px;
+  margin: 6px 0;
+}
+
+.script-card .script-run {
+  margin-top: 4px;
+}
+
+.script-result {
+  border: 1px solid #999;
+  border-radius: 8px;
+  padding: 12px;
+  margin: 8px 0;
+  background: #f7f7f7;
+}
+
+.script-result-title {
+  font-weight: 700;
+  margin-bottom: 6px;
+}
+
+.script-output {
+  white-space: pre-wrap;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 13px;
+  max-height: 320px;
+  overflow-y: auto;
+  background: #fff;
+  border: 1px solid #ddd;
+  border-radius: 4px;
+  padding: 8px;
+}
