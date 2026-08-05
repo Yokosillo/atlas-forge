@@ -1,88 +1,87 @@
-# FAQ y troubleshooting
+# FAQ and troubleshooting
 
-## Preguntas frecuentes
+## Frequently asked questions
 
-### ¿Factory Brain es un IDE o un framework de agentes?
+### Is Factory Brain an IDE or an agent framework?
 
-No. Es una plataforma de **coordinación**. Los agentes ejecutan con sus propios runtimes (Claude Code, OpenCode) y modelos; Factory Brain decide quién hace qué, cuándo, y mantiene el contexto vivo.
+No. It is a **coordination** platform. Agents execute with their own runtimes (Claude Code, OpenCode) and models; Factory Brain decides who does what, when, and keeps context alive.
 
-### ¿Qué runtimes soporta?
+### What runtimes does it support?
 
-Claude Code y OpenCode (lanzados en sesiones tmux). **Codex no está soportado todavía** — aparece en el catálogo de modelos como entrada comentada (futuro). Ver [Runtime y Scribe](runtime.md).
+Claude Code and OpenCode (launched in tmux sessions). **Codex is not supported yet** — it appears in the model catalog as a commented-out entry (future). See [Runtime and Scribe](runtime.md).
 
-### ¿Necesito Ollama?
+### Do I need Ollama?
 
-No. Scribe (Ollama) es **opcional**: es un ahorro de tokens para lecturas/resúmenes. Sin Ollama todo sigue funcionando, degradando explícitamente (notas en los Jobs, exit code 1 en el CLI de resumen, fallo duro solo en pasos de plan que usen explícitamente Scribe).
+No. Scribe (Ollama) is **optional**: it is a token saver for reads/summaries. Without Ollama everything keeps working, degrading explicitly (notes in Jobs, exit code 1 in the summary CLI, hard failure only on plan steps that explicitly use Scribe).
 
-### ¿Cómo selecciono el modelo de un agente?
+### How do I select an agent's model?
 
-Al lanzar un agente, eliges rol + modelo del catálogo (`GET /agents/options`). Solo OpenCode soporta modelo. En caliente, puedes cambiar el modelo de un agente OpenCode lanzado (`PUT /agents/{agent_id}/model`). Las preferencias (habilitados + default por rol) se gestionan en la pestaña Modelos / `models.yml`.
+When launching an agent you choose role + model from the catalog (`GET /agents/options`). Only OpenCode supports a model. In hot, you can change the model of a launched OpenCode agent (`PUT /agents/{agent_id}/model`). Preferences (enabled + default per role) are managed in the Models tab / `models.yml`.
 
-### ¿Dónde se guarda el estado?
+### Where is the state stored?
 
-Proyecto activo y preferencias de modelos en `~/.local/share/brain/`. Sesión, agentes y Jobs **en memoria del proceso `brain-api`** — se pierden al reiniciar el backend. Ver [Configuración](configuration.md).
+Active project and model preferences in `~/.local/share/brain/`. Session, agents and Jobs **in the memory of the `brain-api` process** — lost when the backend restarts. See [Configuration](configuration.md).
 
-### ¿La app Android cómo se instala?
+### How is the Android app installed?
 
-Descargando el APK desde el backend (`GET /apk`, sobre Tailscale). No hay Play Store. La app está en **pausa de desarrollo** (2026-08-04) pero el código existente funciona.
+By downloading the APK from the backend (`GET /apk`). There is no Play Store. The app is **paused for development** (2026-08-04) but the existing code works.
 
-### ¿Hay autenticación?
+### Is there a plugin system or MCP?
 
-No propia. El perímetro de seguridad es la **red Tailscale**. El backend nunca escucha en `0.0.0.0`; se une a la interfaz Tailscale.
+**No.** The Plugin System (FB-011) is planned but not implemented. Any new integration is done by code in `04-src/`.
 
-### ¿Existe un sistema de plugins o MCP?
+### Why is the backlog the center of the product?
 
-**No.** El Plugin System (FB-011) está planificado pero no implementado. Cualquier integración nueva se hace por código en `04-src/`.
+Since Phase 1.0 (2026-08-05) the product is **backlog-centric**: all work is deployed from the backlog (Epic → US → Task → Implement) with buttons, not by writing Markdown by hand or talking to each agent separately. See [Backlog and pipeline](backlog.md).
 
 ## Troubleshooting
 
-### El backend no arranca: error Tailscale
+### The backend does not start
 
-`brain-api` sin `--host` ejecuta `tailscale ip -4`. Si falla (binario ausente, comando con timeout, salida vacía) lanza `TailscaleHostUnavailableError` con el motivo. Soluciones:
-- Verifica que Tailscale esté up y conectado (`tailscale status`).
-- Para desarrollo/local: `brain-api --host 127.0.0.1`.
+If `brain-api` without `--host` cannot resolve the machine's network interface, it raises an error with the reason. Solutions:
+- Verify that the network interface is up.
+- For development/local: `brain-api --host 127.0.0.1`.
 
-### La web no se conecta ("No hay conexión con el backend")
+### The web does not connect ("No connection to the backend")
 
-- Confirma que `brain-api` está corriendo (`systemctl status factory-brain-api` o `curl http://<host>:8000/health`).
-- Accede por la IP/URL correcta: la web se sirve en `/ui/` del mismo proceso, same-origin (no hay CORS).
-- Si probaste antes de la conexión Tailscale, reintenta tras conectar.
+- Confirm `brain-api` is running (`systemctl status factory-brain-api` or `curl http://<host>:8000/health`).
+- Access via the correct IP/URL: the web is served at `/ui/` of the same process, same-origin (no CORS).
 
-### Un agente aparece como `unavailable`
+### An agent appears as `unavailable`
 
-El liveness es perezoso: si la sesión tmux del runtime murió sin que lo pidieras, el agente pasa a `unavailable` al consultar. Relanza el agente (un agente `stopped`/`unavailable` no se reutiliza; se sustituye).
+Liveness is lazy: if the runtime's tmux session died without you asking, the agent transitions to `unavailable` when queried. Relaunch the agent (a `stopped`/`unavailable` agent is not reused; it is replaced).
 
-### Un Job nunca termina (timeout)
+### A Job never finishes (timeout)
 
-`POST /jobs` es bloqueante y el reporte es cooperativo (el agente escribe un fichero con una marca). Si el agente no sigue la instrucción de reporte, el Job falla por timeout (`JobReportTimeoutError`) a los 30s por defecto. Opciones:
-- Cancela el Job (`POST /jobs/{job_id}/cancel`).
-- Detén el agente (`POST /agents/{id}/stop`) si está colgado.
-- Consulta el pane del agente (`GET /agents/{id}/pane`) para ver qué hace.
+`POST /jobs` is blocking and reporting is cooperative (the agent writes a file with a marker). If the agent does not follow the reporting instruction, the Job fails by timeout (`JobReportTimeoutError`) after 30s by default. Options:
+- Cancel the Job (`POST /jobs/{job_id}/cancel`).
+- Stop the agent (`POST /agents/{id}/stop`) if it is stuck.
+- Query the agent's pane (`GET /agents/{id}/pane`) to see what it is doing.
 
-### El plan no despacha (queda `proposed`)
+### The plan does not dispatch (stays `proposed`)
 
-Un plan en `proposed` no ejecuta nada hasta la **aprobación humana única** (`POST /plans/{id}/approve`). Verifica también que haya agentes lanzados para los pasos `agent` y que Scribe esté disponible si hay pasos `scribe`.
+A `proposed` plan runs nothing until the **single human approval** (`POST /plans/{id}/approve`). Also verify that agents are launched for the `agent` steps and that Scribe is available if there are `scribe` steps.
 
-### Al aprobar, el plan queda `blocked`
+### On approval, the plan becomes `blocked`
 
-Un paso falló con `JobCreationError` o `ScribeUnavailableError`. Revisa `GET /plans/{plan_id}` para ver el paso fallido, lanza el agente necesario y vuelve a pedir/aprobar el plan.
+A step failed with `JobCreationError` or `ScribeUnavailableError`. Check `GET /plans/{plan_id}` to see the failed step, launch the needed agent and ask/approve the plan again.
 
-### Scribe no está disponible
+### Scribe is not available
 
-- Confirma Ollama corriendo: `curl http://localhost:11434` y `ollama list` (el modelo `qwen2.5-coder:14b` debe existir).
-- El resto del sistema funciona sin Scribe; solo fallan explícitamente los pasos de plan `scribe` y la acción `indexar`.
+- Confirm Ollama is running: `curl http://localhost:11434` and `ollama list` (the `qwen2.5-coder:14b` model must exist).
+- The rest of the system works without Scribe; only the `scribe` plan steps and the `indexar` action fail explicitly.
 
-### Cambio de modelo no se refleja (OpenCode)
+### Model change is not reflected (OpenCode)
 
-`set_active_model` interactúa con la barra de estado de OpenCode y devuelve `False` ante cualquier fallo (runtime no-OpenCode, sesión muerta, patrón no encontrado). Reintenta o verifica que el agente esté `idle`/`working` y que el pane esté vivo.
+`set_active_model` interacts with OpenCode's status bar and returns `False` on any failure (non-OpenCode runtime, dead session, unmatched pattern). Retry or verify that the agent is `idle`/`working` and that the pane is alive.
 
-### Los scripts del proyecto no aparecen
+### The project's scripts do not appear
 
-- El manifiesto debe estar en `.factory-brain/scripts.yml` del **proyecto activo** (no del repositorio de Factory Brain).
-- Errores de manifiesto → `MalformedScriptManifestError` al consultar `GET /scripts`.
-- La caché TTL es 5s; espera o vuelve a consultar.
+- The manifest must be in `.factory-brain/scripts.yml` of the **active project** (not the Factory Brain repository).
+- Manifest errors → `MalformedScriptManifestError` when querying `GET /scripts`.
+- The TTL cache is 5s; wait or query again.
 
-### Preguntas sobre el backlog
+### Questions about the backlog
 
-- El estado canónico vive en `02-backlog/` (Epics, User Stories, Tasks). `07-informes/` contiene solo informes de cierre, no la versión vigente de una Epic.
-- Si `GET /backlog/{item_id}` devuelve 404 con razón de parseo, el fichero no cumple el esquema (ver `02-backlog/README.md`).
+- Canonical state lives in `02-backlog/` (Epics, User Stories, Tasks). `07-informes/` contains only closing reports, not the current version of an Epic.
+- If `GET /backlog/{item_id}` returns 404 with a parse reason, the file does not comply with the schema (see `02-backlog/README.md`).

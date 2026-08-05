@@ -1,74 +1,74 @@
-# Backlog y pipeline backlog-céntrico
+# Backlog and backlog-centric pipeline
 
-Factory Brain trata el **backlog** (`02-backlog/` del proyecto activo) como una fuente estructurada y consultable: lo parsea, lo valida, genera informes de estado y, en Fase 1.0, permite **generar** Epics→User Stories→Tasks y **lanzar su desarrollo** desde la interfaz.
+Factory Brain treats the **backlog** (`02-backlog/` of the active project) as a structured, queryable source: it parses it, validates it, generates status reports and, in Phase 1.0, allows **generating** Epics→User Stories→Tasks and **launching their development** from the interface. The backlog is the **central control panel**: all work is deployed from here, not by writing Markdown by hand or conversing with each agent separately.
 
-## Esquema del backlog
+## Backlog schema
 
-Estructura canónica (ver `02-backlog/README.md`): Roadmap → Epic (`FB-NNN`) → User Story (`US-FBNNN-nn`) → Task (`T-FBNNN-USnn-mm`). Cada fichero tiene secciones obligatorias por tipo y un campo `## Estado` con valores cerrados `TODO | IN_PROGRESS | REVIEW | DONE`. Campos opcionales: `## Fase` (perteneciente a una Fase del roadmap) y `## Bugs encontrados` (Tasks).
+Canonical structure (see `02-backlog/README.md`): Roadmap → Epic (`FB-NNN`) → User Story (`US-FBNNN-nn`) → Task (`T-FBNNN-USnn-mm`). Each file has mandatory sections per type and a `## Estado` field with the closed values `TODO | IN_PROGRESS | REVIEW | DONE`. Optional fields: `## Fase` (belonging to a roadmap Phase) and `## Bugs encontrados` (Tasks).
 
-## Parser determinista (`brain/backlog/parser.py`)
+## Deterministic parser (`brain/backlog/parser.py`)
 
-- Extrae por fichero: id (del prefijo del nombre), tipo, estado (`## Estado`), dependencias (`## Dependencias` con formato `**ID**`), prioridad, fase.
-- `load_backlog(backlog_path) → BacklogGraph`: parsea los tres subdirectorios; los ficheros malformados se recogen en `graph.errors` sin abortar el resto.
-- `classify_todo_items(graph)`: separa los items TODO en **LISTA** (todas sus dependencias DONE) y **BLOQUEADA** (alguna dependencia pendiente/ausente).
-- `calculate_unblock_degree(graph, epic)`: ratio de US/Tasks de una Epic cuyas dependencias están todas resueltas (base del mapa de calor).
-- `find_max_leverage_chain(graph)`: la cadena [raíz + en cascada] que desbloquea más items.
+- Extracts per file: id (from the name prefix), type, state (`## Estado`), dependencies (`## Dependencias` with `**ID**` format), priority, phase.
+- `load_backlog(backlog_path) → BacklogGraph`: parses the three subdirectories; malformed files are collected in `graph.errors` without aborting the rest.
+- `classify_todo_items(graph)`: splits TODO items into **LISTA** (all dependencies DONE) and **BLOQUEADA** (some pending/missing dependency).
+- `calculate_unblock_degree(graph, epic)`: ratio of a Epic's US/Tasks whose dependencies are all resolved (basis of the heat map).
+- `find_max_leverage_chain(graph)`: the chain [root + cascade] that unlocks the most items.
 
-## Informe de estado (`brain/backlog/report.py`)
+## Status report (`brain/backlog/report.py`)
 
 `build_backlog_report(backlog_path) → dict` (JSON-serializable):
 
-- `empty` / `total` (conteos por tipo y estado + errores).
-- `by_epic` (por Epic: conteos US/Task + `unblock_degree` + `fase`).
-- `items_lista` (TODO LISTA ordenados por prioridad) y `items_bloqueada` (con `blocking_dependencies`).
+- `empty` / `total` (counts per type and state + errors).
+- `by_epic` (per Epic: US/Task counts + `unblock_degree` + `fase`).
+- `items_lista` (TODO LISTA ordered by priority) and `items_bloqueada` (with `blocking_dependencies`).
 - `max_leverage_chain`.
 - `errors`.
 
-Accesible por tres vías equivalentes: `GET /backlog`, script genérico `backlog_status`, y CLI `brain backlog-status <path> [--json]`. Orden determinista: `(prioridad, id)`.
+Accessible by three equivalent paths: `GET /backlog`, the `backlog_status` generic script, and the `brain backlog-status <path> [--json]` CLI. Deterministic ordering: `(priority, id)`.
 
-## Detalle de item (`brain/backlog/detail.py`)
+## Item detail (`brain/backlog/detail.py`)
 
-`GET /backlog/{item_id}` devuelve el detalle por sección (`## Objetivo`/`## Historia`, `## Criterios de aceptación`, dependencias con su estado). Para una User Story incluye sus Tasks y (FB-024-US09) el historial de ejecuciones (Jobs) de esa Story. Los IDs tipo `FB-xxx` se resuelven como Epic.
+`GET /backlog/{item_id}` returns the detail by section (`## Objetivo`/`## Historia`, `## Criterios de aceptación`, dependencies with their state). For a User Story it includes its Tasks and (FB-024-US09) the execution history (Jobs) of that Story. IDs of the type `FB-xxx` resolve as an Epic.
 
-## Validador de formato (`brain/backlog/validator.py`)
+## Format validator (`brain/backlog/validator.py`)
 
-Validador determinista del esquema: formato de título, secciones internas en H2, secciones obligatorias por tipo, campos de referencia (`**Epic:**`, `**User Story:**`), formato de `## Estado`, formato de `## Dependencias`. Usado como red de seguridad por los generadores del Arquitecto. `ValidationResult{valid, file_type, errors}`.
+Deterministic schema validator: title format, internal sections in H2, mandatory sections per type, reference fields (`**Epic:**`, `**User Story:**`), `## Estado` format, `## Dependencias` format. Used as a safety net by the Architect generators. `ValidationResult{valid, file_type, errors}`.
 
-## Pipeline backlog-céntrico (Fase 1.0, FB-022)
+## Backlog-centric pipeline (Phase 1.0, FB-022)
 
-Mecanismo de generación y ejecución del trabajo por el Arquitecto, sin escribir Markdown a mano.
+Mechanism to generate and execute work by the Architect, without writing Markdown by hand.
 
-### Generador Epic→User Story→Task (`brain/architect/`)
+### Epic→User Story→Task generator (`brain/architect/`)
 
-Flujo del Arquitecto con **validador determinista + autoauditoría obligatoria**:
+Architect flow with **mandatory deterministic validator + self-audit**:
 
-1. **Proponer User Stories** (`propose_user_stories.py`): carga el contexto de una Epic (objetivo, alcance v1, diferido a v2, dependencias).
-2. **Pipeline US** (`us_pipeline.py`): valida formato → autoauditoría con visión externa → aprobación humana → escritura de ficheros `US-*.md`. Veredictos `APROBADO | APROBADO_CON_OBSERVACIONES | RECHAZADO`.
-3. **Revisión de huecos** (`review_user_story.py`): detecta secciones faltantes, historias vacías, criterios ausentes; `ready_for_tasks` si no hay huecos.
-4. **Proponer Tasks** (`propose_tasks.py`): solo si la US está lista; genera `T-*.md`.
-5. **Pipeline Tasks** (`task_pipeline.py`): validación + autoauditoría + escritura.
+1. **Propose User Stories** (`propose_user_stories.py`): loads an Epic's context (objective, v1 scope, deferred to v2, dependencies).
+2. **US pipeline** (`us_pipeline.py`): validates format → self-audit with external view → human approval → writing `US-*.md` files. Verdicts `APROBADO | APROBADO_CON_OBSERVACIONES | RECHAZADO`.
+3. **Gap review** (`review_user_story.py`): detects missing sections, empty stories, absent criteria; `ready_for_tasks` if there are no gaps.
+4. **Propose Tasks** (`propose_tasks.py`): only if the US is ready; generates `T-*.md`.
+5. **Tasks pipeline** (`task_pipeline.py`): validation + self-audit + writing.
 
-Los comentarios del humano a una US se procesan como ajustes dirigidos (`architect/comments.py`).
+Human comments on a US are processed as targeted adjustments (`architect/comments.py`).
 
-### Lanzar desarrollo de una User Story
+### Launching a User Story's development
 
-`POST /backlog/{story_id}/launch-development` construye el Job desde la historia real + títulos de las Tasks `TODO` pendientes y lo despacha al Developer indicado. 400 si no hay Tasks pendientes.
+`POST /backlog/{story_id}/launch-development` builds the Job from the real story + pending `TODO` Task titles and dispatches it to the indicated Developer. 400 if there are no pending Tasks.
 
-### Verdictos Developer→Arquitecto
+### Developer→Architect verdicts
 
-Tras un plan despachado, la **cola FIFO de veredictos** encola un Job al Arquitecto que emite `APROBADO`/`APROBADO_CON_OBSERVACIONES`/`RECHAZADO`. Si se aprueba, las Tasks pasan a `DONE`; si se rechaza, se persiste `_rechazo.md`. Ver [Jobs y planes](jobs.md#veredicto-automatico-del-pipeline-fb-022).
+After a dispatched plan, the **FIFO verdict queue** queues a Job to the Architect that emits `APROBADO`/`APROBADO_CON_OBSERVACIONES`/`RECHAZADO`. If approved, the Tasks become `DONE`; if rejected, `_rechazo.md` is persisted. See [Jobs and plans](jobs.md#automatic-pipeline-verdict-fb-022).
 
-### Contrato del Tester (`dispatcher/tester_input.py`)
+### Tester contract (`dispatcher/tester_input.py`)
 
-Empaqueta la entrada de un Job de Tester: criterios de aceptación de las Tasks + `git diff HEAD` + ficheros cambiados + informe del Developer. El rol Tester no está registrado todavía (solo el contrato).
+Packages the input of a Tester Job: acceptance criteria of the Tasks + `git diff HEAD` + changed files + Developer report. The Tester role is not yet registered (only the contract).
 
-## En las interfaces
+## In the interfaces
 
-- **Web**: pestaña Backlog — toggle Lista/Por Fase, mapa de calor por Epic (`unblock_degree`), badge global de pendientes, diferenciación visual DONE/TODO, desglose Epic→US→detalle con dependencias (bloqueo de lanzamiento), historial de ejecuciones por US y "Lanzar desarrollo".
-- **TUI**: pantalla Backlog de 3 niveles con colores Rich y barras de progreso.
-- **App Android**: pantalla Backlog con listado/detalle y lanzar desarrollo.
+- **Web**: Backlog tab — List/By-Phase toggle, heat map per Epic (`unblock_degree`), global pending badge, DONE/TODO visual differentiation, Epic→US→detail breakdown with dependencies (launch blocking), execution history per US and "Launch development".
+- **TUI**: 3-level Backlog screen with Rich colors and progress bars.
+- **Android app**: Backlog screen with listing/detail and launch development.
 
-## Planificado (no implementado)
+## Planned (not implemented)
 
-- **Generador Epic→US** completo en el producto (el pipeline actual valida el formato del esquema; la generación de contenido está esbozada como scaffolding).
-- **Análisis de hilos de desarrollo paralelizables** (FB-026): análisis de grafo de dependencias por Epic con niveles topológicos y recomendación de reparto entre varios Developer. El módulo `brain/backlog/dependency_graph.py` existe en el código, pero **no tiene Tasks DONE ni interfaz que lo exponga** — se documenta como planificado.
+- **Full Epic→US generator in the product** (the current pipeline validates the schema format; content generation is sketched as scaffolding).
+- **Parallelizable development thread analysis** (FB-026): dependency graph analysis per Epic with topological levels and a recommendation for splitting among several Developers. The `brain/backlog/dependency_graph.py` module exists in the code, but it has **no DONE Tasks nor an interface exposing it** — documented as planned.

@@ -1,143 +1,143 @@
-# Jobs y planes
+# Jobs and plans
 
-## Ciclo de un Job
+## Job lifecycle
 
-Un **Job** es una unidad de trabajo (una descripción de texto) enviada a un agente. Estados:
+A **Job** is a unit of work (a text description) sent to an agent. States:
 
 ```
 created → running → { completed | failed | cancelled }
 ```
 
-### Creación (`dispatcher/job_creation.py`)
+### Creation (`dispatcher/job_creation.py`)
 
-Precondiciones (cada rechazo lanza `JobCreationError` con mensaje explícito):
-- Sesión activa.
-- El agente pertenece a la sesión.
-- El agente está `idle` (un agente `working` no recibe un Job nuevo).
+Preconditions (each rejection raises `JobCreationError` with an explicit message):
+- Active session.
+- The agent belongs to the session.
+- The agent is `idle` (a `working` agent does not receive a new Job).
 
-### Despacho (`dispatcher/job_dispatch.py`)
+### Dispatch (`dispatcher/job_dispatch.py`)
 
-Mecanismo de **reporte cooperativo** (no shell-end-marker ni heurísticas de silencio):
+**Cooperative reporting** mechanism (not shell-end-marker nor silence heuristics):
 
 1. `mark_running(job)` + `mark_working(agent)`.
-2. Se añade a la descripción una instrucción: el agente debe escribir su resultado completo en un fichero temporal único (`factory-brain-job-<uuid>.txt`) y una **marca final** (`___FACTORY_BRAIN_JOB_DONE___`) en su propia línea.
-3. La instrucción se envía al pane tmux del agente (`run_command`).
-4. El dispatcher hace polling del fichero (timeout 30s por defecto), con reintentos de lectura para `OSError` transitorios.
-5. `completed` (resultado leído) | `failed` (timeout `JobReportTimeoutError`) | `cancelled` (`JobCancelledError` si el usuario pidió cancelación).
-6. En `finally`: borra el fichero temporal y limpia la solicitud de cancelación. El agente vuelve a `idle`.
+2. An instruction is added to the description: the agent must write its full result to a unique temp file (`factory-brain-job-<uuid>.txt`) plus a **final marker** (`___FACTORY_BRAIN_JOB_DONE___`) on its own line.
+3. The instruction is sent to the agent's tmux pane (`run_command`).
+4. The dispatcher polls the file (timeout 30s by default), with read retries for transient `OSError`s.
+5. `completed` (result read) | `failed` (timeout `JobReportTimeoutError`) | `cancelled` (`JobCancelledError` if the user requested cancellation).
+6. In `finally`: deletes the temp file and clears the cancellation request. The agent returns to `idle`.
 
-!!! note "Limitación conocida"
-    El despacho depende de que el agente siga la instrucción de reporte. `POST /jobs` es bloqueante: la respuesta HTTP llega cuando el Job termina.
+!!! note "Known limitation"
+    Dispatch depends on the agent following the reporting instruction. `POST /jobs` is blocking: the HTTP response arrives when the Job finishes.
 
-### Scribe pre-procesamiento
+### Scribe pre-processing
 
-Antes de enviar, `_resolve_job_description` puede enriquecer la descripción con contexto de Scribe (por tamaño o conteo) — ver [Runtime y Scribe](runtime.md). `job.description` nunca se muta.
+Before sending, `_resolve_job_description` may enrich the description with Scribe context (by size or count) — see [Runtime and Scribe](runtime.md). `job.description` is never mutated.
 
-## Encadenado de Jobs
+## Job chaining
 
-El encadenado es **manual y explícito** (v1; no hay pipeline declarativo):
+Chaining is **manual and explicit** (v1; there is no declarative pipeline):
 
-- Al crear un Job con `previous_job_id`, el resultado del Job anterior (debe estar `completed` y con resultado no vacío) se inyecta **literalmente** en la descripción del nuevo.
-- **Guardia de rol**: Developer→Developer está bloqueado — "el resultado de un Developer debe encadenarse a un Critic" (Arquitecto). El resto de combinaciones están permitidas.
-- Uso primario: Developer produce → se encadena al Critic/Arquitecto para revisión.
+- When creating a Job with `previous_job_id`, the previous Job's result (must be `completed` and with a non-empty result) is injected **literally** into the new Job's description.
+- **Role guard**: Developer→Developer is blocked — "a Developer result must be chained to a Critic" (Architect). All other combinations are allowed.
+- Primary use: Developer produces → chained to Critic/Architect for review.
 
-## Histórico y reportes
+## History and reports
 
-- `GET /jobs` devuelve el histórico completo de la sesión (nunca se purga).
-- `write_job_report(job)` persiste un **informe de cierre** por `job_id` en `07-informes/<story_id>/<job_id>.md` (mecanismo del pipeline backlog-céntrico). Si el Job no tiene `story_id`, va a `07-informes/_sin-story/`.
+- `GET /jobs` returns the full session history (never purged).
+- `write_job_report(job)` persists a **closing report** per `job_id` in `07-informes/<story_id>/<job_id>.md` (mechanism of the backlog-centric pipeline). If the Job has no `story_id`, it goes to `07-informes/_sin-story/`.
 
-## Cancelación de Jobs
+## Job cancellation
 
-- `POST /jobs/{job_id}/cancel` solo válido sobre un Job `running` (`JobCancellationRejectedError` en caso contrario).
-- Mecanismo: `request_cancellation` fija un `threading.Event`; la transición real a `cancelled` la hace el hilo despachador en su siguiente ciclo de polling. Así se evita escritura concurrente sobre `job.status`.
-- **No mata el proceso tmux**: el runtime puede seguir pensando (limitación documentada).
-- El endpoint espera (hasta 5s) la transición real y devuelve el estado confirmado.
+- `POST /jobs/{job_id}/cancel` is only valid on a `running` Job (`JobCancellationRejectedError` otherwise).
+- Mechanism: `request_cancellation` sets a `threading.Event`; the actual transition to `cancelled` is made by the dispatcher thread in its next polling cycle. This avoids concurrent writes on `job.status`.
+- **Does not kill the tmux process**: the runtime may keep thinking (documented limitation).
+- The endpoint waits (up to 5s) for the real transition and returns the confirmed state.
 
-## Planes del Arquitecto
+## Architect plans
 
-### Propuesta (`job_plan_builder.py`)
+### Proposal (`job_plan_builder.py`)
 
-`build_job_plan_for_story(story_id)` escanea `02-backlog/tasks/T-<US>-*.md`, conserva las Tasks `TODO`, las ordena por correlativo y crea un paso por Task. El mecanismo de cada paso se infiere del texto de la Task:
+`build_job_plan_for_story(story_id)` scans `02-backlog/tasks/T-<US>-*.md`, keeps `TODO` Tasks, orders them by correlative and creates one step per Task. Each step's mechanism is inferred from the Task text:
 
-| Si la Task contiene… | mechanism |
+| If the Task contains… | mechanism |
 |---|---|
-| `script`, `automatización` | `script` (no-op degradado; no hay catálogo de scripts en el plan) |
-| `scribe` | `scribe` (lo ejecuta Scribe) |
-| cualquier otra cosa | `agent` con `agent_role: developer` |
+| `script`, `automatización` | `script` (degraded no-op; there is no script catalog in the plan) |
+| `scribe` | `scribe` (Scribe runs it) |
+| anything else | `agent` with `agent_role: developer` |
 
-El plan nace en `proposed`. **No se despacha nada hasta la aprobación humana.**
+The plan is born `proposed`. **Nothing is dispatched until human approval.**
 
-### Aprobación (`job_plan_approval.py`)
+### Approval (`job_plan_approval.py`)
 
-Una única decisión de plan completo: `approve` → `approved`, `reject` → `rejected`. No existe aprobación por paso.
+A single whole-plan decision: `approve` → `approved`, `reject` → `rejected`. There is no per-step approval.
 
-### Despacho (`job_plan_dispatch.py`)
+### Dispatch (`job_plan_dispatch.py`)
 
-`dispatch_plan(plan, session)` (requiere `approved`):
+`dispatch_plan(plan, session)` (requires `approved`):
 
-- Itera los pasos en orden. Cada paso: `pending → running → completed | failed | cancelled`.
-- **Paso agent**: encuentra el agente por rol (y `agent_id` opcional, para desambiguar con varios Developers), crea el Job con `story_id = plan.goal`, lo registra como activo del plan, lo despacha y escribe el informe de cierre.
-- **Paso scribe**: `summarize_document`; `ScribeUnavailableError` es fallo duro del paso.
-- **Paso script**: degradado a no-op (se queda `pending`, no bloquea).
-- Si un paso falla con `JobCreationError`/`ScribeUnavailableError` → paso `failed`, plan → `blocked`, se detiene.
-- Si el usuario cancela (evento) → paso `cancelled`, plan → `cancelled`.
-- Un plan completamente despachado permanece en `approved` (no hay estado terminal "completado").
+- Iterates the steps in order. Each step: `pending → running → completed | failed | cancelled`.
+- **agent step**: finds the agent by role (and optional `agent_id`, to disambiguate among several Developers), creates the Job with `story_id = plan.goal`, registers it as active for the plan, dispatches it and writes the closing report.
+- **scribe step**: `summarize_document`; `ScribeUnavailableError` is a hard step failure.
+- **script step**: degraded to no-op (stays `pending`, does not block).
+- If a step fails with `JobCreationError`/`ScribeUnavailableError` → step `failed`, plan → `blocked`, stops.
+- If the user cancels (event) → step `cancelled`, plan → `cancelled`.
+- A fully dispatched plan stays `approved` (there is no terminal "completed" state).
 
-### Veredicto automatico del pipeline (FB-022)
+### Automatic pipeline verdict (FB-022)
 
-Tras despachar un plan (si no está cancelado), `trigger_architect_verdict` encola un **Job de veredicto** al Arquitecto en una **cola FIFO** (un único worker daemon — el Arquitecto nunca revisa dos cosas a la vez):
+After dispatching a plan (if not cancelled), `trigger_architect_verdict` queues a **verdict Job** to the Architect in a **FIFO queue** (a single daemon worker — the Architect never reviews two things at once):
 
-1. El worker recoge los informes de cierre de `07-informes/<story_id>/`.
-2. Despacha el veredicto al Arquitecto con el formato estructurado:
+1. The worker collects the closing reports from `07-informes/<story_id>/`.
+2. Dispatches the verdict to the Architect with the structured format:
    ```
    ESTADO: APROBADO | APROBADO_CON_OBSERVACIONES | RECHAZADO
-   JUSTIFICACIÓN: <2-4 líneas>
+   JUSTIFICACIÓN: <2-4 lines>
    SIGUIENTE_PROMPT_PARA_WORKER: <prompt>
    ```
-3. Se parsea el veredicto:
-   - `APROBADO` / `APROBADO_CON_OBSERVACIONES` → marca las Tasks de la Story como `DONE`.
-   - `RECHAZADO` → persiste `07-informes/<story_id>/_rechazo.md` con la justificación y el siguiente prompt.
+3. The verdict is parsed:
+   - `APROBADO` / `APROBADO_CON_OBSERVACIONES` → marks the Story's Tasks as `DONE`.
+   - `RECHAZADO` → persists `07-informes/<story_id>/_rechazo.md` with the justification and the next prompt.
 
-`get_verdict_queue_status()` expone `{active, waiting}`.
+`get_verdict_queue_status()` exposes `{active, waiting}`.
 
-## Diagrama de estados de un plan
+## Plan state diagram
 
 ```mermaid
 stateDiagram-v2
     [*] --> proposed
-    proposed --> approved: aprobación humana
-    proposed --> rejected: rechazo humano
-    approved --> blocked: paso falla (JobCreation/Scribe)
-    approved --> cancelled: cancelación
+    proposed --> approved: human approval
+    proposed --> rejected: human rejection
+    approved --> blocked: step fails (JobCreation/Scribe)
+    approved --> cancelled: cancellation
     blocked --> [*]
     cancelled --> [*]
     rejected --> [*]
 ```
 
-## Flujo completo recomendado
+## Recommended full flow
 
 ```mermaid
 sequenceDiagram
-    participant U as Usuario
+    participant U as User
     participant B as brain-api
     participant D as Developer
-    participant A as Arquitecto
+    participant A as Architect
 
     U->>B: POST /plans {"goal": "US-FB020-01"}
-    B->>A: Propón plan de pasos
+    B->>A: Propose a plan of steps
     A-->>B: Plan proposed
     B-->>U: plan_id + steps
     U->>B: POST /plans/{id}/approve
-    loop Cada paso
-        B->>D: Job (task) → resultado
+    loop Each step
+        B->>D: Job (task) → result
     end
-    B->>A: Veredicto (cola FIFO)
+    B->>A: Verdict (FIFO queue)
     A-->>B: APROBADO
     B->>B: Tasks DONE
-    B-->>U: progreso final
+    B-->>U: final progress
 ```
 
-## Planificado (no implementado)
+## Planned (not implemented)
 
-- **Dispatcher v2 completo** (FB-008): pipeline con dependencias declarativas, cola de Jobs, reintentos, coordinación multiagente automática y resolución de capacidades (vía FB-010 Capability Engine).
-- **Scheduler / cola global de Jobs**: no existe como entidad separada hoy.
+- **Full Dispatcher v2** (FB-008): pipeline with declarative dependencies, Job queue, retries, automatic multi-agent coordination and capability resolution (via FB-010 Capability Engine).
+- **Scheduler / global Job queue**: does not exist as a separate entity today.

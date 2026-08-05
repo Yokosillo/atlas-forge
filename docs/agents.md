@@ -1,72 +1,74 @@
-# Agentes
+# Agents
 
-Los agentes son la unidad fundamental de trabajo. Un agente = **rol** + **prompt** + **runtime** + **sesión tmux** + **estado**. No son modelos de lenguaje ni procesos genéricos.
+Agents are the fundamental unit of work. An agent = **role** + **prompt** + **runtime** + **tmux session** + **state**. They are not language models nor generic processes.
 
-## Roles registrados
+In the backlog-centric pipeline, agents are roles orchestrated by the product (Director, Architect, Developer, Tester) rather than launched one by one by hand: the product decides who runs each step of a plan.
 
-Factory Brain usa un **registro centralizado de roles** (`brain/agents/roles.py`) donde cada rol declara: prompt base, fichero de gobernanza, builder de prompt y función de registro. Los roles se registran en import-time al importar `brain.agents`.
+## Registered roles
 
-| Rol | Gobernanza | Comportamiento |
+Factory Brain uses a **centralized role registry** (`brain/agents/roles.py`) where each role declares: base prompt, governance file, prompt builder and registration function. Roles are registered at import-time when importing `brain.agents`.
+
+| Role | Governance | Behavior |
 |---|---|---|
-| **`developer`** | `developer.md` | Implementa User Stories. Siempre crea una instancia nueva (paralelismo permitido, máximo **3** Developers simultáneos); auto-nombrado `Developer-1`, `Developer-2`… |
-| **`critic`** | `CRITICO.md` | Rol reutilizable: revisa trabajo. Antecedente del Arquitecto (FB-022 renombró Crítico→Arquitecto). |
-| **`director`** | `DIRECTOR.md` | Rol reutilizable, **conversacional**: conversa con el humano sobre Epics existentes (solo lectura del backlog; no modifica ficheros, no valida trabajo del Developer). |
-| **`arquitecto`** | `ARQUITECTO.md` | Rol reutilizable, **doble función**: aterriza backlog (genera Epic→US→Task con formato estándar) y emite **veredictos** estructurados (`APROBADO` / `APROBADO_CON_OBSERVACIONES` / `RECHAZADO`) sobre el trabajo del Developer. |
+| **`developer`** | `developer.md` | Implements User Stories. Always creates a new instance (parallelism allowed, max **3** simultaneous Developers); self-named `Developer-1`, `Developer-2`… |
+| **`critic`** | `CRITICO.md` | Reusable role: reviews work. Predecessor of the Architect (FB-022 renamed Critic→Architect). |
+| **`director`** | `DIRECTOR.md` | Reusable, **conversational** role: converses with the human about existing Epics (read-only on the backlog; does not modify files, does not validate Developer work). |
+| **`arquitecto`** | `ARQUITECTO.md` | Reusable, **dual-function** role: lands the backlog (generates Epic→US→Task in standard format) and issues structured **verdicts** (`APROBADO` / `APROBADO_CON_OBSERVACIONES` / `RECHAZADO`) on Developer work. |
 
 !!! note "Tester"
-    El rol **Tester no está registrado todavía** en el backend (no existe `agents/tester.py`). Sí existe su *contrato de entrada/salida* (`dispatcher/tester_input.py`: empaqueta criterios de aceptación + diff de código para un Job de Tester) y aparece en la configuración de roles de la web con modelo por defecto. El registro del agente Tester es trabajo futuro.
+    The **Tester role is not yet registered** in the backend (there is no `agents/tester.py`). Its *input/output contract* does exist (`dispatcher/tester_input.py`: packages acceptance criteria + code diff for a Tester Job) and it appears in the web role configuration with a default model. Registering the Tester agent is future work.
 
-## Prompts: dos capas (rol base + gobierno del proyecto)
+## Prompts: two layers (base role + project governance)
 
-El prompt inicial de un agente se construye en dos capas, ambas decididas por Factory Brain (nunca por el agente):
+The initial prompt of an agent is built in two layers, both decided by Factory Brain (never by the agent):
 
-1. **Rol base** (código): responsabilidad y límites + protocolo de reporte genérico.
-2. **Gobierno específico del proyecto**: si el proyecto activo declara `00-gobierno/<rol>.md` + `00-gobierno/METODOLOGIA.md`, se añade una instrucción explícita para que el agente los lea. Un proyecto sin esa convención no degrada el comportamiento (solo carece de la capa adicional).
+1. **Base role** (code): responsibility and limits + generic reporting protocol.
+2. **Project-specific governance**: if the active project declares `00-gobierno/<role>.md` + `00-gobierno/METODOLOGIA.md`, an explicit instruction is added telling the agent to read them. A project without that convention does not degrade behavior (it just lacks the extra layer).
 
-## Lanzamiento
+## Launching
 
-`launch_agent(role, runtime_type, model, session, project_path, socket_name)` valida en orden: sesión activa → rol conocido → runtime conocido (`claude-code` | `opencode`) → modelo solo permitido para OpenCode. Si el rol es reutilizable y ya hay un agente vivo (`idle`/`working`) de ese rol, se **reutiliza** en vez de duplicar; si está `stopped`/`unavailable`, se sustituye por uno nuevo.
+`launch_agent(role, runtime_type, model, session, project_path, socket_name)` validates in order: active session → known role → known runtime (`claude-code` | `opencode`) → model only allowed for OpenCode. If the role is reusable and there is already a live agent (`idle`/`working`) of that role, it is **reused** instead of duplicated; if it is `stopped`/`unavailable`, it is replaced with a new one.
 
-Con `initial_job_description`, además del lanzamiento se crea y despacha un Job inicial de bloqueo (`launch_agent_with_initial_job`); un fallo de despacho deja el Job `failed` con motivo en `job.result` pero **no des-registra** el agente.
+With `initial_job_description`, besides launching, an initial blocking Job is created and dispatched (`launch_agent_with_initial_job`); a dispatch failure leaves the Job `failed` with the reason in `job.result` but does **not** un-register the agent.
 
-## Ciclo de vida
+## Lifecycle
 
 ```mermaid
 stateDiagram-v2
     [*] --> idle
-    idle --> working: Job en curso
+    idle --> working: Job in flight
     idle --> stopped: stop_agent
-    idle --> unavailable: runtime muerto (liveness)
-    working --> idle: Job termina
+    idle --> unavailable: dead runtime (liveness)
+    working --> idle: Job finishes
     working --> stopped: stop_agent
-    working --> unavailable: runtime muerto
-    unavailable --> idle: revivido/relanzado
+    working --> unavailable: dead runtime
+    unavailable --> idle: revived/relaunched
     stopped --> [*]
 ```
 
-- `stopped` = parada intencional del humano (terminal; hay que relanzar).
-- `unavailable` = fallo no solicitado (runtime muerto).
-- El **liveness se comprueba de forma perezosa** al consultar `GET /agents` (`refresh_agent_liveness`): si el runtime está muerto y el estado era `idle`/`working`, transiciona a `unavailable`. No hay polling en segundo plano.
+- `stopped` = intentional human stop (terminal; must relaunch).
+- `unavailable` = unsolicited failure (dead runtime).
+- **Liveness is checked lazily** when querying `GET /agents` (`refresh_agent_liveness`): if the runtime is dead and the state was `idle`/`working`, it transitions to `unavailable`. No background polling.
 
-## Reutilización
+## Reuse
 
-`register_agent_with_reuse` busca un agente existente del mismo rol en la sesión. La reutilización se aplica a Critic/Director/Arquitecto (agentes conversacionales persistentes); el Developer siempre crea una instancia nueva (hasta 3 simultáneos). Motivo: `_find_agent_by_role` elige el primer agente de un rol — la sustitución (no coexistencia) evita que un agente detenido de un rol bloquee el enrutado.
+`register_agent_with_reuse` looks for an existing agent of the same role in the session. Reuse applies to Critic/Director/Architect (persistent conversational agents); the Developer always creates a new instance (up to 3 simultaneous). Reason: `_find_agent_by_role` picks the first agent of a role — substitution (not coexistence) avoids a stopped agent of a role blocking routing.
 
-## Registro runtime↔agente
+## Runtime↔agent registry
 
-`agent_runtime_registry` asocia `agent_id → RuntimeInstance` (proceso-scoped). El lanzamiento lo registra; `stop_agent` y el liveness lo consultan. `stop_agent` mata primero la sesión tmux y luego transiciona a `stopped` (nunca a `unavailable`).
+`agent_runtime_registry` maps `agent_id → RuntimeInstance` (process-scoped). Launching registers it; `stop_agent` and liveness consult it. `stop_agent` first kills the tmux session and then transitions to `stopped` (never to `unavailable`).
 
-## Catálogo de opciones de lanzamiento
+## Launch options catalog
 
-`GET /agents/options` (y `list_available_agent_options` en el dominio) genera el producto cartesiano **roles × modelos habilitados**, con el runtime resuelto automáticamente desde el catálogo de modelos. `supports_model` indica si ese modelo admite cambio en caliente (solo OpenCode). La API filtra las combinaciones Critic+OpenCode (decisión de producto).
+`GET /agents/options` (and `list_available_agent_options` in the domain) generates the **roles × enabled models** Cartesian product, with the runtime resolved automatically from the model catalog. `supports_model` indicates whether that model supports hot model switching (OpenCode only). The API filters Critic+OpenCode combinations (product decision).
 
-## Gobernanza
+## Governance
 
-`project_has_governance(project, role)` comprueba en disco que existan `00-gobierno/<rol>.md` y `00-gobierno/METODOLOGIA.md`. `project_governance_instruction(...)` devuelve la instrucción a añadir al prompt (o cadena vacía). Ver `00-gobierno/` del proyecto para los ficheros reales: `ARQUITECTO.md`, `CRITICO.md`, `DIRECTOR.md`, `developer.md`, `METODOLOGIA.md`, `UX.md`, `DOCUMENTADOR.md`, `AUDITOR-OSS.md`.
+`project_has_governance(project, role)` checks on disk that `00-gobierno/<role>.md` and `00-gobierno/METODOLOGIA.md` exist. `project_governance_instruction(...)` returns the instruction to add to the prompt (or empty string). See the project's `00-gobierno/` for the real files: `ARQUITECTO.md`, `CRITICO.md`, `DIRECTOR.md`, `developer.md`, `METODOLOGIA.md`, `UX.md`, `DOCUMENTADOR.md`, `AUDITOR-OSS.md`.
 
-## Planificado (no implementado)
+## Planned (not implemented)
 
-- **Flag `persistent` por rol** (FB-023): Director/Arquitecto persistentes; Developer/Tester mueren al terminar. No existe en el modelo `Agent` todavía.
-- **Detección de agentes colgados y recuperación automática** (FB-023): pendiente.
-- **Rol Tester** (FB-022/23): pendiente de registro.
-- **Declaración de capacidades de agente** (US-FB005-03): bloqueada hasta el Capability Engine (FB-010).
+- **`persistent` flag per role** (FB-023): Director/Architect persistent; Developer/Tester die when finished. Not yet in the `Agent` model.
+- **Stuck-agent detection and automatic recovery** (FB-023): pending.
+- **Tester role** (FB-022/23): pending registration.
+- **Agent capability declaration** (US-FB005-03): blocked until the Capability Engine (FB-010).

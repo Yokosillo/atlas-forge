@@ -1,140 +1,138 @@
 # API
 
-Factory Brain expone su dominio a través de una **API HTTP/WebSocket** (FastAPI) que todos los clientes consumen. Referencia completa generada contra el código real de `04-src/src/brain/api/`.
+Factory Brain exposes its domain through an **HTTP/WebSocket API** (FastAPI) that all clients consume. Complete reference generated against the real code in `04-src/src/brain/api/`.
 
-## Generalidades
+## Generalities
 
-- **Base**: `http://<host>:8000` (host resuelto como IP Tailscale en producción; `127.0.0.1` en local).
-- **Sin autenticación propia**: el perímetro de seguridad es la pertenencia a la red Tailscale.
-- **Sin CORS**: la web se sirve desde el mismo proceso (`/ui/`), same-origin.
-- **Errores**: `HTTPException` con `detail` en español (mensaje construido en el dominio).
-- **Formato**: JSON. No hay query params — solo path params y cuerpos JSON.
+- **Base**: `http://<host>:8000` (`127.0.0.1` locally).
+- **Errors**: `HTTPException` with a `detail` (message built in the domain).
+- **Format**: JSON. There are no query params — only path params and JSON bodies.
 
-## Health e infraestructura
+## Health and infrastructure
 
 ### `GET /health`
-Comprueba que el backend responde.
+Checks that the backend responds.
 
 ```json
 {"status": "ok", "session_id": null}
 ```
 
-`session_id` es `null` hasta que hay proyecto seleccionado.
+`session_id` is `null` until a project is selected.
 
 ### `GET /apk`
-Sirve `releases/factory-brain-latest.apk` (descarga de la app Android). 404 si el APK no existe.
+Serves `releases/factory-brain-latest.apk` (Android app download). 404 if the APK does not exist.
 
-### `GET /ui/` (mount estático)
-Sirve la interfaz web (`10-web/`). `GET /ui` redirige a `/ui/`.
+### `GET /ui/` (static mount)
+Serves the web interface (`10-web/`). `GET /ui` redirects to `/ui/`.
 
-## Proyectos
+## Projects
 
 ### `GET /project`
-Proyecto activo.
+Active project.
 
 ```json
 {"id": "...", "name": "...", "path": "...", "repository": "...", "workspace_id": "..."}
 ```
 
-404 "No hay ningún proyecto activo."
+404 "There is no active project."
 
 ### `GET /projects`
-Lista los repositorios Git descubiertos en el workspace (candidatos a proyecto activo).
+Lists the Git repositories discovered in the workspace (candidates for active project).
 
 ### `POST /project`
-Selecciona el proyecto activo y **reinicia en caliente la sesión de desarrollo** (detiene agentes no detenidos, invalida cachés, arranca nueva sesión).
+Selects the active project and **hot-restarts the development session** (stops not-stopped agents, invalidates caches, starts a new session).
 
 ```json
 {"project_id": "..."}
 ```
 
-400 si el id no está en la lista descubierta.
+400 if the id is not in the discovered list.
 
-## Sesión
+## Session
 
 ### `GET /session`
-Sesión de desarrollo activa.
+Active development session.
 
 ```json
 {"id": "...", "project_id": "...", "status": "active"}
 ```
 
-404 "No hay ninguna sesión de desarrollo activa."
+404 "There is no active development session."
 
-## Agentes
+## Agents
 
 ### `GET /agents`
-Agentes lanzados en la sesión activa, con `model` resuelto del runtime real (nullable). Ejecuta liveness perezoso: runtimes muertos aparecen como `unavailable`.
+Agents launched in the active session, with `model` resolved from the real runtime (nullable). Runs lazy liveness: dead runtimes appear as `unavailable`.
 
 ```json
 [{"id": "...", "name": "Developer-1", "role": "developer", "status": "idle", "runtime_id": "opencode", "model": null}]
 ```
 
-404 sin sesión.
+404 without a session.
 
 ### `GET /agents/options`
-Catálogo de combinaciones rol×modelo lanzables: producto cartesiano de roles × modelos habilitados con runtime resuelto. Se filtran las combinaciones Critic+OpenCode.
+Catalog of launchable role×model combinations: Cartesian product of roles × enabled models with resolved runtime. Critic+OpenCode combinations are filtered.
 
 ```json
 [{"agent_role": "developer", "model_id": "opencode-go/deepseek-v4-flash", "model_name": "DeepSeek V4 Flash", "runtime_type": "opencode", "runtime_name": "OpenCode", "supports_model": true}]
 ```
 
 ### `POST /agents` → 201
-Lanza un agente. Body:
+Launches an agent. Body:
 
 ```json
 {
   "role": "developer",
   "runtime_type": "opencode",
   "model_id": "opencode-go/deepseek-v4-flash",
-  "initial_job_description": "opcional: tarea inicial"
+  "initial_job_description": "optional: initial task"
 }
 ```
 
-`model` es alias legacy de `model_id`. Sin `initial_job_description` devuelve el agente; con él devuelve `{agent, job}` (el Job puede quedar `failed` con motivo en `job.result`). Errores: 404 sin sesión/proyecto; 400 runtime/modelo inválidos o `AgentLaunchError`.
+`model` is a legacy alias of `model_id`. Without `initial_job_description` it returns the agent; with it, it returns `{agent, job}` (the Job may end up `failed` with the reason in `job.result`). Errors: 404 without session/project; 400 invalid runtime/model or `AgentLaunchError`.
 
 ### `POST /agents/{agent_id}/stop`
-Detiene un agente: mata su sesión tmux y lo transiciona a `stopped`.
+Stops an agent: kills its tmux session and transitions it to `stopped`.
 
 ### `GET /agents/{agent_id}/pane`
-Contenido textual actual del pane tmux del agente (vista de solo lectura).
+Current textual content of the agent's tmux pane (read-only view).
 
 ```json
 {"agent_id": "...", "content": "..."}
 ```
 
 ### `GET /agents/{agent_id}/model`
-Modelo activo del agente (solo OpenCode). `null` para runtime no-OpenCode o lectura fallida — nunca es un error HTTP.
+Active model of the agent (OpenCode only). `null` for non-OpenCode runtimes or a failed read — never an HTTP error.
 
 ### `PUT /agents/{agent_id}/model`
-Cambia el modelo activo de un agente OpenCode en ejecución.
+Changes the active model of a running OpenCode agent.
 
 ```json
 {"model": "opencode-go/deepseek-v4-flash"}
 ```
 
-Devuelve `{agent_id, model, changed}`. 400 para runtime no-OpenCode o modelo vacío.
+Returns `{agent_id, model, changed}`. 400 for non-OpenCode runtime or empty model.
 
 ### `GET /agents/{agent_id}/available-models`
-Modelos disponibles para cambiar en el agente.
+Models available for changing on the agent.
 
 ```json
 {"agent_id": "...", "supports_model": true, "models": [{"id": "...", "name": "...", "runtime": "opencode"}]}
 ```
 
-## Preferencias de modelos
+## Model preferences
 
 ### `GET /models/preferences`
-Catálogo completo con habilitación y defaults por rol.
+Full catalog with enablement and per-role defaults.
 
 ```json
 {"models": [{"id": "...", "name": "...", "runtime": "opencode", "enabled": true}], "defaults": {"developer": "..."}}
 ```
 
-`enabled_model_ids` vacío = todos habilitados.
+Empty `enabled_model_ids` = all enabled.
 
 ### `PUT /models/preferences`
-Actualiza preferencias (parcial: solo los campos enviados).
+Updates preferences (partial: only the fields sent).
 
 ```json
 {"enabled_model_ids": ["..."], "default_model_by_role": {"developer": "..."}}
@@ -143,61 +141,61 @@ Actualiza preferencias (parcial: solo los campos enviados).
 ## Jobs
 
 ### `POST /jobs` → 201
-Crea y **despacha síncronamente** un Job. La respuesta llega cuando el Job termina.
+Creates and **dispatches synchronously** a Job. The response arrives when the Job finishes.
 
 ```json
-{"agent_id": "...", "description": "...", "previous_job_id": "opcional"}
+{"agent_id": "...", "description": "...", "previous_job_id": "optional"}
 ```
 
-Devuelve `{id, session_id, agent_id, description, status, result}`. `previous_job_id` encadena el resultado del Job anterior (Developer→Developer bloqueado). Publica `job_status` en `WS /ws/jobs`.
+Returns `{id, session_id, agent_id, description, status, result}`. `previous_job_id` chains the previous Job's result (Developer→Developer blocked). Publishes `job_status` on `WS /ws/jobs`.
 
 ### `GET /jobs`
-Histórico completo de Jobs de la sesión activa.
+Full Job history of the active session.
 
 ### `GET /jobs/{job_id}`
-Estado/resultado de un Job concreto.
+State/result of a specific Job.
 
 ### `POST /jobs/{job_id}/cancel`
-Cancela un Job **en curso** (`running`). Espera la transición real del hilo despachador (hasta 5s). 400 si el Job no está `running`.
+Cancels an **in-flight** (`running`) Job. Waits for the real dispatcher-thread transition (up to 5s). 400 if the Job is not `running`.
 
-## Planes del Arquitecto
+## Architect plans
 
 ### `POST /plans` → 201
-Pide al Arquitecto un plan de desglose para una User Story. **No despacha nada.**
+Asks the Architect for a breakdown plan for a User Story. **Dispatches nothing.**
 
 ```json
 {"goal": "US-FB020-01"}
 ```
 
-Devuelve `{plan_id, goal, status: "proposed", steps: [{description, mechanism, status}]}`. Publica `plan_progress` en `WS /ws/plans`.
+Returns `{plan_id, goal, status: "proposed", steps: [{description, mechanism, status}]}`. Publishes `plan_progress` on `WS /ws/plans`.
 
 ### `GET /plans`
-Todos los planes registrados en el proceso (incluye decididos), para recuperar un `plan_id` perdido.
+All plans registered in the process (including decided ones), to recover a lost `plan_id`.
 
 ### `GET /plans/{plan_id}`
-Progreso de un plan concreto.
+Progress of a specific plan.
 
 ### `POST /plans/{plan_id}/approve`
-Aprueba y **despacha el plan completo** de extremo a extremo (bloqueante). Idempotente: solo la primera petición transiciona `proposed→approved`; las concurrentes devuelven `already_decided: true`. Publica un evento por paso en `WS /ws/plans`.
+Approves and **dispatches the whole plan** end to end (blocking). Idempotent: only the first request transitions `proposed→approved`; concurrent ones return `already_decided: true`. Publishes an event per step on `WS /ws/plans`.
 
-Devuelve `{plan_id, already_decided, goal, status, steps}`.
+Returns `{plan_id, already_decided, goal, status, steps}`.
 
 ### `POST /plans/{plan_id}/reject`
-Rechaza un plan propuesto (no despacha nada). Idempotente como approve.
+Rejects a proposed plan (dispatches nothing). Idempotent like approve.
 
 ### `POST /plans/{plan_id}/cancel`
-Cancela un plan **aprobado y en vuelo**. Espera la transición real (hasta 5s). 400 si el plan no está `approved` o no tiene pasos pendientes/running.
+Cancels an **approved and in-flight** plan. Waits for the real transition (up to 5s). 400 if the plan is not `approved` or has no pending/running steps.
 
 ## Backlog
 
 ### `GET /backlog`
-Informe estructurado del backlog del proyecto activo (`02-backlog/`): conteos por Epic (con `unblock_degree` y `fase`), items LISTA/BLOQUEADA, cadena de máximo apalancamiento, errores de parseo.
+Structured report of the active project's backlog (`02-backlog/`): counts per Epic (with `unblock_degree` and `fase`), LISTA/BLOQUEADA items, max-leverage chain, parse errors.
 
 ### `GET /backlog/{item_id}`
-Detalle de un item. Los IDs tipo `FB-xxx` se resuelven como Epic; cualquier otra cosa como Task/User Story. Incluye objetivo/historia, criterios de aceptación, dependencias (con su estado) y, para User Stories, sus Tasks y (FB-024-US09) historial de ejecuciones. 404 con razón de parseo si el fichero existe pero no se pudo parsear.
+Detail of an item. IDs of the type `FB-xxx` resolve as an Epic; anything else as Task/User Story. Includes objective/story, acceptance criteria, dependencies (with their state) and, for User Stories, its Tasks and (FB-024-US09) execution history. 404 with a parse reason if the file exists but could not be parsed.
 
 ### `POST /backlog/{story_id}/launch-development` → 201
-Lanza el desarrollo de una User Story: construye el Job desde la historia real + Tasks pendientes (`TODO`) y lo despacha al agente indicado. 400 si la Story no tiene Tasks pendientes. Publica `job_status`.
+Launches the development of a User Story: builds the Job from the real story + pending (`TODO`) Tasks and dispatches it to the indicated agent. 400 if the Story has no pending Tasks. Publishes `job_status`.
 
 ```json
 {"agent_id": "..."}
@@ -206,7 +204,7 @@ Lanza el desarrollo de una User Story: construye el Job desde la historia real +
 ## Scripts
 
 ### `GET /scripts`
-Catálogo combinado: genéricos primero (sin `command`), luego particulares del proyecto.
+Combined catalog: generics first (without `command`), then project-specific ones.
 
 ```json
 [{"id": "commit", "name": "Commit de cambios", "command": null, "description": "...", "origin": "generic"},
@@ -214,37 +212,37 @@ Catálogo combinado: genéricos primero (sin `command`), luego particulares del 
 ```
 
 ### `POST /scripts/{script_id}/run`
-Ejecuta un script en el proyecto activo (bloqueante). Body opcional: `{"message": "..."}` (solo `commit` lo usa).
+Runs a script on the active project (blocking). Optional body: `{"message": "..."}` (only `commit` uses it).
 
 ```json
 {"success": true, "exit_code": 0, "stdout": "...", "stderr": "", "error_message": null, "data": null, "prose": null}
 ```
 
-Para `backlog_status`: `data` es el informe parseado y `prose` el resumen opcional de Scribe (o `null` si no está disponible). Fallos de script se devuelven **estructuralmente** (nunca como error HTTP), salvo 404 sin proyecto activo.
+For `backlog_status`: `data` is the parsed report and `prose` the optional Scribe summary (or `null` if unavailable). Script failures are returned **structurally** (never as an HTTP error), except 404 without an active project.
 
-## Acciones transversales de proyecto
+## Cross-cutting project actions
 
 ### `POST /project/actions/{action_id}`
-Despacha una acción de proyecto completa (bloqueante). `action_id` ∈ `documentar | analizar-arquitectura | sugerir-ideas | testear | auditar-ux | indexar`. Persiste el informe en `07-informes/US-FB025-*/` sin sobrescribir. 400 para acción desconocida; 404 sin sesión activa (acciones de agente).
+Dispatches a complete project action (blocking). `action_id` ∈ `documentar | analizar-arquitectura | sugerir-ideas | testear | auditar-ux | indexar`. Persists the report in `07-informes/US-FB025-*/` without overwriting. 400 for an unknown action; 404 without an active session (agent actions).
 
 ## WebSockets
 
-Conexiones servidor→cliente. El cliente no envía nada; `receive_text()` solo bloquea hasta la desconexión.
+Server→client connections. The client sends nothing; `receive_text()` only blocks until disconnect.
 
 ### `WS /ws/jobs`
-Eventos `{"event": "job_status", id, session_id, agent_id, description, status, result}`:
-- `created` — antes del despacho (expone el `job_id` real, necesario para poder cancelar).
-- `completed` / `failed` — al terminar.
+Events `{"event": "job_status", id, session_id, agent_id, description, status, result}`:
+- `created` — before dispatch (exposes the real `job_id`, needed to be able to cancel).
+- `completed` / `failed` — on finish.
 
 ### `WS /ws/plans`
-Eventos `{"event": "plan_progress", plan_id, goal, status, steps, already_decided?}`:
-- Al crear el plan.
-- En aprobación/rechazo/cancelación.
-- Durante el despacho, tras cada cambio de estado de paso.
+Events `{"event": "plan_progress", plan_id, goal, status, steps, already_decided?}`:
+- On plan creation.
+- On approval/rejection/cancellation.
+- During dispatch, after each step state change.
 
-## Estados (resumen)
+## States (summary)
 
-| Entidad | Estados |
+| Entity | States |
 |---|---|
 | Agent | `idle`, `working`, `unavailable`, `stopped` |
 | Job | `created`, `running`, `completed`, `failed`, `cancelled` |

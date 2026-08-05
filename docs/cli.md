@@ -1,37 +1,37 @@
 # CLI
 
-El entrypoint `brain` (`04-src/src/brain/cli/main.py`) arranca la TUI por defecto y expone dos subcomandos. Los comandos CLI sueltos para lanzar agentes se retiraron en T-FB002-US02-05: esa funcionalidad vive en la pantalla Agentes de la TUI unificada.
+The `brain` entrypoint (`04-src/src/brain/cli/main.py`) starts the TUI by default and exposes two subcommands. The loose CLI commands to launch agents were removed in T-FB002-US02-05: that functionality lives in the Agents screen of the unified TUI.
 
-## `brain` — arranca la TUI
+## `brain` — starts the TUI
 
 ```bash
 brain
 ```
 
-Sin subcomando, arranca la aplicación Textual. Comprueba conectividad contra `brain-api` (`http://127.0.0.1:8000` por defecto), recupera o pide el proyecto activo y muestra el Dashboard. Asume que el backend está corriendo.
+Without a subcommand, it starts the Textual application. It checks connectivity against `brain-api` (`http://127.0.0.1:8000` by default), recovers or asks for the active project and shows the Dashboard. It assumes the backend is running.
 
-## `brain backlog-status` — informe de estado del backlog
+## `brain backlog-status` — backlog status report
 
 ```bash
 brain backlog-status <backlog_path> [--json]
 ```
 
-Calcula el informe de estado del backlog (mismo cálculo que el script genérico `backlog_status` y que `GET /backlog`): conteos por Epic, items LISTA/BLOQUEADA, cadena de máximo apalancamiento, errores de parseo.
+Computes the backlog status report (same calculation as the `backlog_status` generic script and `GET /backlog`): counts per Epic, LISTA/BLOQUEADA items, max-leverage chain, parse errors.
 
-- `<backlog_path>`: ruta al directorio `02-backlog/` (obligatorio).
-- `--json`: salida JSON (`render_json_report`); sin él, salida legible (`format_human_report`).
-- Exit code siempre 0 en condiciones normales (un backlog vacío es válido y reporta "sin datos").
+- `<backlog_path>`: path to the `02-backlog/` directory (required).
+- `--json`: JSON output (`render_json_report`); without it, human-readable output (`format_human_report`).
+- Exit code is always 0 under normal conditions (an empty backlog is valid and reports "no data").
 
-Ejemplo:
+Example:
 
 ```bash
 brain backlog-status 02-backlog/
 brain backlog-status 02-backlog/ --json
 ```
 
-## `brain scribe resumir-backlog` — síntesis en prosa del backlog (opcional)
+## `brain scribe resumir-backlog` — prose synthesis of the backlog (optional)
 
-Capa opcional de síntesis en prosa sobre el JSON de `backlog-status`, vía Scribe (Ollama local). Lee el JSON de **stdin**:
+Optional prose synthesis layer over the `backlog-status` JSON, via Scribe (local Ollama). It reads the JSON from **stdin**:
 
 ```bash
 brain backlog-status 02-backlog/ --json | brain scribe resumir-backlog
@@ -39,28 +39,28 @@ brain backlog-status 02-backlog/ --json | brain scribe resumir-backlog
 
 Exit codes:
 
-| Código | Significado |
+| Code | Meaning |
 |---|---|
-| `0` | Éxito: resumen en prosa impreso. |
-| `1` | Scribe/Ollama no disponible (`ScribeUnavailableError`) — degradación explícita, nunca bloquea `backlog-status`. |
-| `2` | El stdin no es un JSON de backlog válido. |
+| `0` | Success: prose summary printed. |
+| `1` | Scribe/Ollama unavailable (`ScribeUnavailableError`) — explicit degradation, never blocks `backlog-status`. |
+| `2` | The stdin is not a valid backlog JSON. |
 
-## Entrypoint del backend
+## Backend entrypoint
 
-`brain-api` (definido en `pyproject.toml` como `brain.api.main:main`) arranca el servidor FastAPI:
+`brain-api` (defined in `pyproject.toml` as `brain.api.main:main`) starts the FastAPI server:
 
 ```bash
-brain-api            # host resuelto como IP Tailscale, puerto 8000
-brain-api --host 127.0.0.1   # override explícito para desarrollo/local
+brain-api            # port 8000
+brain-api --host 127.0.0.1   # explicit override for development/local
 ```
 
-Sin `--host`, `resolve_tailscale_host()` ejecuta `tailscale ip -4` (timeout 5s); si falla, levanta error — nunca degrada a `0.0.0.0`.
+Without `--host`, the host is resolved from the machine's network interface; if it fails, it raises an error — it never degrades to `0.0.0.0`.
 
-## Referencia rápida
+## Quick reference
 
-| Comando | Descripción |
+| Command | Description |
 |---|---|
-| `brain` | Arranca la TUI. |
-| `brain backlog-status <path> [--json]` | Informe de estado del backlog. |
-| `brain scribe resumir-backlog` | Resumen en prosa del JSON del backlog (vía Scribe). |
-| `brain-api` | Arranca el backend API + web. |
+| `brain` | Starts the TUI. |
+| `brain backlog-status <path> [--json]` | Backlog status report. |
+| `brain scribe resumir-backlog` | Prose summary of the backlog JSON (via Scribe). |
+| `brain-api` | Starts the API + web backend. |

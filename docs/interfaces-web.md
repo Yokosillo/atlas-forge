@@ -1,72 +1,72 @@
-# Interfaz web
+# Web interface
 
-La **interfaz web es la interfaz principal** de Factory Brain desde la decisión de producto de 2026-08-04 (TUI y Android quedaron en pausa para funcionalidad nueva). Se sirve desde el propio backend en `http://<host>:8000/ui/`, es JS puro sin frameworks y habla con la misma API REST + WebSocket que el resto de clientes.
+The **web interface is the main interface** of Factory Brain since the 2026-08-04 product decision (TUI and Android are paused for new functionality). It is served from the backend itself at `http://<host>:8000/ui/`, is plain JS without frameworks and talks to the same REST + WebSocket API as the rest of the clients.
 
-## Flujo de arranque
+## Startup flow
 
-1. **Verificación de conectividad**: `GET /health`. Si el backend no responde, muestra la guía "No hay conexión con el backend" con botón **Reintentar**.
-2. **Selección de proyecto**: si no hay proyecto activo, pantalla de onboarding ("Elige tu primer proyecto") o de cambio voluntario ("Selecciona otro proyecto").
-3. **Vista operativa**: barra superior con el proyecto activo (chip) + botón **Cambiar proyecto**, pestañas de navegación y el cuerpo de la sección.
+1. **Connectivity check**: `GET /health`. If the backend does not respond, it shows the "No connection to the backend" guide with a **Retry** button.
+2. **Project selection**: if there is no active project, an onboarding screen ("Choose your first project") or voluntary change ("Select another project").
+3. **Operational view**: top bar with the active project (chip) + **Change project** button, navigation tabs and the section body.
 
-## Pestañas
+## Tabs
 
-La barra de navegación actual contiene: **Roles, Plan, Scripts, Backlog, Modelos, Acciones**. La pestaña Backlog muestra un badge naranja con el número de Epics/US pendientes.
+The current navigation bar contains: **Roles, Plan, Scripts, Backlog, Models, Actions**. The Backlog tab shows an orange badge with the number of pending Epics/US.
 
-!!! note "Pantallas Agentes y Jobs"
-    La pantalla de **Agentes** fue sustituida por la pestaña **Roles** (configuración de roles, T-FB024-US08) y la pestaña **Jobs** se fusionó en el detalle de cada User Story del Backlog (T-FB024-US09). El código de los renderizadores de Agentes/Jobs sigue existiendo en `app.js` pero no está en la barra de navegación actual.
+!!! note "Agents and Jobs screens"
+    The **Agents** screen was replaced by the **Roles** tab (role configuration, T-FB024-US08) and the **Jobs** tab was merged into each User Story's detail in the Backlog (T-FB024-US09). The code for the Agents/Jobs renderers still exists in `app.js` but is not in the current navigation bar.
 
 ### Roles
 
-Configuración de los **4 roles** (Director, Arquitecto, Developer, Tester) con su descripción y modelo por defecto. "Cambiar modelo" abre un selector inline y guarda vía `PUT /models/preferences` (`default_model_by_role`).
+Configuration of the **4 roles** (Director, Architect, Developer, Tester) with their description and default model. "Change model" opens an inline selector and saves via `PUT /models/preferences` (`default_model_by_role`).
 
 ### Plan
 
-- **"Pedir un plan al Arquitecto"**: el objetivo es un **selector de User Stories TODO del backlog** (con respaldo de texto libre si el backlog no carga).
-- La tarjeta del plan muestra los pasos propuestos (Paso N · Mecanismo · Estado) en tiempo real vía WebSocket `WS /ws/plans`.
-- **Aprobar** requiere segundo clic con confirmación ("¿Aprobar plan completo? Se despacharán N pasos…") y despacha la secuencia entera.
-- **Rechazar** no requiere confirmación; **Cancelar plan** está disponible mientras el plan esté aprobado con pasos pendientes.
-- Histórico de planes desde `GET /plans`, recuperación automática del plan `proposed` pendiente al recargar.
+- **"Ask the Architect for a plan"**: the goal is a **selector of TODO User Stories from the backlog** (with free-text fallback if the backlog does not load).
+- The plan card shows the proposed steps (Step N · Mechanism · State) in real time via the `WS /ws/plans` WebSocket.
+- **Approve** requires a second click with confirmation ("Approve the whole plan? N steps will be dispatched…") and dispatches the whole sequence.
+- **Reject** does not require confirmation; **Cancel plan** is available while the plan is approved with pending steps.
+- Plan history from `GET /plans`, automatic recovery of the pending `proposed` plan on reload.
 
 ### Scripts
 
-Catálogo combinado `GET /scripts` separado en **"Genéricos (Factory Brain)"** y **"Proyecto"**. Cada tarjeta muestra descripción; el comando shell está oculto por defecto y se muestra con "▶ Ver comando". Solo el script `commit` pide un mensaje. Ejecutar muestra éxito/exit code/stdout/stderr, y formatea la salida de `backlog_status` (conteo por Epic, LISTA, BLOQUEADA, cadena de apalancamiento).
+Combined catalog `GET /scripts` split into **"Generic (Factory Brain)"** and **"Project"**. Each card shows the description; the shell command is hidden by default and shown with "▶ View command". Only the `commit` script asks for a message. Running shows success/exit code/stdout/stderr, and formats the `backlog_status` output (count per Epic, LISTA, BLOQUEADA, leverage chain).
 
 ### Backlog
 
-- Toggle **"Lista" / "Por Fase"** (agrupación por fase del roadmap).
-- Listado de Epics con resumen de estados (US/Tasks TODO y DONE), **barra de calor** de grado de desbloqueo por Epic y **badge** global de trabajo pendiente.
-- Desglose expandible Epic → User Story → detalle (vía `GET /backlog/{item_id}`).
-- En una User Story: dependencias con su estado (bloqueo de "Lanzar desarrollo" si hay dependencias sin resolver), **historial de ejecuciones** (Jobs sobre esa Story) y formulario manual "Crear Job manual" como secundario.
-- "Lanzar desarrollo" (`POST /backlog/{story_id}/launch-development`) solo para agentes Developer y con Tasks pendientes.
+- **"List" / "By Phase"** toggle (grouping by roadmap phase).
+- Epic listing with state summary (US/Tasks TODO and DONE), **heat bar** of unblock degree per Epic and a global **badge** of pending work.
+- Expandable Epic → User Story → detail breakdown (via `GET /backlog/{item_id}`).
+- In a User Story: dependencies with their state (blocks "Launch development" if there are unresolved dependencies), **execution history** (Jobs over that Story) and a manual "Create manual Job" form as secondary.
+- "Launch development" (`POST /backlog/{story_id}/launch-development`) only for Developer agents and with pending Tasks.
 
-### Modelos
+### Models
 
-Tabla de modelos con checkboxes de **habilitado** y selector de **modelo por defecto por rol** (developer / critic / arquitecto / tester). Guarda vía `PUT /models/preferences` (`enabled_model_ids` + `default_model_by_role`).
+Model table with **enabled** checkboxes and a **default model per role** selector (developer / critic / architect / tester). Saves via `PUT /models/preferences` (`enabled_model_ids` + `default_model_by_role`).
 
-### Acciones
+### Actions
 
-Acciones transversales de proyecto (FB-025) como botones directos a `POST /project/actions/{action_id}`:
+Cross-cutting project actions (FB-025) as direct buttons to `POST /project/actions/{action_id}`:
 
-| Acción | Qué hace |
+| Action | What it does |
 |---|---|
-| **Documentar todo** | Despacha Job al Arquitecto para contrastar `01-documentacion/` contra el código real. |
-| **Analizar arquitectura** | Análisis de arquitectura con evidencia de código; no escribe al backlog. |
-| **Sugerir ideas para el backlog** | Propuestas informales de Epics/US candidatas (nunca escritura directa). |
-| **Testear todo** | Ejecuta la suite `pytest`; resultado PASA/FALLA con detalle. |
-| **Auditar UX de la web** | Ejecución headless `opencode run --auto` según `00-gobierno/UX.md`. |
-| **Indexar proyecto (Scribe)** | Indexa `01-documentacion/`, `02-backlog/`, `04-src/`, `00-gobierno/` con Scribe/Ollama. |
+| **Document everything** | Dispatches a Job to the Architect to contrast `01-documentacion/` against the real code. |
+| **Analyze architecture** | Architecture analysis with code evidence; does not write to the backlog. |
+| **Suggest ideas for the backlog** | Informal proposals of candidate Epics/US (never direct writes). |
+| **Test everything** | Runs the `pytest` suite; PASS/FAIL result with detail. |
+| **Audit the web UX** | Headless `opencode run --auto` run according to `00-gobierno/UX.md`. |
+| **Index project (Scribe)** | Indexes `01-documentacion/`, `02-backlog/`, `04-src/`, `00-gobierno/` with Scribe/Ollama. |
 
-Todas persisten sus informes con timestamp en `07-informes/US-FB025-*/` sin sobrescribir ejecuciones anteriores.
+All of them persist their reports with a timestamp in `07-informes/US-FB025-*/` without overwriting previous runs.
 
-## Patrones de UX
+## UX patterns
 
-- **Confirmación en la etiqueta del botón** para acciones destructivas (detener agente, aprobar plan, cambiar de proyecto con agentes activos) — evita reflow de layout.
-- **Estados por color** (WCAG): agentes idle/working/stopped/unavailable, Jobs running/ok/failed.
-- **Single-flight**: los botones que disparan llamadas bloqueantes se deshabilitan mientras la petición está en vuelo (evita doble Job/plan por doble clic).
-- **Stale-data**: notas ámbar "puede que esta lista esté desactualizada…" cuando los datos pueden no reflejar el último cambio.
-- **WebSocket con reconexión** (`reconnecting-websocket.js`, backoff 3s) sin limpiar el estado de la UI.
-- Objetivos táctiles ≥ 48px, tarjetas expandibles in-place, resultados completos con scroll.
+- **Confirmation in the button label** for destructive actions (stop agent, approve plan, change project with active agents) — avoids layout reflow.
+- **State colors** (WCAG): idle/working/stopped/unavailable agents, running/ok/failed Jobs.
+- **Single-flight**: buttons that trigger blocking calls are disabled while the request is in flight (avoids a double Job/plan from a double click).
+- **Stale-data**: amber notes "this list may be outdated…" when data may not reflect the latest change.
+- **WebSocket with reconnection** (`reconnecting-websocket.js`, 3s backoff) without clearing UI state.
+- Touch targets ≥ 48px, in-place expandable cards, full results with scroll.
 
-## Configuración del cliente
+## Client configuration
 
-El cliente se configura con `BackendClient.setBaseUrl(...)`; por defecto usa la misma origen (servido desde `brain-api`, sin CORS). Errores: `BackendUnavailableError` (red) y `BackendRequestError` (4xx/5xx con el `detail` real del backend).
+The client is configured with `BackendClient.setBaseUrl(...)`; by default it uses the same origin (served from `brain-api`, no CORS). Errors: `BackendUnavailableError` (network) and `BackendRequestError` (4xx/5xx with the real backend `detail`).

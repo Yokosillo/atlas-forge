@@ -1,40 +1,40 @@
-# App Android
+# Android app
 
-La app Android es el cliente móvil de Factory Brain para control remoto a través de **Tailscale** (sin IP pública, sin Play Store — el APK se descarga desde el backend).
+The Android app is Factory Brain's mobile client for remote control (no public IP, no Play Store — the APK is downloaded from the backend).
 
-!!! note "Pausa de desarrollo"
-    La app Android está **en pausa** desde la decisión de producto de 2026-08-04: toda funcionalidad nueva se expone en la interfaz web. El trabajo ya implementado (listado abajo) sigue siendo la interfaz vigente para quien la use hoy; ninguna capacidad nueva se añade hasta que se retome explícitamente.
+!!! note "Development pause"
+    The Android app is **paused** since the 2026-08-04 product decision: all new functionality is exposed on the web interface. The already-implemented work (listed below) remains the current interface for those who use it today; no new capability is added until it is explicitly resumed.
 
-## Requisitos
+## Requirements
 
-- Backend `brain-api` escuchando en la IP Tailscale de la VM (por defecto).
-- El móvil unido a la misma red Tailscale.
-- **Descargar el APK**: `GET /apk` sirve `releases/factory-brain-latest.apk` desde el backend (`application/vnd.android.package-archive`). Instalación manual (permisos de orígenes desconocidos; la app usa tráfico en claro `usesCleartextTraffic=true` para el túnel Tailscale).
+- The `brain-api` backend running and reachable from the device.
+- The device on the same network as the backend.
+- **Download the APK**: `GET /apk` serves `releases/factory-brain-latest.apk` from the backend (`application/vnd.android.package-archive`). Manual install (unknown-sources permission; the app uses cleartext traffic `usesCleartextTraffic=true` for the connection).
 
-## Código
+## Code
 
-- `10-android/` — proyecto Gradle Kotlin, paquete `com.factoriasoftware.factorybrain`.
+- `10-android/` — Gradle Kotlin project, package `com.factoriasoftware.factorybrain`.
 - Compose + Material 3, OkHttp + Moshi, `ReconnectingWebSocket`, minSdk 26 / target 34.
-- Consume exactamente la misma API REST + WebSocket que la web y la TUI (misma taxonomía de errores `BackendUnavailableException`/`BackendRequestException`).
+- Consumes exactly the same REST + WebSocket API as the web and the TUI (same `BackendUnavailableException`/`BackendRequestException` error taxonomy).
 
-## Pantallas
+## Screens
 
-La navegación inferior (`NavigationBar`) se muestra **solo cuando el contexto de sesión está resuelto** (conexión + proyecto):
+The bottom navigation (`NavigationBar`) is shown **only when the session context is resolved** (connection + project):
 
-- **Agentes** — listado con estado (3s polling), lanzar (rol+runtime+modelo, con `initial_job_description` opcional), detener, ver pane.
-- **Jobs** — crear/despachar, cancelar, consumir `WS /ws/jobs`, histórico.
-- **Plan Critic** — pedir plan, aprobar/rechazar, consumir `WS /ws/plans`.
-- **Scripts** — catálogo + ejecución, formatea `backlog_status`.
-- **Backlog** — listado/detalle, lanzar desarrollo (solo agentes Developer).
+- **Agents** — listing with state (3s polling), launch (role+runtime+model, with optional `initial_job_description`), stop, view pane.
+- **Jobs** — create/dispatch, cancel, consume `WS /ws/jobs`, history.
+- **Plan Critic** — ask for a plan, approve/reject, consume `WS /ws/plans`.
+- **Scripts** — catalog + execution, formats `backlog_status`.
+- **Backlog** — listing/detail, launch development (only Developer agents).
 
-Además:
+Also:
 
-- **SessionContextChip** — barra superior persistente con estado del backend + proyecto activo, abre un `ModalBottomSheet` para configurar host y cambiar de proyecto.
-- **OnboardingFlow** — guiado de 3 pasos (estilo Nielsen Norman) cuando el contexto no está resuelto.
-- **Confirmaciones** en acciones críticas (detener agente, aprobar plan) y **single-flight** en botones bloqueantes.
-- Tema Material 3 con paleta de colores verificada por contraste WCAG.
+- **SessionContextChip** — persistent top bar with backend state + active project, opens a `ModalBottomSheet` to configure host and change project.
+- **OnboardingFlow** — guided 3 steps (Nielsen Norman style) when the context is not resolved.
+- **Confirmations** on critical actions (stop agent, approve plan) and **single-flight** on blocking buttons.
+- Material 3 theme with a color palette verified by WCAG contrast.
 
-## Limitaciones
+## Limitations
 
-- Funcionalidad nueva no se implementa aquí mientras dure la pausa de 2026-08-04.
-- El APK debe reconstruirse y servirse manualmente; no hay tienda.
+- New functionality is not implemented here while the 2026-08-04 pause lasts.
+- The APK must be rebuilt and served manually; there is no store.

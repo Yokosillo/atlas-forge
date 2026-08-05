@@ -1,74 +1,74 @@
 # TUI
 
-La TUI es el cliente de terminal de Factory Brain, construida con [Textual](https://textual.textualize.io/). Es un **cliente de la API** como cualquier otro: asume que `brain-api` está corriendo y no gestiona estado de dominio propio.
+The TUI is Factory Brain's terminal client, built with [Textual](https://textual.textualize.io/). It is an **API client** like any other: it assumes `brain-api` is running and does not manage its own domain state.
 
-!!! note "Pausa de desarrollo"
-    Desde la decisión de producto de 2026-08-04, toda funcionalidad nueva se expone en la web; la TUI queda en pausa para capacidades nuevas (las Tasks de modelo activo en TUI están `POSTERGADA`). Lo que se documenta aquí es lo ya implementado y operativo.
+!!! note "Development pause"
+    Since the 2026-08-04 product decision, all new functionality is exposed on the web; the TUI is paused for new capabilities (the active-model Tasks in the TUI are `POSTERGADA`). What is documented here is already implemented and operational.
 
-## Arranque
+## Startup
 
 ```bash
 brain
 ```
 
-El comando `brain` arranca la TUI. Al montarse:
+The `brain` command starts the TUI. On mount:
 
-1. **ConnectivityCheckScreen**: sondea `GET /session`.
-2. Si conecta: recupera el proyecto activo (`resolve_startup_project`) y salta al **Dashboard** o a la pantalla **Workspace** (si no hay proyecto).
-3. Si no conecta: muestra error + **Reintentar**.
+1. **ConnectivityCheckScreen**: probes `GET /session`.
+2. If it connects: recovers the active project (`resolve_startup_project`) and jumps to the **Dashboard** or the **Workspace** screen (if there is no project).
+3. If it does not connect: shows an error + **Retry**.
 
-## Pantallas
+## Screens
 
-Navegación por teclado nativa de Textual (botones, `ListView`, `Select`, tabulación).
+Textual-native keyboard navigation (buttons, `ListView`, `Select`, tabbing).
 
 ### Workspace
 
-Lista los proyectos descubiertos (`discover_projects` local). Al elegir uno, selecciona el proyecto activo y vuelve al Dashboard. Diferencia entre onboarding ("Selecciona un proyecto:") y cambio voluntario ("Volver al Dashboard").
+Lists the discovered projects (`discover_projects` local). Choosing one selects the active project and returns to the Dashboard. Distinguishes onboarding ("Select a project:") from voluntary change ("Back to Dashboard").
 
 ### Dashboard
 
-Centro de navegación y estado: proyecto activo, sesión (id/estado), agentes lanzados con estado, y resumen de Jobs por estado. Botones: **Ver Agentes, Ver Jobs, Ver Plan, Ver Scripts, Ver Backlog, Cambiar de proyecto**.
+Navigation and state center: active project, session (id/state), launched agents with state, and a summary of Jobs by state. Buttons: **View Agents, View Jobs, View Plan, View Scripts, View Backlog, Change project**.
 
-### Agentes
+### Agents
 
-- Lista de agentes lanzados con estado.
-- Selector de rol+runtime (filtra Critic+OpenCode, decisión de producto) + campo de modelo opcional (solo OpenCode) → **Lanzar**.
-- **Detener** por agente con confirmación de segundo clic ("¿Seguro? Tiene un Job en curso — se interrumpirá. Confirmar detener").
+- List of launched agents with state.
+- Role+runtime selector (filters Critic+OpenCode, product decision) + optional model field (OpenCode only) → **Launch**.
+- **Stop** per agent with second-click confirmation ("Are you sure? It has a Job in flight — it will be interrupted. Confirm stop").
 
 ### Jobs
 
-- Descripción (`TextArea`) + agente (`Select`) → **Enviar** (llamada bloqueante `POST /jobs` en worker).
-- **Cancelar Job** mediante un localizador que busca el Job por descripción en `GET /jobs`.
-- **Encadenar a Critic/Arquitecto**: aparece tras completarse un Job de Developer si hay un Critic/Arquitecto lanzado.
-- Histórico recomuesto desde `GET /jobs`.
+- Description (`TextArea`) + agent (`Select`) → **Send** (blocking `POST /jobs` call in a worker).
+- **Cancel Job** via a locator that finds the Job by description in `GET /jobs`.
+- **Chain to Critic/Architect**: appears after a Developer Job completes if a Critic/Architect is launched.
+- History rebuilt from `GET /jobs`.
 
 ### Plan
 
-- Selecciona el plan `proposed` más reciente de `GET /plans`; muestra objetivo/estado/pasos.
-- **Aprobar plan completo** (confirmación con número de pasos), **Rechazar**, **Cancelar plan** (disponible desde el inicio del despacho, ya que `plan_id` se conoce de antemano).
+- Selects the most recent `proposed` plan from `GET /plans`; shows goal/state/steps.
+- **Approve whole plan** (confirmation with the number of steps), **Reject**, **Cancel plan** (available from the start of dispatch, since `plan_id` is known in advance).
 
 ### Scripts
 
-- Selector del catálogo con prefijo `[Genérico]`/`[Proyecto]`.
-- Campo de mensaje solo para `commit`.
-- Ejecución en background vía `POST /scripts/{id}/run`; formatea la salida de `backlog_status`.
+- Catalog selector with a `[Generic]`/`[Project]` prefix.
+- Message field only for `commit`.
+- Background execution via `POST /scripts/{id}/run`; formats the `backlog_status` output.
 
 ### Backlog
 
-Desglose de tres niveles (Epic → Epic detail → item detail) con `push_screen`/`pop_screen`:
+Three-level breakdown (Epic → Epic detail → item detail) with `push_screen`/`pop_screen`:
 
-- Colores Rich: `[green]` DONE, `[dark_orange]` TODO, `[bright_black]` desconocido.
-- Barras de progreso proporcionales (p. ej. `███░░░░░░░ 3/10 US DONE`).
-- Advertencias `⚠` para items con errores de parseo.
-- En una User Story: **Lanzar desarrollo** con selector de agente Developer.
+- Rich colors: `[green]` DONE, `[dark_orange]` TODO, `[bright_black]` unknown.
+- Proportional progress bars (e.g. `███░░░░░░░ 3/10 US DONE`).
+- `⚠` warnings for items with parse errors.
+- In a User Story: **Launch development** with a Developer agent selector.
 
 ## Backend client
 
-`brain.tui.backend_client` es un cliente `requests` síncrono con `DEFAULT_BACKEND_URL = http://127.0.0.1:8000`, timeout 10s (60s para llamadas bloqueantes de despacho/aprobación/scripts). Métodos: `get_session`, `get_agents`, `launch_agent`, `stop_agent`, `get_jobs`, `create_and_dispatch_job`, `cancel_job`, `get_plans`, `get_plan`, `approve_plan`, `reject_plan`, `cancel_plan`, `get_backlog`, `get_backlog_item`, `launch_development`, `get_scripts`, `run_script`.
+`brain.tui.backend_client` is a synchronous `requests` client with `DEFAULT_BACKEND_URL = http://127.0.0.1:8000`, timeout 10s (60s for blocking dispatch/approval/scripts calls). Methods: `get_session`, `get_agents`, `launch_agent`, `stop_agent`, `get_jobs`, `create_and_dispatch_job`, `cancel_job`, `get_plans`, `get_plan`, `approve_plan`, `reject_plan`, `cancel_plan`, `get_backlog`, `get_backlog_item`, `launch_development`, `get_scripts`, `run_script`.
 
-Excepciones de cliente: 404 en agentes/jobs/scripts → lista vacía; 404 en backlog → error real (propagado).
+Client exceptions: 404 on agents/jobs/scripts → empty list; 404 on backlog → real error (propagated).
 
-## Limitaciones conocidas
+## Known limitations
 
-- La TUI no inicia `brain-api` por sí misma; depende de que el servicio esté corriendo (systemd u otro).
-- Keyboard-first: no es adecuada para uso táctil desde el móvil (de ahí la app Android / la web).
+- The TUI does not start `brain-api` itself; it depends on the service running (systemd or other).
+- Keyboard-first: not suitable for touch use from mobile (hence the Android app / the web).

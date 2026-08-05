@@ -1,100 +1,96 @@
-# Conceptos
+# Concepts
 
-Modelo de dominio de Factory Brain. Terminología usada en toda la documentación, la API y las interfaces.
+Factory Brain's domain model. Terminology used throughout the documentation, the API and the interfaces.
 
-## Proyecto
+## Project
 
-Un repositorio Git del workspace. Es la **unidad principal de trabajo**: Factory Brain nunca opera sobre directorios arbitrarios. El proyecto activo se elige en el arranque y se persiste a disco.
+A Git repository of the workspace. It is the **main unit of work**: Factory Brain never operates on arbitrary directories. The active project is chosen at startup and persisted to disk.
 
-- Descubrimiento: `os.walk` del workspace buscando directorios `.git` (5s TTL de caché).
+- Discovery: `os.walk` of the workspace looking for `.git` directories (5s cache TTL).
 - `Project`: `{id (path), name, path, repository, workspace_id}`.
 
 ## Workspace
 
-La raíz donde se descubren los repositorios (p. ej. `factoria-software/`). Un workspace contiene múltiples proyectos.
+The root where repositories are discovered (e.g. `factoria-software/`). A workspace contains multiple projects.
 
-## Sesión de desarrollo
+## Development session
 
-Entorno de trabajo vivo sobre un proyecto. Estados: `created` → `active` → `closed`. Al elegir proyecto se arranca su sesión; al cambiar de proyecto se detienen los agentes no detenidos y se cierra la anterior.
+A live working environment over a project. States: `created` → `active` → `closed`. When you choose a project its session starts; when you change project, not-stopped agents are stopped and the previous one is closed.
 
-La sesión mantiene: proyecto activo, agentes lanzados, historial de Jobs, contexto. **Vive en memoria del proceso `brain-api`** (no se persiste a disco).
+The session keeps: the active project, launched agents, the Job history and context. **It lives in the memory of the `brain-api` process** (not persisted to disk).
 
-## Agente
+## Agent
 
-Una instancia de un **rol** ejecutándose sobre un **runtime** en una sesión tmux. No es un modelo de lenguaje ni un proceso genérico: es rol + prompt + runtime + estado.
+An instance of a **role** running on a **runtime** in a tmux session. It is not a language model nor a generic process: it is role + prompt + runtime + state.
 
-- Roles: `developer`, `critic`, `director`, `arquitecto` (ver [Agentes](agents.md)).
-- Estados: `idle` → `working` / `unavailable` / `stopped`; `unavailable → idle`; `stopped` es terminal (hay que relanzar).
-- Reutilización: al lanzar un rol reutilizable (Critic/Director/Arquitecto), se reutiliza el agente vivo existente en vez de duplicar.
+- Roles: `developer`, `critic`, `director`, `arquitecto` (see [Agents](agents.md)).
+- States: `idle` → `working` / `unavailable` / `stopped`; `unavailable → idle`; `stopped` is terminal (must relaunch).
+- Reuse: when launching a reusable role (Critic/Director/Architect), the existing live agent of that role is reused instead of duplicating.
 
 ## Runtime
 
-Un ejecutable de IA externo lanzado en tmux: **Claude Code** o **OpenCode**. El modelo concreto se pasa en el arranque (solo OpenCode soporta selección de modelo). Ver [Runtime y Scribe](runtime.md).
+An external AI executable launched in tmux: **Claude Code** or **OpenCode**. The concrete model is passed at launch (only OpenCode supports model selection). See [Runtime and Scribe](runtime.md).
 
 ## Job
 
-Unidad de trabajo enviada a un agente: una descripción de texto. Estados: `created → running → {completed | failed | cancelled}`.
+A unit of work sent to an agent: a text description. States: `created → running → {completed | failed | cancelled}`.
 
-- `POST /jobs` es **bloqueante**: la respuesta llega cuando el Job termina.
-- El resultado se reporta de forma cooperativa (el agente escribe su salida a un fichero con una marca final).
-- **Encadenado**: se puede pasar `previous_job_id`; el resultado del Job anterior se inyecta literalmente en la descripción del nuevo. Developer→Developer bloqueado.
-- Histórico completo de la sesión vía `GET /jobs`.
+- `POST /jobs` is **blocking**: the response arrives when the Job finishes.
+- The result is reported cooperatively (the agent writes its output to a file with a final marker).
+- **Chaining**: you can pass `previous_job_id`; the previous Job's result is injected literally into the new Job's description. Developer→Developer is blocked.
+- Full session history via `GET /jobs`.
 
-## Plan (del Arquitecto)
+## Plan (of the Architect)
 
-Secuencia de pasos para completar una User Story, propuesta por el Arquitecto. Estados: `proposed → {approved, rejected}`, `approved → {blocked, cancelled}`.
+A sequence of steps to complete a User Story, proposed by the Architect. States: `proposed → {approved, rejected}`, `approved → {blocked, cancelled}`.
 
-- Cada paso tiene `mechanism`: `agent` (lo ejecuta un rol), `scribe` (lo hace Scribe), o `script` (degradado: no-op).
-- Tras la **única aprobación humana**, el plan se despacha de extremo a extremo; el Arquitecto emite un veredicto al final y marca las Tasks `DONE` si se aprueba.
+- Each step has a `mechanism`: `agent` (a role runs it), `scribe` (Scribe does it), or `script` (degraded: no-op).
+- After the **single human approval**, the plan is dispatched end to end; the Architect issues a verdict at the end and marks the Tasks `DONE` if approved.
 
 ## Scribe
 
-Herramienta determinista local (no un agente conversacional) que resume/indexa documentación con un modelo local vía Ollama. Operaciones: `summarize_document`, `index_documents`, `resumir_estado_backlog`, `index_scripts`. Usada por el Dispatcher para ahorrar tokens. Ver [Runtime y Scribe](runtime.md).
+A local deterministic tool (not a conversational agent) that summarizes/indexes documentation with a local model via Ollama. Operations: `summarize_document`, `index_documents`, `resumir_estado_backlog`, `index_scripts`. Used by the Dispatcher to save tokens. See [Runtime and Scribe](runtime.md).
 
 ## Script
 
-- **Genéricos** (traídos por Factory Brain, 7): `commit`, `push`, `changed_files`, `diff_stat`, `language_stats`, `backlog_status`, `run_tests`.
-- **Particulares** (del proyecto, `.factory-brain/scripts.yml`): p. ej. `deploy-web`.
+- **Generic** (bundled with Factory Brain, 7): `commit`, `push`, `changed_files`, `diff_stat`, `language_stats`, `backlog_status`, `run_tests`.
+- **Project-specific** (of the project, `.factory-brain/scripts.yml`): e.g. `deploy-web`.
 
 ## Backlog
 
-Conjunto de Epics, User Stories y Tasks del proyecto activo (`02-backlog/`), con estado, dependencias, prioridad y fase. Ver [Backlog y pipeline](backlog.md).
+The set of Epics, User Stories and Tasks of the active project (`02-backlog/`), with state, dependencies, priority and phase. It is the **central control panel** of the product: work is deployed from here. See [Backlog and pipeline](backlog.md).
 
-## Flujo típico de trabajo
+## Typical workflow
 
 ```mermaid
 sequenceDiagram
-    participant U as Usuario
+    participant U as User
     participant B as brain-api
     participant D as Developer
-    participant A as Arquitecto
+    participant A as Architect
 
-    U->>B: Elige proyecto (POST /project)
-    B->>B: Arranca sesión de desarrollo
-    U->>B: Lanza agente Developer + Arquitecto (POST /agents)
-    U->>B: Crea y despacha Job (POST /jobs)
-    B->>D: Envía tarea en tmux
-    D-->>B: Resultado (fichero cooperativo)
-    U->>B: Pide plan para una User Story (POST /plans)
-    B->>A: Propone pasos
+    U->>B: Select project (POST /project)
+    B->>B: Start development session
+    U->>B: Ask the Architect for a plan for a User Story (POST /plans)
+    B->>A: Propose steps
     A-->>B: Plan (proposed)
-    U->>B: Aprueba plan (POST /plans/{id}/approve)
-    B->>D: Despacha cada paso (Jobs encadenados)
-    B->>A: Veredicto final (cola FIFO)
+    U->>B: Approve plan (POST /plans/{id}/approve)
+    B->>D: Dispatch each step (chained Jobs)
+    B->>A: Final verdict (FIFO queue)
     A-->>B: APROBADO → Tasks DONE
 ```
 
-## Glosario rápido
+## Quick glossary
 
-| Término | Significado |
+| Term | Meaning |
 |---|---|
-| **Proyecto** | Repositorio Git, unidad de trabajo |
-| **Sesión** | Entorno vivo sobre un proyecto |
-| **Agente** | Rol + runtime + prompt en tmux |
+| **Project** | Git repository, unit of work |
+| **Session** | Live environment over a project |
+| **Agent** | Role + runtime + prompt in tmux |
 | **Runtime** | Claude Code / OpenCode |
-| **Job** | Tarea de texto a un agente |
-| **Plan** | Secuencia de pasos del Arquitecto |
-| **Scribe** | Resumen/indexación local vía Ollama |
-| **Developer** | Implementa User Stories |
-| **Critic / Arquitecto** | Revisa/valida trabajo, propone planes y emite veredictos |
-| **Director** | Conversa sobre Epics existentes (no modifica backlog) |
+| **Job** | Text task to an agent |
+| **Plan** | Sequence of steps from the Architect |
+| **Scribe** | Local summarization/indexing via Ollama |
+| **Developer** | Implements User Stories |
+| **Critic / Architect** | Reviews/validates work, proposes plans and issues verdicts |
+| **Director** | Converses about existing Epics (does not modify the backlog) |

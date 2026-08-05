@@ -1,74 +1,72 @@
 # Scripts
 
-Factory Brain cataloga y ejecuta scripts desde la interfaz, distinguiendo dos fuentes:
+Factory Brain catalogs and runs scripts from the interface, distinguishing two sources:
 
-- **Genéricos**: catálogo fijo que Factory Brain trae consigo, disponibles en cualquier proyecto del workspace.
-- **Particulares**: declarados por el proyecto activo en `.factory-brain/scripts.yml`.
+- **Generic**: fixed catalog bundled with Factory Brain, available in any project of the workspace.
+- **Project-specific**: declared by the active project in `.factory-brain/scripts.yml`.
 
-Ambos se ejecutan sobre el proyecto activo con el mismo mecanismo (`run_subprocess`, 30s timeout) y se exponen juntos en `GET /scripts`.
+Both run on the active project with the same mechanism (`run_subprocess`, 30s timeout) and are exposed together in `GET /scripts`.
 
-## Scripts genéricos
+## Generic scripts
 
-Catálogo fijo (`brain/workspace/generic_scripts.py`, 7 identificadores):
+Fixed catalog (`brain/workspace/generic_scripts.py`, 7 identifiers):
 
-| id | Nombre | Qué hace |
+| id | Name | What it does |
 |---|---|---|
-| `commit` | Commit de cambios | `git commit -m <message>` (requiere parámetro `message`). |
-| `push` | Push al remoto | `git push`. |
-| `changed_files` | Ficheros modificados | `git diff --name-only`. |
-| `diff_stat` | Resumen de cambios por fichero | `git diff --stat`. |
-| `language_stats` | Desglose de lenguajes y líneas | `cloc --json --quiet` (se muestra pista de instalación si `cloc` falta). |
-| `backlog_status` | Estado del backlog | Informe determinista del backlog del proyecto activo: conteo por Epic, items LISTA/BLOQUEADA, cadena de máximo apalancamiento. Puro Python, sin LLM. |
-| `run_tests` | Ejecutar tests del proyecto | `pytest <proyecto>/tests -v` (con fallback `python3 -m pytest`; error explícito si no hay runner o directorio de tests). |
+| `commit` | Commit changes | `git commit -m <message>` (requires the `message` parameter). |
+| `push` | Push to remote | `git push`. |
+| `changed_files` | Modified files | `git diff --name-only`. |
+| `diff_stat` | Change summary per file | `git diff --stat`. |
+| `language_stats` | Language and line breakdown | `cloc --json --quiet` (shows an install hint if `cloc` is missing). |
+| `backlog_status` | Backlog status | Deterministic report of the active project's backlog: count per Epic, LISTA/BLOQUEADA items, max-leverage chain. Pure Python, no LLM. |
+| `run_tests` | Run the project's tests | `pytest <project>/tests -v` (with `python3 -m pytest` fallback; explicit error if there is no runner or tests directory). |
 
-Ejemplos:
+Examples:
 
 ```bash
-# Consultar el estado del backlog (determinista, sin LLM)
+# Query the backlog status (deterministic, no LLM)
 curl -X POST http://<host>:8000/scripts/backlog_status/run
 
-# Commit con mensaje
+# Commit with a message
 curl -X POST http://<host>:8000/scripts/commit/run \
   -H "Content-Type: application/json" \
-  -d '{"message": "feat: añade X"}'
+  -d '{"message": "feat: add X"}'
 
-# Ejecutar la suite de tests del proyecto
+# Run the project test suite
 curl -X POST http://<host>:8000/scripts/run_tests/run
 ```
 
-## Scripts particulares del proyecto
+## Project-specific scripts
 
-Declarados en `.factory-brain/scripts.yml` del proyecto activo:
+Declared in the active project's `.factory-brain/scripts.yml`:
 
 ```yaml
 scripts:
   - id: deploy-web
-    name: "Deploy web (reinicio + verificación)"
+    name: "Deploy web (restart + verification)"
     command: >-
       sudo systemctl restart factory-brain-api.service && ...
     description: "..."
 ```
 
-- Esquema: `scripts:` → lista de `{id, name, command, description?}`. `id`, `name` y `command` son obligatorios.
-- Errores de manifiesto (YAML roto, campos faltantes) → `MalformedScriptManifestError`.
-- Manifiesto ausente = catálogo particular vacío (válido).
-- Caché TTL 5s validada por `(mtime, size)`.
-
-El repositorio de Factory Brain declara el script particular `deploy-web` (reinicia el servicio systemd y verifica que `/ui/` responda en la IP Tailscale).
+- Schema: `scripts:` → list of `{id, name, command, description?}`. `id`, `name` and `command` are required.
+- Manifest errors (broken YAML, missing fields) → `MalformedScriptManifestError`.
+- Missing manifest = empty project-specific catalog (valid).
+- TTL cache 5s validated by `(mtime, size)`.
 
 ## API
 
-- `GET /scripts` — catálogo combinado (genéricos primero, sin `command`; luego particulares con `command`). Cada item tiene `origin: "generic" | "particular"` y `description`.
-- `POST /scripts/{script_id}/run` — ejecuta (bloqueante). Body opcional `{"message": ...}` (solo `commit`). Devuelve `{success, exit_code, stdout, stderr, error_message, data, prose}`; para `backlog_status`, `data` es el informe y `prose` el resumen opcional de Scribe.
+- `GET /scripts` — combined catalog (generics first, without `command`; then project-specific with `command`). Each item has `origin: "generic" | "particular"` and `description`.
+- `POST /scripts/{script_id}/run` — runs (blocking). Optional body `{"message": ...}` (only `commit`). Returns `{success, exit_code, stdout, stderr, error_message, data, prose}`; for `backlog_status`, `data` is the report and `prose` the optional Scribe summary.
 
-Los fallos de ejecución se devuelven **estructuralmente** dentro del resultado (nunca como error HTTP), salvo 404 sin proyecto activo.
+Execution failures are returned **structurally** inside the result (never as an HTTP error), except 404 without an active project.
 
-## En las interfaces
+## In the interfaces
 
-- **Web**: pestaña "Scripts" con grupos Genéricos/Proyecto, descripción visible y comando oculto tras "▶ Ver comando"; campo de mensaje solo para `commit`.
-- **TUI**: pantalla Scripts con selector etiquetado `[Genérico]`/`[Proyecto]`.
-- **App Android**: pantalla Scripts con el mismo catálogo.
+- **Web**: "Scripts" tab with Generic/Project groups, visible description and command hidden behind "▶ View command"; a message field only for `commit`.
+- **TUI**: Scripts screen with a `[Generic]`/`[Project]` labelled selector.
+- **Android app**: Scripts screen with the same catalog.
 
-## Relación con Scribe
+## Relationship with Scribe
 
-`index_scripts(scripts)` (Scribe) genera una descripción de una línea por script del catálogo combinado, consultable por Developer/Arquitecto sin gastar tokens del runtime principal. La operación existe en el catálogo cerrado de Scribe.
+`index_scripts(scripts)` (Scribe) generates a one-line description per script of the combined catalog, queryable by Developer/Architect without spending main-runtime tokens. The operation exists in Scribe's closed catalog.

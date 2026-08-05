@@ -1,21 +1,21 @@
-# Empezar
+# Getting started
 
-Guía de instalación, configuración y primeras ejecuciones de Factory Brain.
+Installation, configuration and first runs of Factory Brain.
 
-## Requisitos
+## Requirements
 
 - **Python ≥ 3.10**
-- **tmux** (los runtimes se ejecutan en sesiones tmux; el socket por defecto es `factory-brain`)
-- Un **runtime de IA** instalado y disponible en el PATH:
-  - **OpenCode** (CLI `opencode`) — soporta selección de modelo.
-  - **Claude Code** (CLI `claude`) — sin flag de modelo.
-- **Opcional — Ollama** en `http://localhost:11434` para **Scribe** (modelo local, p. ej. `qwen2.5-coder:14b`). Scribe es un ahorro de tokens opcional: todo funciona sin él, degradando explícitamente.
-- **Opcional — Tailscale** si quieres acceso remoto desde la app Android.
+- **tmux** (runtimes run in tmux sessions; the default socket is `factory-brain`)
+- An **AI runtime** installed and available on the PATH:
+  - **OpenCode** (CLI `opencode`) — supports model selection.
+  - **Claude Code** (CLI `claude`) — no model flag.
+- **Optional — Ollama** at `http://localhost:11434` for **Scribe** (local model, e.g. `qwen2.5-coder:14b`). Scribe is an optional token saver: everything works without it, degrading explicitly.
+- **Optional — remote access** if you want to reach the backend from a mobile device.
 
-!!! note "Proveedores LLM"
-    Factory Brain no ejecuta modelos directamente: delega en runtimes externos. El catálogo de modelos (`.factory-brain/models.yml`) declara los modelos disponibles por runtime. Codex figura en el catálogo como entrada futura (comentada) — no está soportado como runtime todavía.
+!!! note "LLM providers"
+    Factory Brain does not run models directly: it delegates to external runtimes. The model catalog (`.factory-brain/models.yml`) declares the available models per runtime. Codex appears in the catalog as a future (commented-out) entry — it is not yet supported as a runtime.
 
-## Instalación
+## Installation
 
 ```bash
 cd 04-src
@@ -24,37 +24,36 @@ python3 -m venv .venv
 pip install -e ".[dev]"
 ```
 
-Esto instala el paquete `brain` y los entrypoints `brain` y `brain-api`.
+This installs the `brain` package and the `brain` and `brain-api` entrypoints.
 
-## Ejecución
+## Running
 
-Factory Brain opera como **un único proceso de verdad** (`brain-api`) que expone la API y sirve la interfaz web. Todos los clientes (web, TUI, app) se conectan a él.
+Factory Brain operates as **a single process of truth** (`brain-api`) that exposes the API and serves the web interface. All clients (web, TUI, app) connect to it.
 
-### 1. Arrancar el backend
+### 1. Start the backend
 
 ```bash
 brain-api
 ```
 
-- Escucha en el puerto **8000**.
-- El host se resuelve dinámicamente como la **IP Tailscale** de la máquina (`tailscale ip -4`); nunca en `0.0.0.0` (el perímetro de seguridad es la red Tailscale, no hay autenticación propia).
-- Al arrancar, recupera el proyecto activo persistido y arranca su sesión de desarrollo (si existe). Si no hay proyecto, la API responde 404 en `/project` y `/session` hasta que selecciones uno.
+- Listens on port **8000**.
+- On startup it recovers the persisted active project and starts its development session (if any). If there is no project, the API responds 404 on `/project` and `/session` until you select one.
 
-### 2. Abrir la interfaz web
+### 2. Open the web interface
 
-Navega a `http://<tailscale-ip>:8000/ui/` (o `http://127.0.0.1:8000/ui/` en local).
+Navigate to `http://<host>:8000/ui/` (or `http://127.0.0.1:8000/ui/` locally).
 
-En el primer arranque la web te guía: verifica conectividad → elige tu primer proyecto → entra en la vista operativa. Desde ahí puedes lanzar agentes, crear Jobs, pedir planes, ejecutar scripts, consultar el backlog y lanzar acciones transversales.
+On first startup the web guides you: verify connectivity → choose your first project → enter the operational view. From there you can run roles, create Jobs, ask for plans, run scripts, inspect the backlog and trigger cross-cutting actions.
 
-### 3. (Alternativa) Usar la TUI
+### 3. (Alternative) Use the TUI
 
 ```bash
 brain
 ```
 
-La TUI (Textual) también es un cliente de la API: comprueba conectividad, elige o recupera proyecto y ofrece las pantallas Workspace, Dashboard, Agentes, Jobs, Plan, Scripts y Backlog. Asume que `brain-api` ya está corriendo (p. ej. vía systemd).
+The TUI (Textual) is also an API client: it checks connectivity, selects or recovers the project and offers Workspace, Dashboard, Agents, Jobs, Plan, Scripts and Backlog screens. It assumes `brain-api` is already running (e.g. via systemd).
 
-### 4. (Alternativa) Instalar como servicio systemd
+### 4. (Alternative) Install as a systemd service
 
 ```bash
 sudo cp deploy/systemd/factory-brain-api.service /etc/systemd/system/
@@ -62,40 +61,40 @@ sudo systemctl daemon-reload
 sudo systemctl enable --now factory-brain-api.service
 ```
 
-El servicio arranca `brain-api` como usuario no-root, espera a que la interfaz Tailscale exista y se reinicia solo ante crash (un `systemctl stop` deliberado no se reinicia).
+The service runs `brain-api` as a non-root user and restarts itself on crash (a deliberate `systemctl stop` is not restarted).
 
-## Probar
+## Testing
 
 ```bash
 cd 04-src
 pytest
 ```
 
-Suite completa (más de 600 tests). Para ver solo los tests sin tocar red/tmux, los tests usan `TestClient` en memoria y sockets tmux propios; la suite no requiere un runtime real ni Ollama para pasar.
+Full suite (more than 600 tests). To run tests without touching the network/tmux, the tests use an in-memory `TestClient` and their own tmux sockets; the suite does not require a real runtime or Ollama to pass.
 
-## Verificación rápida
+## Quick verification
 
 ```bash
-curl http://<tailscale-ip>:8000/health
-# {"status": "ok", "session_id": null}  →  hasta que elijas proyecto
-curl http://127.0.0.1:8000/projects    # lista repos Git descubiertos
+curl http://127.0.0.1:8000/health
+# {"status": "ok", "session_id": null}  →  until you select a project
+curl http://127.0.0.1:8000/projects    # list discovered Git repos
 ```
 
-## Dónde vive el estado
+## Where state lives
 
-| Dato | Ubicación |
+| Data | Location |
 |---|---|
-| Proyecto activo | `<state_dir>/active_project.json` |
-| Preferencias de modelos | `<state_dir>/model_preferences.json` |
-| Estado de sesión/agentes/Jobs | En memoria del proceso `brain-api` (no persistido a disco) |
-| Sesiones tmux | Servidor tmux `factory-brain` |
+| Active project | `<state_dir>/active_project.json` |
+| Model preferences | `<state_dir>/model_preferences.json` |
+| Session/agent/Job state | In the memory of the `brain-api` process (not persisted to disk) |
+| tmux sessions | `factory-brain` tmux server |
 
-`state_dir` por defecto: `$XDG_DATA_HOME/brain` o `~/.local/share/brain`.
+`state_dir` defaults to `$XDG_DATA_HOME/brain` or `~/.local/share/brain`.
 
-!!! warning "Estado en memoria"
-    Sesiones, agentes y Jobs viven en memoria del proceso. Un reinicio de `brain-api` deja de nuevo la sesión en blanco (el proyecto activo sí se recupera de disco). La persistencia de sesión tras reinicio es una User Story planificada, no implementada.
+!!! warning "In-memory state"
+    Sessions, agents and Jobs live in the process memory. Restarting `brain-api` leaves the session blank again (the active project is recovered from disk). Session persistence across restarts is a planned User Story, not implemented.
 
-## Siguientes pasos
+## Next steps
 
-- Lee [Conceptos](concepts.md) para entender el modelo de dominio.
-- Sigue la [guía de la interfaz web](interfaces-web.md) para tu primera tarea real.
+- Read [Concepts](concepts.md) to understand the domain model.
+- Follow the [web interface guide](interfaces-web.md) for your first real task.

@@ -505,14 +505,13 @@ def test_get_agents_does_not_rewrite_a_stopped_agent_to_unavailable(
     assert refreshed["status"] == "stopped"
 
 
-def test_get_agents_options_hides_critic_opencode_from_the_catalog(
+def test_get_agents_options_returns_the_full_unfiltered_catalog(
     tmp_path, monkeypatch,
 ) -> None:
-    """Criterio de aceptación (T-FB016-US01-19): `GET /agents/options` ya no
-    ofrece la combinación Critic + OpenCode (decisión de producto), aunque el
-    dominio `list_available_agent_options` la siga manteniendo. El resto del
-    catálogo queda intacto para cualquier cliente."""
-    from brain.agents import CRITIC_ROLE
+    """El filtro que ocultaba Critic + OpenCode (T-FB016-US01-19) se
+    eliminó junto con el rol `critic` (FB-022): `GET /agents/options`
+    ahora devuelve exactamente el catálogo del dominio
+    (`list_available_agent_options`), sin ninguna combinación excluida."""
     from brain.agents.agent_options import list_available_agent_options
 
     client = TestClient(create_app())
@@ -520,20 +519,6 @@ def test_get_agents_options_hides_critic_opencode_from_the_catalog(
 
     assert response.status_code == 200
     body = response.json()
-    all_options = list_available_agent_options()
-    hidden_count = sum(
-        1
-        for option in all_options
-        if option.agent_role == CRITIC_ROLE and option.runtime_type == "opencode"
-    )
-    assert len(body) == len(all_options) - hidden_count
-    for combo in body:
-        assert not (
-            combo["agent_role"] == CRITIC_ROLE
-            and combo["runtime_type"] == "opencode"
-        )
-    # Cada una de las restantes se corresponde con una combinación del
-    # dominio sin filtrar (nada se inventa ni se pierde salvo las excluidas).
     full = [
         {
             "agent_role": o.agent_role,
@@ -545,25 +530,8 @@ def test_get_agents_options_hides_critic_opencode_from_the_catalog(
         }
         for o in list_available_agent_options()
     ]
-    assert {tuple(x.items()) for x in body} <= {tuple(x.items()) for x in full}
+    assert body == full
     assert len(body) > 0
-
-
-def test_list_available_agent_options_still_returns_the_full_catalog() -> None:
-    """Criterio de aceptación (T-FB016-US01-19): el dominio NO cambia — la
-    combinación Critic + OpenCode sigue existiendo en
-    `list_available_agent_options` (4 combinaciones), para poder revertir la
-    decisión de producto sin reintroducir código. El filtro vive solo en la
-    superficie HTTP (y en la TUI), no en la fuente de verdad."""
-    from brain.agents import CRITIC_ROLE
-    from brain.agents.agent_options import list_available_agent_options
-
-    full = list_available_agent_options()
-    assert len(full) >= 6
-    assert any(
-        option.agent_role == CRITIC_ROLE and option.runtime_type == "opencode"
-        for option in full
-    )
 
 
 def test_get_agent_pane_returns_the_real_tmux_content_of_a_launched_agent(

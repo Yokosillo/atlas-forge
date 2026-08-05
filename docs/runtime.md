@@ -1,8 +1,8 @@
-# Runtime y Scribe
+# Runtime and Scribe
 
 ## Runtimes
 
-Factory Brain no ejecuta modelos directamente: cada agente lanzado es una **instancia de runtime** ejecutándose en una **sesión tmux** del servidor dedicado `factory-brain` (`tmux/manager.py`). El prompt inicial se pasa como argumento en el propio comando de arranque (no se "escribe" después).
+Factory Brain does not run models directly: each launched agent is a **runtime instance** running in a **tmux session** of the dedicated `factory-brain` server (`tmux/manager.py`). The initial prompt is passed as an argument in the startup command itself (not "written" afterwards).
 
 ### Claude Code
 
@@ -10,8 +10,8 @@ Factory Brain no ejecuta modelos directamente: cada agente lanzado es una **inst
 claude --dangerously-skip-permissions <prompt>
 ```
 
-- Comando: `claude`; args: `--dangerously-skip-permissions` (máxima autonomía).
-- **Sin flag de modelo**: Claude Code no admite selección de modelo desde el arranque. El prompt se pasa como **argumento posicional**.
+- Command: `claude`; args: `--dangerously-skip-permissions` (maximum autonomy).
+- **No model flag**: Claude Code does not support model selection at launch. The prompt is passed as a **positional argument**.
 - Runtime type: `claude-code`.
 
 ### OpenCode
@@ -20,56 +20,56 @@ claude --dangerously-skip-permissions <prompt>
 opencode --auto [--model provider/model] --prompt "<prompt>"
 ```
 
-- Comando: `opencode`; args: `--auto` (autonomía, respetando reglas "deny" explícitas).
-- **Soporta modelo**: si se pasa `model` (formato `provider/model`), se añade `--model <model>`.
-- El prompt se pasa con `--prompt`.
+- Command: `opencode`; args: `--auto` (autonomy, respecting explicit "deny" rules).
+- **Supports model**: if `model` is passed (format `provider/model`), `--model <model>` is added.
+- The prompt is passed with `--prompt`.
 - Runtime type: `opencode`.
 
 ### Codex
 
-Planificado, **no implementado**. El catálogo de modelos lo contempla como runtime (`codex`) con entrada comentada en `models.yml`, pero `launch_agent` solo acepta `claude-code` y `opencode`.
+Planned, **not implemented**. The model catalog considers it as a runtime (`codex`) with a commented-out entry in `models.yml`, but `launch_agent` only accepts `claude-code` and `opencode`.
 
-## Gestión de modelos en caliente (OpenCode)
+## Hot model management (OpenCode)
 
-`brain/agent_model.py` lee/escribe el modelo activo de un agente OpenCode en ejecución interactuando con la barra de estado de la TUI del runtime:
+`brain/agent_model.py` reads/writes the active model of a running OpenCode agent by interacting with the status bar of the runtime's TUI:
 
-- `get_active_model(agent_id)`: lee el patrón `"Build · …"` del pane. Devuelve `None` (sin lanzar excepción) para runtime no-OpenCode, sesión muerta o patrón no encontrado.
-- `set_active_model(agent_id, model_name)`: flujo interactivo (Ctrl+P → Ctrl+X → navegar → Enter) verificando cada paso con capturas de pane. Devuelve `False` ante cualquier fallo, sin mutar el estado del agente.
-- `get_available_models()` / `get_available_model_entries()`: leen el catálogo `.factory-brain/models.yml`.
-- `resolve_runtime_for_model(model_id)`: mapea runtime de catálogo → tipo de lanzamiento real (`claude_code` → `claude-code`).
+- `get_active_model(agent_id)`: reads the `"Build · …"` pattern from the pane. Returns `None` (without raising) for non-OpenCode runtimes, dead sessions or an unmatched pattern.
+- `set_active_model(agent_id, model_name)`: interactive flow (Ctrl+P → Ctrl+X → navigate → Enter) verifying each step with pane captures. Returns `False` on any failure, without mutating the agent's state.
+- `get_available_models()` / `get_available_model_entries()`: read the `.factory-brain/models.yml` catalog.
+- `resolve_runtime_for_model(model_id)`: maps catalog runtime → real launch type (`claude_code` → `claude-code`).
 
-Expuestos en la API: `GET/PUT /agents/{id}/model`, `GET /agents/{id}/available-models`.
+Exposed in the API: `GET/PUT /agents/{id}/model`, `GET /agents/{id}/available-models`.
 
 ## Scribe
 
-**Scribe** es una herramienta determinista local (no un agente conversacional) que resume/indexa documentación con un **modelo local vía Ollama**, sin gastar tokens de Claude Code/OpenCode.
+**Scribe** is a local deterministic tool (not a conversational agent) that summarizes/indexes documentation with a **local model via Ollama**, without spending Claude Code/OpenCode tokens.
 
-- **Base URL**: `http://localhost:11434` (endpoint OpenAI-compatible `/v1/chat/completions`).
-- **Modelo por defecto**: `qwen2.5-coder:14b`.
-- **Catálogo cerrado de operaciones** (`brain/local_tools/scribe.py`):
+- **Base URL**: `http://localhost:11434` (OpenAI-compatible `/v1/chat/completions` endpoint).
+- **Default model**: `qwen2.5-coder:14b`.
+- **Closed catalog of operations** (`brain/local_tools/scribe.py`):
 
-| Operación | Uso |
+| Operation | Use |
 |---|---|
-| `summarize_document(text)` | Resume un documento largo. |
-| `index_documents(texts)` | Índice temático de varios documentos (p. ej. acción "Indexar proyecto"). |
-| `resumir_estado_backlog(resultado_json)` | Resumen en prosa del JSON de `brain backlog-status` (nunca relee el backlog). |
-| `index_scripts(scripts)` | Descripción de una línea por script del catálogo. |
+| `summarize_document(text)` | Summarizes a long document. |
+| `index_documents(texts)` | Thematic index of several documents (e.g. "Index project" action). |
+| `resumir_estado_backlog(resultado_json)` | Prose summary of the `brain backlog-status` JSON (never re-reads the backlog). |
+| `index_scripts(scripts)` | One-line description per script of the catalog. |
 
-### Degradación explícita
+### Explicit degradation
 
-Scribe es **siempre opcional, nunca una dependencia dura**:
+Scribe is **always optional, never a hard dependency**:
 
-- Si Ollama no responde (conexión rechazada, timeout, HTTP error), se lanza `ScribeUnavailableError` con el motivo concreto.
-- **Dispatch de Job**: si Scribe se dispara pero no está disponible, se antepone una nota de degradación a la instrucción y el Job sigue su curso.
-- **CLI `scribe resumir-backlog`**: exit code 1 con mensaje claro; nunca bloquea `backlog-status`.
-- **Paso `scribe` de un plan**: la indisponibilidad es fallo duro del paso (Scribe es el mecanismo elegido, no un acelerador).
-- **Acción `indexar`**: lanza `RuntimeError` si Scribe no está disponible.
+- If Ollama does not respond (connection refused, timeout, HTTP error), a `ScribeUnavailableError` is raised with the concrete reason.
+- **Job dispatch**: if Scribe triggers but is unavailable, a degradation note is prepended to the instruction and the Job continues.
+- **CLI `scribe resumir-backlog`**: exit code 1 with a clear message; never blocks `backlog-status`.
+- **`scribe` step of a plan**: unavailability is a hard failure of the step (Scribe is the chosen mechanism, not an accelerator).
+- **`indexar` action**: raises `RuntimeError` if Scribe is unavailable.
 
-### Disparo automático por el Dispatcher
+### Automatic triggering by the Dispatcher
 
-`dispatch_job` decide si invocar a Scribe para **pre-procesar contexto** antes de enviar la tarea al agente (ahorro de tokens):
+`dispatch_job` decides whether to invoke Scribe to **pre-process context** before sending the task to the agent (token saving):
 
-- **Por tamaño**: descripción > 4000 caracteres.
-- **Por conteo**: ≥ 10 Jobs consecutivos sobre el mismo `(session_id, agent_id)`.
+- **By size**: description > 4000 characters.
+- **By count**: ≥ 10 consecutive Jobs over the same `(session_id, agent_id)`.
 
-Si se dispara, el contexto enriquecido se añade a la instrucción en una sección delimitada (`--- Contexto pre-procesado por Scribe ---`); la descripción original del Job **nunca se muta** (el enriquecimiento es local al despacho). Tras un disparo exitoso se reinicia el contador consecutivo.
+If it triggers, the enriched context is added to the instruction in a delimited section (`--- Contexto pre-procesado por Scribe ---`); the original Job description **is never mutated** (the enrichment is local to the dispatch). After a successful trigger the consecutive counter resets.

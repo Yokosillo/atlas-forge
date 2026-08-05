@@ -1,13 +1,13 @@
-# Configuración
+# Configuration
 
-Los ficheros de configuración de Factory Brain son YAML/JSON legibles y editables a mano, sin tocar código Python ni redeploy.
+Factory Brain's configuration files are human-readable YAML/JSON editable by hand, without touching Python code or redeploying.
 
-## `.factory-brain/models.yml` — catálogo de modelos
+## `.factory-brain/models.yml` — model catalog
 
-Declara los modelos disponibles en el sistema: su **identificador real** (el que se pasa a `--model`), nombre visible y **runtime** asociado.
+Declares the models available in the system: their **real identifier** (the one passed to `--model`), visible name and associated **runtime**.
 
 ```yaml
-# Catalogo de modelos disponibles en Factory Brain.
+# Catalog of models available in Factory Brain.
 models:
   - id: opencode-go/deepseek-v4-flash
     name: "DeepSeek V4 Flash"
@@ -30,42 +30,41 @@ models:
     runtime: claude_code
 ```
 
-| Campo | Tipo | Descripción |
+| Field | Type | Description |
 |---|---|---|
-| `id` | string | Identificador real del modelo (se pasa a `--model`). Único. |
-| `name` | string | Nombre visible en las interfaces. |
-| `runtime` | string | Uno de `opencode`, `claude_code`, `codex`. |
+| `id` | string | Real identifier of the model (passed to `--model`). Unique. |
+| `name` | string | Name visible in the interfaces. |
+| `runtime` | string | One of `opencode`, `claude_code`, `codex`. |
 
-Reglas de validación (`models_catalog.py`): runtime soportado, sin IDs duplicados, campos obligatorios; catálogo vacío o malformado → `MalformedModelCatalogError` con mensaje concreto. Los cambios se reflejan al recargar (caché TTL con validación de mtime/size); los errores de parseo no se cachean.
+Validation rules (`models_catalog.py`): supported runtime, no duplicate IDs, mandatory fields; an empty or malformed catalog → `MalformedModelCatalogError` with a concrete message. Changes are reflected on reload (TTL cache validated by mtime/size); parse errors are not cached.
 
 !!! note "Codex"
-    El runtime `codex` está contemplado en el catálogo pero **no activo**: la entrada `openai/gpt-5` está comentada porque Codex queda fuera del alcance actual del roadmap. `launch_agent` solo acepta `claude-code` y `opencode` por ahora.
+    The `codex` runtime is considered in the catalog but **not active**: the `openai/gpt-5` entry is commented out because Codex is outside the current roadmap scope. `launch_agent` only accepts `claude-code` and `opencode` for now.
 
-## `.factory-brain/scripts.yml` — scripts particulares del proyecto
+## `.factory-brain/scripts.yml` — project-specific scripts
 
-Declara los scripts propios del proyecto activo (no genéricos). Ver [Scripts](scripts.md).
+Declares the active project's own scripts (not generics). See [Scripts](scripts.md).
 
 ```yaml
 scripts:
   - id: deploy-web
-    name: "Deploy web (reinicio + verificación)"
+    name: "Deploy web (restart + verification)"
     command: >-
       sudo systemctl restart factory-brain-api.service && ...
     description: >-
-      Reinicia factory-brain-api.service y verifica que /ui/ responde
-      en la IP Tailscale de esta máquina.
+      Restarts factory-brain-api.service and verifies that /ui/ responds.
 ```
 
-| Campo | Tipo | Obligatorio | Descripción |
+| Field | Type | Required | Description |
 |---|---|---|---|
-| `id` | string | Sí | Identificador único. |
-| `name` | string | Sí | Nombre visible. |
-| `command` | string | Sí | Comando shell a ejecutar. |
-| `description` | string | No | Descripción mostrada en las interfaces. |
+| `id` | string | Yes | Unique identifier. |
+| `name` | string | Yes | Visible name. |
+| `command` | string | Yes | Shell command to run. |
+| `description` | string | No | Description shown in the interfaces. |
 
-## `model_preferences.json` — preferencias de modelos
+## `model_preferences.json` — model preferences
 
-Estado editable por el usuario, distinto del catálogo. Ubicación: `<state_dir>/model_preferences.json` (por defecto `~/.local/share/brain/`).
+User-editable state, distinct from the catalog. Location: `<state_dir>/model_preferences.json` (default `~/.local/share/brain/`).
 
 ```json
 {
@@ -74,42 +73,32 @@ Estado editable por el usuario, distinto del catálogo. Ubicación: `<state_dir>
 }
 ```
 
-| Campo | Tipo | Semántica |
+| Field | Type | Semantics |
 |---|---|---|
-| `enabled_model_ids` | `list[string]` | Modelos habilitados. **Vacío = todos habilitados.** |
-| `default_model_by_role` | `dict[string, string]` | Modelo por defecto por rol (`developer`, `critic`, `arquitecto`, `tester`). |
+| `enabled_model_ids` | `list[string]` | Enabled models. **Empty = all enabled.** |
+| `default_model_by_role` | `dict[string, string]` | Default model per role (`developer`, `critic`, `arquitecto`, `tester`). |
 
-Se edita desde la pestaña **Modelos** de la web (`GET/PUT /models/preferences`). Si el fichero no existe, se usan los defaults (`enabled_model_ids: []`, `default_model_by_role: {}`).
+It is edited from the **Models** tab of the web (`GET/PUT /models/preferences`). If the file does not exist, the defaults are used (`enabled_model_ids: []`, `default_model_by_role: {}`).
 
-## Estado persistido (`state_dir`)
+## Persisted state (`state_dir`)
 
-| Fichero | Contenido |
+| File | Content |
 |---|---|
-| `active_project.json` | Proyecto activo seleccionado (persistido). |
-| `model_preferences.json` | Preferencias de modelos (habilitados + defaults). |
+| `active_project.json` | Selected active project (persisted). |
+| `model_preferences.json` | Model preferences (enabled + defaults). |
 
-`state_dir` por defecto: `$XDG_DATA_HOME/brain` o `~/.local/share/brain`.
-
-## Variables de entorno
-
-| Variable | Uso |
-|---|---|
-| `GOOGLE_CLOUD_PROJECT` | Contexto GCP del entorno de despliegue (no usado por el código de `brain`; vive en `.env` del proyecto). |
-| `GOOGLE_CLOUD_LOCATION` | Idem. |
-
-El paquete `brain` no define variables de entorno obligatorias: el host de la API se resuelve con `tailscale ip -4` (o `--host` explícito), y Scribe apunta a `http://localhost:11434` por defecto.
+`state_dir` defaults to `$XDG_DATA_HOME/brain` or `~/.local/share/brain`.
 
 ## Deployment (systemd)
 
-`deploy/systemd/factory-brain-api.service` es la fuente de verdad del servicio:
+`deploy/systemd/factory-brain-api.service` is the source of truth for the service:
 
-- `After=network.target tailscaled.service` — espera a que exista la interfaz Tailscale.
-- `User/Group=secure_ai_atlas` — no-root, mismo usuario operador.
-- `WorkingDirectory=<workspace root>` — para que el proceso vea los repos reales.
+- Runs `brain-api` as a non-root operator user.
+- `WorkingDirectory=<workspace root>` — so the process sees the real repos.
 - `ExecStart=.../04-src/.venv/bin/brain-api`.
-- `Restart=on-failure` — un `systemctl stop` deliberado no se reinicia.
+- `Restart=on-failure` — a deliberate `systemctl stop` is not restarted.
 
-Instalación:
+Installation:
 
 ```bash
 sudo cp deploy/systemd/factory-brain-api.service /etc/systemd/system/
