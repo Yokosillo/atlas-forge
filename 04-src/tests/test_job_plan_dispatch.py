@@ -7,6 +7,7 @@ import pytest
 
 from brain.core.session_lifecycle import activate, assign_agent
 from brain.dispatcher import JobPlanDispatchError, dispatch_plan, get_plan_progress
+from brain.dispatcher.job_report import read_job_report
 from brain.local_tools import ScribeUnavailableError
 from brain.models import Agent, DevelopmentSession, JobPlan, JobPlanStep, Runtime
 from brain.runtime import register_runtime_instance_for_agent, start_runtime, stop_runtime
@@ -291,25 +292,162 @@ def test_dispatch_plan_completes_normally_even_if_the_callback_raises(
     assert plan.steps[0].status == "completed"
 
 
-def test_dispatch_plan_without_callback_behaves_exactly_as_before(
+def test_find_agent_by_role_disambiguates_by_agent_id() -> None:
+    from brain.dispatcher.job_plan_dispatch import _find_agent_by_role
+
+    session = DevelopmentSession(id="s1", project_id="p1")
+    activate(session)
+    dev1 = Agent(id="dev-1", name="Developer-1", role="developer", prompt="p", runtime_id="r1")
+    dev2 = Agent(id="dev-2", name="Developer-2", role="developer", prompt="p", runtime_id="r1")
+    assign_agent(session, dev1)
+    assign_agent(session, dev2)
+
+    found_dev2 = _find_agent_by_role(session, "developer", agent_id="dev-2")
+    assert found_dev2 is not None
+    assert found_dev2.id == "dev-2"
+
+    found_dev1 = _find_agent_by_role(session, "developer", agent_id="dev-1")
+    assert found_dev1 is not None
+    assert found_dev1.id == "dev-1"
+
+    found_nonexistent = _find_agent_by_role(session, "developer", agent_id="dev-3")
+    assert found_nonexistent is None
+
+
+def test_find_agent_by_role_no_agent_id_returns_first_match() -> None:
+    from brain.dispatcher.job_plan_dispatch import _find_agent_by_role
+
+    session = DevelopmentSession(id="s1", project_id="p1")
+    activate(session)
+    dev1 = Agent(id="dev-1", name="Developer-1", role="developer", prompt="p", runtime_id="r1")
+    dev2 = Agent(id="dev-2", name="Developer-2", role="developer", prompt="p", runtime_id="r1")
+    assign_agent(session, dev1)
+    assign_agent(session, dev2)
+
+    found = _find_agent_by_role(session, "developer")
+    assert found is not None
+    assert found.id == "dev-1"
+
+
+def test_dispatch_plan_disambiguates_multiple_developers_by_agent_id(
     isolated_socket: str, tmp_path
 ) -> None:
-    """`on_step_status_changed=None` (valor por defecto) no cambia el
-    comportamiento ya existente — regresión explícita de compatibilidad
-    hacia atrás para cualquier llamador que no lo use (p. ej.
-    `run_job_plan`, T-FB008-US04-04)."""
-    agent, runtime_instance = _launch_cooperative_developer(isolated_socket, tmp_path)
-    session = _active_session_with_developer(agent)
+    dev1, ri1 = _launch_cooperative_developer(isolated_socket, tmp_path)
+    dev1.id = "dev-1"
+    dev1.name = "Developer-1"
+    register_runtime_instance_for_agent(dev1.id, ri1)
+
+    dev2, ri2 = _launch_cooperative_developer(isolated_socket, tmp_path)
+    dev2.id = "dev-2"
+    dev2.name = "Developer-2"
+    register_runtime_instance_for_agent(dev2.id, ri2)
+
+    session = DevelopmentSession(id="s1", project_id="p1")
+    activate(session)
+    assign_agent(session, dev1)
+    assign_agent(session, dev2)
+
     plan = JobPlan(
         goal="FB999-US01",
-        steps=[JobPlanStep(description="paso 1", mechanism="agent", agent_role="developer")],
+        steps=[
+            JobPlanStep(
+                description="paso dev-2",
+                mechanism="agent",
+                agent_role="developer",
+                agent_id="dev-2",
+            ),
+            JobPlanStep(
+                description="paso dev-1",
+                mechanism="agent",
+                agent_role="developer",
+                agent_id="dev-1",
+            ),
+        ],
         status="approved",
     )
 
     try:
         dispatch_plan(plan, session, socket_name=isolated_socket)
     finally:
-        stop_runtime(runtime_instance, socket_name=isolated_socket)
+        stop_runtime(ri1, socket_name=isolated_socket)
+        stop_runtime(ri2, socket_name=isolated_socket)
 
     assert plan.status == "approved"
     assert plan.steps[0].status == "completed"
+    assert plan.steps[1].status == "completed"
+
+
+def test_dispatch_plan_blocks_when_agent_id_does_not_match_any_agent() -> None:
+    session = DevelopmentSession(id="s1", project_id="p1")
+    activate(session)
+    dev1 = Agent(
+        id="dev-1", name="Developer-1", role="developer", prompt="p", runtime_id="r1"
+    )
+    assign_agent(session, dev1)
+
+    plan = JobPlan(
+        goal="FB999-US01",
+        steps=[
+            JobPlanStep(
+                description="paso",
+                mechanism="agent",
+                agent_role="developer",
+                agent_id="dev-3",
+            ),
+        ],
+        status="approved",
+    )
+
+    dispatch_plan(plan, session)
+
+    assert plan.status == "blocked"
+    assert plan.steps[0].status == "failed"
+
+
+def test_dispatch_plan_without_callback_behaves_exactly_as_before(
+    isolated_socket: str, tmp_path
+) -> None:
+    """`on_step_status_changed=None` (valor por defecto) no cambia el
+    comportamiento ya existente — regresión explícita de compatibilidad
+    hacia atrás para cualquier llamador que no lo use (p. ej.
+    `run_job_plan`, T-FB008-US04-04).
+    
+    T-FB022-US06-03: además de la regresión de compatibilidad, verifica que
+    el informe de cierre del Job se escribe en
+    07-informes/<story_id>/<job_id>.md."""
+    agent, runtime_instance = _launch_cooperative_developer(isolated_socket, tmp_path)
+    session = _active_session_with_developer(agent)
+    plan = JobPlan(
+        goal="US-FB022-06",
+        steps=[JobPlanStep(description="paso 1", mechanism="agent", agent_role="developer")],
+        status="approved",
+    )
+
+    written_paths = []
+
+    def _fake_write(job, reports_root=None):
+        from pathlib import Path as _P
+
+        root = _P(reports_root) if reports_root else _P(tmp_path)
+        story_dir = root / (job.story_id or "_sin-story")
+        story_dir.mkdir(parents=True, exist_ok=True)
+        p = story_dir / f"{job.id}.md"
+        p.write_text(f"Estado: {job.status}\nResultado: {job.result}\n", encoding="utf-8")
+        written_paths.append(p)
+        return p
+
+    with patch(
+        "brain.dispatcher.job_plan_dispatch.write_job_report",
+        side_effect=_fake_write,
+    ):
+        try:
+            dispatch_plan(plan, session, socket_name=isolated_socket)
+        finally:
+            stop_runtime(runtime_instance, socket_name=isolated_socket)
+
+    assert plan.status == "approved"
+    assert plan.steps[0].status == "completed"
+
+    assert len(written_paths) == 1
+    content = written_paths[0].read_text()
+    assert "completed" in content

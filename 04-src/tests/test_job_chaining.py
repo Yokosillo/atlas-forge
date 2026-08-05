@@ -52,12 +52,16 @@ def test_create_job_with_completed_previous_job_includes_its_result_verbatim() -
     developer = Agent(
         id="a-dev", name="Developer", role="developer", prompt="p", runtime_id="r1"
     )
+    critic = Agent(
+        id="a-critic", name="Critic", role="critic", prompt="p", runtime_id="r2"
+    )
     session = _active_session_with_agent(developer)
+    session.agents.append(critic)
     previous_job = _completed_job_with_result("def add(a, b): return a + b")
 
     new_job = create_job(
         "review this implementation",
-        developer,
+        critic,
         session,
         previous_job=previous_job,
     )
@@ -66,6 +70,79 @@ def test_create_job_with_completed_previous_job_includes_its_result_verbatim() -
     assert "review this implementation" in new_job.description
     # El resultado del Job anterior se incluye literal, sin alterarlo.
     assert "def add(a, b): return a + b" in new_job.description
+
+
+def test_create_job_rejects_chaining_developer_result_into_another_developer() -> None:
+    """T-FB008-US07-01, criterio 1: encadenar Developer→Developer se
+    rechaza con mensaje explícito, sin crear el Job."""
+    developer = Agent(
+        id="a-dev", name="Developer", role="developer", prompt="p", runtime_id="r1"
+    )
+    session = _active_session_with_agent(developer)
+    previous_job = _completed_job_with_result("def add(a, b): return a + b")
+
+    with pytest.raises(JobCreationError, match="debe encadenarse a un Critic"):
+        create_job(
+            "implement something else",
+            developer,
+            session,
+            previous_job=previous_job,
+        )
+
+
+def test_create_job_allows_chaining_developer_result_into_critic() -> None:
+    """T-FB008-US07-01, criterio 2: encadenar Developer→Critic sigue
+    funcionando exactamente igual que antes de esta Task."""
+    developer = Agent(
+        id="a-dev", name="Developer", role="developer", prompt="p", runtime_id="r1"
+    )
+    critic = Agent(
+        id="a-critic", name="Critic", role="critic", prompt="p", runtime_id="r2"
+    )
+    session = _active_session_with_agent(developer)
+    session.agents.append(critic)
+    previous_job = _completed_job_with_result("def add(a, b): return a + b")
+
+    new_job = create_job(
+        "review this implementation",
+        critic,
+        session,
+        previous_job=previous_job,
+    )
+
+    assert new_job.status == "created"
+    assert "def add(a, b): return a + b" in new_job.description
+
+
+def test_create_job_allows_chaining_critic_result_into_any_role() -> None:
+    """T-FB008-US07-01, criterio 3: encadenar Critic→cualquier rol no se ve
+    afectado por esta Task (no hay regla explícita que lo restrinja)."""
+    critic = Agent(
+        id="a-critic", name="Critic", role="critic", prompt="p", runtime_id="r2"
+    )
+    developer = Agent(
+        id="a-dev", name="Developer", role="developer", prompt="p", runtime_id="r1"
+    )
+    session = _active_session_with_agent(critic)
+    session.agents.append(developer)
+    critic_job = Job(
+        id="j-critic-prev",
+        session_id="s1",
+        agent_id="a-critic",
+        description="review something",
+        status="completed",
+        result="verdict: approved",
+    )
+
+    new_job = create_job(
+        "implement the approved changes",
+        developer,
+        session,
+        previous_job=critic_job,
+    )
+
+    assert new_job.status == "created"
+    assert "verdict: approved" in new_job.description
 
 
 def test_create_job_rejects_chaining_a_previous_job_not_completed() -> None:

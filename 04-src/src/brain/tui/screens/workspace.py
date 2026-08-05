@@ -66,7 +66,9 @@ class WorkspaceScreen(Screen):
         self._state_dir = state_dir
         self._can_return_to_dashboard = can_return_to_dashboard
         self._backend = backend_client if backend_client is not None else BackendClient()
-        self._discovered = discover_projects(self._workspace_root)
+        self._discovered = discover_projects(
+            self._workspace_root, state_dir=self._state_dir
+        )
 
     def compose(self):
         if not self._discovered:

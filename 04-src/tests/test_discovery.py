@@ -80,3 +80,29 @@ def test_discover_projects_detects_root_itself_when_it_is_a_repo(
 
     assert len(projects) == 1
     assert projects[0].path == str(tmp_path)
+
+
+def test_discover_projects_returns_alphabetical_order_when_created_unsorted(
+    tmp_path: Path,
+) -> None:
+    # Repos creados en orden no alfabético (zeta antes que alfa): el orden
+    # de os.walk en el filesystem no debe determinar el resultado.
+    _make_git_repo(tmp_path / "zeta")
+    _make_git_repo(tmp_path / "mike")
+    _make_git_repo(tmp_path / "alfa")
+
+    projects = discover_projects(tmp_path)
+
+    assert [project.name for project in projects] == ["alfa", "mike", "zeta"]
+
+
+def test_discover_projects_sort_is_case_insensitive(tmp_path: Path) -> None:
+    # Orden alfabético case-insensitive: las mayúsculas no deben adelantar
+    # nombres en minúscula que alfabéticamente van antes.
+    _make_git_repo(tmp_path / "Bravo")
+    _make_git_repo(tmp_path / "alfa")
+    _make_git_repo(tmp_path / "Charlie")
+
+    projects = discover_projects(tmp_path)
+
+    assert [project.name for project in projects] == ["alfa", "Bravo", "Charlie"]

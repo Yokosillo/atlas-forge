@@ -4,13 +4,16 @@ destinatario (entre los ya lanzados en la sesión activa).
 
 T-FB016-US01-06: deja de invocar directamente
 `brain.core.session_registry`/`brain.dispatcher.*` — crear+despachar un
-Job, consultar el histórico y encadenar Developer→Critic pasan por
-`BackendClient` (`GET /session`, `GET /agents`, `POST /jobs`, `GET
-/jobs`), el mismo backend que consumirá la app Android. El encadenamiento
-ya no pasa el objeto `Job` de dominio entre pantallas — se pasa
-`previous_job_id` (str), resuelto por el backend en `POST /jobs`
-(`previous_job_id`, T-FB016-US01-04) exactamente igual que
-`create_job(..., previous_job=...)` ya hacía en dominio.
+Job y consultar el histórico pasan por `BackendClient` (`GET /session`,
+`GET /agents`, `POST /jobs`, `GET /jobs`), el mismo backend que consumirá
+la app Android. El encadenamiento manual Developer→Critic (T-FB002-US03-02)
+se eliminó junto con el rol `critic` (FB-022): el veredicto sobre el
+trabajo del Developer ahora lo emite automáticamente el Arquitecto
+(`brain/dispatcher/architect_verdict_queue.py`), sin intervención manual
+desde esta pantalla. `previous_job_id` (str) sigue existiendo como
+parámetro de esta pantalla porque `POST /jobs` lo soporta de forma
+genérica (`previous_job_id`, T-FB016-US01-04), no solo para el
+encadenamiento ya retirado.
 
 ## Cancelar Job (T-FB019-US01-02)
 
@@ -37,7 +40,6 @@ from textual.containers import Vertical, VerticalScroll
 from textual.screen import Screen
 from textual.widgets import Button, Select, Static, TextArea
 
-from brain.agents import CRITIC_ROLE, DEVELOPER_ROLE
 from brain.tui.backend_client import BackendClient, BackendUnavailableError, error_detail
 
 # T-FB019-US01-02: margen para que `GET /jobs` (hilo de localización)
@@ -66,15 +68,15 @@ class JobsScreen(Screen):
         self._workspace_root = workspace_root
         self._state_dir = state_dir
         self._backend = backend_client if backend_client is not None else BackendClient()
-        # Estado de encadenamiento (T-FB002-US03-02): si esta pantalla se
-        # construyó para encadenar a Critic, `_previous_job_id` se pasa a
-        # `POST /jobs` y `_preselected_agent_id` fija el destinatario en
-        # el `Select` (descripción sigue siendo editable — la Task pide
-        # "descripción adicional editable, agente destinatario fijado").
+        # `_previous_job_id` se pasa a `POST /jobs` y `_preselected_agent_id`
+        # fija el destinatario en el `Select` si esta pantalla se construye
+        # ya con un agente/Job previo determinados (descripción sigue
+        # siendo editable). El encadenamiento manual Developer→Critic que
+        # originalmente motivó estos dos parámetros (T-FB002-US03-02) se
+        # eliminó junto con el rol `critic` (FB-022); se conservan porque
+        # `POST /jobs` sigue soportando `previous_job_id` de forma genérica.
         self._previous_job_id = previous_job_id
         self._preselected_agent_id = preselected_agent_id
-        self._last_completed_job: dict | None = None
-        self._last_completed_job_agent: dict | None = None
         # T-FB019-US01-02: `job_id` del despacho actualmente en curso, una
         # vez localizado por `_locate_dispatched_job_in_background` — `None`
         # antes de despachar y tras terminar (éxito, fallo o cancelación),
@@ -193,8 +195,6 @@ class JobsScreen(Screen):
             self._create_and_dispatch_job()
         elif event.button.id == "cancel-job":
             self._handle_cancel_job_button()
-        elif event.button.id == "chain-to-critic":
-            self._open_chain_to_critic_form()
         elif event.button.id == "go-to-dashboard":
             self.app.pop_screen()
 
@@ -330,14 +330,11 @@ class JobsScreen(Screen):
         self._mount_cancel_job_button()
 
     def _mount_cancel_job_button(self) -> None:
-        # Montado dinámicamente dentro de `#job-status-scroll` (mismo
-        # patrón ya usado por `_render_chain_to_critic_offer`), NO como
+        # Montado dinámicamente dentro de `#job-status-scroll`, NO como
         # botón permanente del `Vertical` raíz — un botón siempre presente
-        # ahí desplazaría verticalmente el resto del layout (incluido
-        # `#chain-to-critic`, montado más abajo en el mismo scroll) fuera
-        # del viewport visible en una terminal pequeña, rompiendo `pilot.click`
-        # en los tests existentes (encontrado durante el desarrollo de esta
-        # Task: el test de encadenar a Critic dejó de encontrar su botón).
+        # ahí desplazaría verticalmente el resto del layout fuera del
+        # viewport visible en una terminal pequeña, rompiendo `pilot.click`
+        # en los tests existentes.
         if self.query("#cancel-job"):
             return
         try:
@@ -403,13 +400,13 @@ class JobsScreen(Screen):
             )
             return
 
-        self.app.call_from_thread(self._show_job_result, job, agent)
+        self.app.call_from_thread(self._show_job_result, job)
 
     def _show_backend_error(self, message: str) -> None:
         status_widget = self.query_one("#job-status", Static)
         status_widget.update(message)
 
-    def _show_job_result(self, job: dict, agent: dict) -> None:
+    def _show_job_result(self, job: dict) -> None:
         # Resultado completo, sin truncarlo (criterio de aceptación): el
         # `Static` vive dentro de un `VerticalScroll` (`#job-status-scroll`,
         # ver `compose`), así que el texto entero es navegable aunque no
@@ -424,86 +421,3 @@ class JobsScreen(Screen):
             status_widget.update(f"Job completado:\n{job['result']}")
         else:
             status_widget.update(f"Job falló ({job['status']}): {job['result']}")
-            return
-
-        if agent["role"] != DEVELOPER_ROLE:
-            return
-
-        self._last_completed_job = job
-        self._last_completed_job_agent = agent
-        self._render_chain_to_critic_offer()
-
-    def _render_chain_to_critic_offer(self) -> None:
-        # Criterio de aceptación: "sin Critic lanzado, la opción de
-        # encadenar no está disponible, con mensaje claro" — el propio
-        # widget sustituye a cualquier oferta anterior si se vuelve a
-        # llamar (p. ej. al completar un segundo Job de Developer en la
-        # misma sesión), sin acumular duplicados.
-        #
-        # `remove()`/`mount()` son operaciones asíncronas en Textual
-        # (devuelven un `AwaitRemove`/`AwaitMount`) — hacer `remove()` de
-        # un widget con un `id` y `mount()` de otro widget nuevo con el
-        # MISMO `id` en la misma llamada síncrona puede completar el
-        # `mount()` antes de que el `remove()` retire el widget anterior
-        # del árbol, causando `DuplicateIds` (bug real detectado al
-        # completar un SEGUNDO Job de Developer sin Critic lanzado).
-        # Se evita reutilizando el widget existente (actualizando su
-        # contenido) en vez de retirarlo y montar uno nuevo, y solo
-        # montando si de verdad no existe ninguno todavía.
-        existing_button = self.query("#chain-to-critic")
-        existing_message = self.query("#no-critic-message")
-
-        try:
-            agents = self._backend.get_agents()
-        except BackendUnavailableError:
-            agents = []
-        critic_launched = any(a["role"] == CRITIC_ROLE for a in agents)
-
-        if critic_launched:
-            if existing_message:
-                existing_message.remove()
-            if not existing_button:
-                scroll_container = self.query_one("#job-status-scroll", VerticalScroll)
-                scroll_container.mount(
-                    Button("Encadenar a Critic", id="chain-to-critic")
-                )
-        else:
-            if existing_button:
-                existing_button.remove()
-            if existing_message:
-                existing_message.first().update(
-                    "No se puede encadenar a Critic: no hay ningún agente "
-                    "Critic lanzado en la sesión."
-                )
-            else:
-                scroll_container = self.query_one("#job-status-scroll", VerticalScroll)
-                scroll_container.mount(
-                    Static(
-                        "No se puede encadenar a Critic: no hay ningún agente "
-                        "Critic lanzado en la sesión.",
-                        id="no-critic-message",
-                    )
-                )
-
-    def _open_chain_to_critic_form(self) -> None:
-        if self._last_completed_job is None:
-            return
-
-        try:
-            agents = self._backend.get_agents()
-        except BackendUnavailableError:
-            return
-
-        critic = next((a for a in agents if a["role"] == CRITIC_ROLE), None)
-        if critic is None:
-            return
-
-        self.app.push_screen(
-            JobsScreen(
-                workspace_root=self._workspace_root,
-                state_dir=self._state_dir,
-                backend_client=self._backend,
-                previous_job_id=self._last_completed_job["id"],
-                preselected_agent_id=critic["id"],
-            )
-        )

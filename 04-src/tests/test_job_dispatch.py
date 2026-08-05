@@ -150,6 +150,131 @@ def test_wait_for_report_raises_directly_on_timeout() -> None:
         )
 
 
+def test_transient_read_failure_is_retried_and_marker_still_wins(
+    tmp_path, monkeypatch
+) -> None:
+    """T-FB008-US01-05, criterio 1: 'Un fallo simulado de lectura puntual
+    del fichero de marcador (p. ej. archivo bloqueado momentáneamente) no
+    produce JobReportTimeoutError si el marcador aparece correctamente en el
+    reintento inmediato.' La primera lectura del fichero lanza un
+    `PermissionError` simulado (bloqueo puntual); el reintento inmediato la
+    lee bien y devuelve el resultado — sin timeout, sin error."""
+    from brain.dispatcher.job_dispatch import _wait_for_report
+
+    report_file = tmp_path / "marker.txt"
+    report_file.write_text("result here\n___FACTORY_BRAIN_JOB_DONE___\n")
+
+    real_read_text = Path.read_text
+    calls = {"n": 0}
+
+    def flaky_read_text(self, *args, **kwargs):
+        calls["n"] += 1
+        if calls["n"] == 1:
+            raise PermissionError("simulated momentary file lock")
+        return real_read_text(self, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "read_text", flaky_read_text)
+
+    result = _wait_for_report(
+        report_file,
+        timeout_seconds=1.0,
+        poll_interval_seconds=0.05,
+        job_id="transient-failure-job",
+    )
+
+    assert result == "result here"
+    # La lectura se reintentó tras el fallo (no abortó en el primer error).
+    assert calls["n"] >= 2
+
+
+def test_reading_that_keeps_failing_is_bounded_not_infinite(tmp_path, monkeypatch) -> None:
+    """T-FB008-US01-05, punto 2: 'añadir un reintento acotado (1-2 intentos,
+    no un bucle indefinido)'. Un fichero que SIEMPRE falla al leer es un
+    fallo real (no transitorio): tras el intento inicial + los reintentos
+    acotados, `_read_report_with_retry` devuelve `None` (no se queda
+    reintentando para siempre) y el poll continúa hasta el timeout."""
+    import brain.dispatcher.job_dispatch as dispatch_module
+
+    report_file = tmp_path / "always_fails.txt"
+    report_file.write_text("whatever")
+    calls = {"n": 0}
+
+    def always_fail(self, *args, **kwargs):
+        calls["n"] += 1
+        raise PermissionError
+
+    monkeypatch.setattr(Path, "read_text", always_fail)
+
+    result = dispatch_module._read_report_with_retry(report_file)
+
+    assert result is None
+    # Intento inicial + reintentos acotados (constante), nunca más.
+    assert calls["n"] == dispatch_module._MAX_REPORT_READ_RETRIES + 1
+
+
+def test_agent_never_reporting_times_out_in_the_same_order_of_time(tmp_path) -> None:
+    """T-FB008-US01-05, criterio 2: 'Un agente que efectivamente no reporta
+    nunca sigue produciendo JobReportTimeoutError en el mismo orden de tiempo
+    que hoy.' Un fichero que nunca aparece (ausencia, no error de lectura) NO
+    dispara reintentos, así que el timeout se percibe en ~mismo tiempo (los
+    reintentos solo aplican ante OSError de lectura, no ante FileNotFoundError):
+    el tiempo total transcurrido no supera sustancialmente el timeout pedido."""
+    import time as time_mod
+
+    from brain.dispatcher.job_dispatch import _wait_for_report
+
+    non_existent_file = tmp_path / "never.txt"
+    started = time_mod.monotonic()
+    with pytest.raises(JobReportTimeoutError):
+        _wait_for_report(
+            non_existent_file,
+            timeout_seconds=0.3,
+            poll_interval_seconds=0.05,
+            job_id="never-reports-job",
+        )
+    elapsed = time_mod.monotonic() - started
+    # No ampliación sustancial del timeout percibido (ausencia -> sin reintento).
+    assert elapsed < 0.8
+
+
+def test_dispatch_job_recovers_from_a_transient_read_failure(
+    isolated_socket: str, tmp_path, monkeypatch
+) -> None:
+    """T-FB008-US01-05, criterio 1 end-to-end con tmux real: durante un
+    despacho real (agente cooperativo), la primera lectura del fichero de
+    marcador de ESTE Job falla una vez (bloqueo puntual simulado) y se
+    reintenta con éxito — el Job termina `completed`, nunca `failed` por
+    timeout. Solo se simula el fallo para el fichero de reporte (uuid
+    `factory-brain-job-*`), nunca para otras lecturas."""
+    report_pattern = "factory-brain-job-"
+    real_read_text = Path.read_text
+    calls = {"n": 0}
+
+    def flaky_report_read(self, *args, **kwargs):
+        if report_pattern in str(self):
+            calls["n"] += 1
+            if calls["n"] == 1:
+                raise PermissionError("simulated transient read failure")
+        return real_read_text(self, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "read_text", flaky_report_read)
+
+    runtime_instance = _launch_cooperative_test_runtime(isolated_socket, tmp_path)
+    agent = _make_agent()
+    job = _make_job()
+
+    try:
+        dispatch_job(job, agent, runtime_instance, socket_name=isolated_socket)
+    finally:
+        stop_runtime(runtime_instance, socket_name=isolated_socket)
+
+    assert job.status == "completed"
+    assert "cooperative result" in job.result
+    # El fichero de reporte se leyó (y reintentó) tras el fallo transitorio.
+    assert calls["n"] >= 2
+    assert agent.status == "idle"
+
+
 def test_dispatch_job_reused_runtime_does_not_leak_previous_job_report(
     isolated_socket: str, tmp_path
 ) -> None:

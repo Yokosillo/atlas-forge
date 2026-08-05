@@ -67,10 +67,27 @@ from typing import Any
 import yaml
 
 from brain.models import ScriptEntry, ScriptRunResult
+from brain.workspace.discovery_cache import TTLCache
 
 MANIFEST_RELATIVE_PATH = Path(".factory-brain") / "scripts.yml"
 
 DEFAULT_SCRIPT_TIMEOUT_SECONDS = 30.0
+
+# Caché TTL (T-FB001-US01-06): `discover_project_scripts` lee el manifiesto
+# del disco en cada llamada, y la API lo invoca de nuevo en cada `GET
+# /scripts`. La caché por `project_path` absorbe ráfagas de requests. Un TTL
+# corto (5s) garantiza que un script añadido por el desarrollador aparezca
+# en el catálogo al expirar el TTL sin reiniciar el backend. Los errores
+# (`MalformedScriptManifestError`, YAML roto) NO se cachean — la excepción se
+# propaga y el siguiente intento vuelve a leer el fichero.
+_SCRIPTS_CACHE = TTLCache()
+
+
+def invalidate_project_scripts_cache() -> None:
+    """Vacía la caché de scripts particulares — se llama al cambiar de
+    proyecto activo (`POST /project`, T-FB001-US01-06) para que el catálogo
+    del nuevo proyecto se refleje sin esperar al TTL anterior."""
+    _SCRIPTS_CACHE.invalidate()
 
 
 class MalformedScriptManifestError(ValueError):
@@ -119,7 +136,45 @@ def discover_project_scripts(project_path: str) -> list[ScriptEntry]:
       excepción de parseo no controlada (`yaml.YAMLError`) propagada tal
       cual, que rompería cualquier interfaz que llame a esta función sin
       capturar ese tipo concreto.
+
+    Cacheada por TTL (T-FB001-US01-06) y validada contra el mtime del
+    manifiesto: aunque la entrada siga dentro del TTL, si el fichero cambió
+    (script añadido/quitado por el desarrollador), se recomputa al instante
+    sin esperar al TTL — un `stat` es O(1), nunca una relectura del YAML
+    para lecturas sin cambios. Los errores de parseo NO se cachean (la
+    excepción se propaga).
     """
+    manifest_path = Path(project_path) / MANIFEST_RELATIVE_PATH
+    baseline: list[tuple[int, int] | None] = [None]
+
+    def compute() -> list[ScriptEntry]:
+        baseline[0] = _manifest_fingerprint(manifest_path)
+        return _discover_project_scripts_uncached(project_path)
+
+    def validate() -> bool:
+        return _manifest_fingerprint(manifest_path) == baseline[0]
+
+    return _SCRIPTS_CACHE.get_or_compute(
+        project_path, compute, validate=validate
+    )
+
+
+def _manifest_fingerprint(path: Path) -> tuple[int, int] | None:
+    """Marca del manifiesto para validar la caché: `(mtime_ns, size)` o
+    `None` si el fichero no existe. Incluir el tamaño hace el validador
+    fiable incluso si una escritura cae en la misma marca temporal."""
+    try:
+        stat = path.stat()
+    except OSError:
+        return None
+    return (stat.st_mtime_ns, stat.st_size)
+
+
+def _discover_project_scripts_uncached(project_path: str) -> list[ScriptEntry]:
+    """Lógica original de `discover_project_scripts` — extraída a esta
+    función privada para que la pública la envuelva con la caché TTL sin
+    tocar ningún comportamiento (lectura real del manifiesto YAML del disco,
+    propagación de `MalformedScriptManifestError` para manifiestos rotos)."""
     manifest_path = Path(project_path) / MANIFEST_RELATIVE_PATH
     if not manifest_path.exists():
         return []

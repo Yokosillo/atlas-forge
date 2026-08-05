@@ -3,7 +3,7 @@ import uuid
 import libtmux
 import pytest
 
-from brain.agents import DEVELOPER_ROLE, register_agent, register_critic, register_developer
+from brain.agents import DEVELOPER_ROLE, register_agent, register_arquitecto, register_developer
 from brain.core import activate
 from brain.agents.launch import launch_agent
 from brain.models import DevelopmentSession, Runtime
@@ -96,13 +96,13 @@ def test_runtime_instance_is_queryable_after_register_developer(
     assert get_runtime_instance_for_agent(agent.id) == runtime_instance
 
 
-def test_runtime_instance_is_queryable_after_register_critic(
+def test_runtime_instance_is_queryable_after_register_arquitecto(
     isolated_socket: str, tmp_path
 ) -> None:
     session = _active_session()
     runtime = _test_runtime()
 
-    agent, runtime_instance = register_critic(
+    agent, runtime_instance = register_arquitecto(
         session, runtime, str(tmp_path), socket_name=isolated_socket
     )
 
@@ -126,22 +126,22 @@ def test_runtime_instance_is_queryable_after_launch_agent(
     assert get_runtime_instance_for_agent(agent.id) == runtime_instance
 
 
-def test_reusing_an_already_launched_critic_does_not_lose_or_duplicate_the_association(
+def test_reusing_an_already_launched_arquitecto_does_not_lose_or_duplicate_the_association(
     isolated_socket: str, tmp_path
 ) -> None:
     # Segunda llamada sobre el mismo rol/sesión (register_agent_with_reuse,
-    # vía register_critic — Critic, no Developer: desde T-FB005-US01-04,
-    # Developer ya NO reutiliza, ver el test siguiente) reutiliza el Agent
-    # ya lanzado sin volver a invocar `start_runtime` ni `register_agent`
-    # — la asociación ya registrada en el primer lanzamiento debe seguir
-    # siendo válida.
+    # vía register_arquitecto — Arquitecto, no Developer: desde
+    # T-FB005-US01-04, Developer ya NO reutiliza, ver el test siguiente)
+    # reutiliza el Agent ya lanzado sin volver a invocar `start_runtime` ni
+    # `register_agent` — la asociación ya registrada en el primer
+    # lanzamiento debe seguir siendo válida.
     session = _active_session()
     runtime = _test_runtime()
 
-    first_agent, first_instance = register_critic(
+    first_agent, first_instance = register_arquitecto(
         session, runtime, str(tmp_path), socket_name=isolated_socket
     )
-    second_agent, second_instance = register_critic(
+    second_agent, second_instance = register_arquitecto(
         session, runtime, str(tmp_path), socket_name=isolated_socket
     )
 

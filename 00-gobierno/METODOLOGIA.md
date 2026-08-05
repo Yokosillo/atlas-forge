@@ -195,6 +195,36 @@ No sustituyen a la documentación.
 
 ---
 
+# Protocolo de reorientación de producto (análisis doble + reconstrucción de backlog)
+
+Existe un modo de trabajo distinto del ciclo normal Task→Implementación, reservado para cuando el producto necesita un cambio de dirección de fondo (no una funcionalidad nueva, sino repensar cómo se organiza el trabajo existente). Se usó por primera vez el 2026-08-04/05 para reorientar Factory Brain hacia un pipeline Backlog-céntrico (resultado: `FB-022`, `FB-023`), y queda documentado aquí como opción reutilizable, no como excepción de una sola vez.
+
+## Cuándo aplica
+
+Cuando el usuario plantea una reorientación de producto de alcance amplio (afecta a varias Epics, cambia roles de agente, o redefine cómo se organiza el trabajo), no una Task o User Story puntual. Señal característica: la pregunta no es "¿cómo implemento X?" sino "¿deberíamos organizar esto de otra forma?".
+
+## Los pasos
+
+1. **Investigación de código en paralelo, no supuestos.** Antes de proponer nada, verificar con evidencia directa (grep, lectura de módulos) qué existe hoy y qué no — nunca asumir el estado del sistema por la documentación de intención. Puede delegarse en un agente Explore para no gastar el contexto principal en lecturas exhaustivas.
+
+2. **Informe de arquitectura propio, redactado directamente (no delegado).** Quien conduce la reorientación (el asistente principal de la conversación) escribe un primer informe con: visión de destino descrita por el usuario, estado real pieza por pieza (verificado, no supuesto), decisiones razonadas explícitas sobre los puntos ambiguos que el usuario deja abiertos (no listar opciones sin más — dar una recomendación con su porqué), y tamaño relativo del trabajo. Se guarda en `07-informes/`.
+
+3. **Auditoría independiente de un segundo agente, con encargo por escrito y persistente.** Se prepara un encargo detallado (rol, marco de producto, preguntas concretas obligatorias por área, método de verificación exigido, formato de entregable) y se guarda como fichero de gobierno reutilizable en `00-gobierno/` (no solo como prompt efímero) — mismo patrón que `CRITICO.md`/`developer.md`. El agente auditor recibe el informe de arquitectura como contexto obligatorio, para que su auditoría lo contraste en vez de partir de cero.
+
+4. **El auditor no es un espejo — se le exige incisividad y evidencia verificable.** El encargo debe prohibir explícitamente hallazgos vacíos ("la UX podría mejorar" sin decir cómo) y exigir que cada afirmación sea reproducible por un tercero (cita de línea de código, captura real, comando ejecutado). Navegación/verificación real contra el sistema vivo, no solo lectura de código estático, cuando el objeto de auditoría lo permite.
+
+5. **Crítica dura del resultado, con verificación cruzada — nunca aceptación automática.** Quien conduce la reorientación no da por bueno el informe del auditor solo porque termine con el marcador de cierre. Se verifican al menos algunas afirmaciones concretas contra el código real (no todas — una muestra representativa basta para calibrar confianza), y se exige corrección de lo que no pase esa verificación antes de darlo por definitivo. El agente auditor puede y debe recibir una segunda ronda con observaciones concretas, reutilizando su misma sesión (no repitiendo la investigación desde cero) si el runtime lo permite.
+
+6. **Preguntas abiertas se resuelven con análisis explícito, no se dejan sin decidir.** Si durante el proceso surge una duda de arquitectura no resuelta por ninguno de los dos informes (p. ej. "¿deberíamos fusionar estos dos roles?"), se responde con el mismo rigor — ventajas/desventajas explícitas, no una opinión sin fundamento — y se documenta la decisión razonada en el informe antes de escribir el backlog.
+
+7. **Reconstrucción del backlog combinando ambos informes, solo al final.** Nuevas Epics/User Stories/Tasks se escriben después de tener ambos informes (arquitectura + auditoría) y las preguntas abiertas resueltas — nunca antes, para no tener que reescribir el backlog dos veces. Cada Epic nueva debe citar su origen (qué informes la motivan) en su sección de Contexto.
+
+## Nota operativa: si el segundo agente corre sobre OpenCode headless
+
+Ver `00-gobierno/CRITICO.md`, sección "Lanzar OpenCode para una tarea puntual sin supervisión" — el protocolo técnico de lanzamiento (evitar tmux, usar `opencode run --auto` o `opencode serve`, fragmentar escrituras largas, detectar cuelgues por inactividad de log) es prerrequisito operativo para que los pasos 3-5 de este protocolo funcionen de forma fiable sin intervención manual constante.
+
+---
+
 # Regla fundamental
 
 Si durante una implementación aparece una decisión arquitectónica nueva, el desarrollo debe detenerse temporalmente.

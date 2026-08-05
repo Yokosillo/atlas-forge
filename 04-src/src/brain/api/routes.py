@@ -20,6 +20,11 @@ from brain.agents.stop import AgentRuntimeNotFoundError, stop_agent
 from brain.api.events import jobs_hub, plans_hub
 from brain.api.plan_registry import get_plan, get_plan_lock, list_plans, register_plan
 from brain.backlog.detail import build_epic_detail, build_item_detail, is_epic_item_id
+from brain.backlog.dependency_graph import (
+    analyze_epic_threads,
+    format_thread_analysis_markdown,
+    persist_thread_analysis,
+)
 from brain.backlog.parser import load_backlog
 from brain.backlog.report import build_backlog_report
 from brain.core.session_lifecycle import SessionNotActiveError, list_agents
@@ -29,7 +34,6 @@ from brain.core.session_registry import (
     shutdown_current_session,
 )
 from brain.agents.agent_options import list_available_agent_options
-from brain.agents import CRITIC_ROLE
 from brain.agents.launch import (
     AgentLaunchError,
     launch_agent,
@@ -59,6 +63,16 @@ from brain.models import Agent, Job
 from brain.models.backlog import ITEM_KIND_USER_STORY
 from brain.runtime.agent_runtime_registry import get_runtime_instance_for_agent
 from brain.runtime.generic import extract_model_from_runtime, is_runtime_alive
+from brain.agent_model import (
+    get_active_model as agent_model_get_active_model,
+    get_available_model_entries as agent_model_get_available_model_entries,
+    get_available_models as agent_model_get_available_models,
+    set_active_model as agent_model_set_active_model,
+)
+from brain.model_preferences import (
+    load_model_preferences,
+    save_model_preferences,
+)
 from brain.tmux.manager import DEFAULT_SOCKET_NAME
 from brain.tmux import capture_pane_lines
 from brain.workspace.active_project import (
@@ -66,10 +80,14 @@ from brain.workspace.active_project import (
     get_active_project,
     select_active_project,
 )
-from brain.workspace.discovery import discover_projects
+from brain.workspace.discovery import (
+    discover_projects,
+    invalidate_discovery_cache,
+)
 from brain.workspace.project_scripts import (
     MalformedScriptManifestError,
     discover_project_scripts,
+    invalidate_project_scripts_cache,
     run_project_script,
 )
 from brain.workspace.generic_scripts import list_generic_scripts, run_generic_script
@@ -108,9 +126,23 @@ def _resolve_workspace_root() -> Path:
 
 class LaunchAgentRequest(BaseModel):
     role: str
-    runtime_type: str
-    model: str | None = None
+    runtime_type: str | None = None
+    model_id: str | None = None
+    model: str | None = None  # legacy: alias de model_id
     initial_job_description: str | None = None
+
+    def resolved_runtime_type(self) -> str | None:
+        """Resuelve el runtime_type: si se dio model_id/model, se infiere del
+        catalogo; si no, se usa el campo runtime_type (legacy)."""
+        model = self.model_id or self.model
+        if model:
+            from brain.agent_model import resolve_runtime_for_model
+            return resolve_runtime_for_model(model)
+        return self.runtime_type
+
+
+    def resolved_model(self) -> str | None:
+        return self.model_id or self.model
 
 
 class CreateJobRequest(BaseModel):
@@ -151,6 +183,7 @@ def _serialize_project(project) -> dict:
         "name": project.name,
         "path": project.path,
         "repository": project.repository,
+        "workspace_id": project.workspace_id,
     }
 
 
@@ -183,7 +216,7 @@ def get_projects() -> list[dict]:
     que la lista aquí coincida con la que ese arranque ya resolvió."""
     return [
         _serialize_project(project)
-        for project in discover_projects(_resolve_workspace_root())
+        for project in discover_projects(_resolve_workspace_root(), state_dir=_STATE_DIR)
     ]
 
 
@@ -214,7 +247,7 @@ def post_project(body: SelectProjectRequest) -> dict:
     del usuario por el estado de un agente que de todos modos ya no
     sirve una vez cambiada la sesión.
     """
-    discovered = discover_projects(_resolve_workspace_root())
+    discovered = discover_projects(_resolve_workspace_root(), state_dir=_STATE_DIR)
     selected = next(
         (project for project in discovered if project.id == body.project_id), None
     )
@@ -230,6 +263,13 @@ def post_project(body: SelectProjectRequest) -> dict:
     except ProjectNotDiscoveredError as error:
         raise HTTPException(status_code=400, detail=str(error)) from error
 
+    # T-FB001-US01-06: al cambiar de proyecto activo se invalidan las cachés
+    # TTL de discovery (proyectos y scripts), para que el catálogo del nuevo
+    # proyecto se refleje sin esperar al TTL anterior (y para que un
+    # ida-y-vuelta A→B→A dentro del TTL no sirva la caché vieja de A).
+    invalidate_discovery_cache()
+    invalidate_project_scripts_cache()
+
     previous_session = get_current_session()
     if previous_session is not None:
         for agent in list_agents(previous_session):
@@ -244,6 +284,55 @@ def post_project(body: SelectProjectRequest) -> dict:
     resolve_startup_session(workspace_root=_WORKSPACE_ROOT, state_dir=_STATE_DIR)
 
     return _serialize_project(selected)
+
+
+# ------------------------------------------------------------------ FB-025
+# Acciones transversales de proyecto (US-FB025-01 a US-FB025-07).
+# Despachan Jobs al Arquitecto, scripts deterministas, o invocaciones
+# headless de opencode/Scribe desde un solo clic en la web, sin pasar por
+# conversación con el Director.
+
+
+@router.post("/project/actions/{action_id}")
+def post_project_action(action_id: str) -> dict:
+    """Despacha una acción transversal de proyecto.
+
+    Acciones disponibles:
+    - `documentar`, `analizar-arquitectura`, `sugerir-ideas`: despacha un
+      Job al Arquitecto. Requiere sesión activa con un Arquitecto lanzado.
+    - `testear`: ejecuta `pytest` determinista. No requiere sesión.
+    - `auditar-ux`: opencode run --auto headless. No requiere sesión.
+    - `indexar`: Scribe index_documents. No requiere sesión.
+
+    Bloqueante: la respuesta HTTP llega cuando la acción termina."""
+    from brain.actions.transversal import ACCIONES_DISPONIBLES, dispatch_action
+
+    if action_id not in ACCIONES_DISPONIBLES:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"Acción desconocida: '{action_id}'. "
+                f"Acciones disponibles: {', '.join(ACCIONES_DISPONIBLES)}."
+            ),
+        )
+
+    _AGENT_ACTIONS = frozenset({"documentar", "analizar-arquitectura", "sugerir-ideas"})
+    if action_id in _AGENT_ACTIONS:
+        session = get_current_session()
+        if session is None:
+            raise HTTPException(
+                status_code=404,
+                detail="No hay ninguna sesión de desarrollo activa.",
+            )
+
+    try:
+        result = dispatch_action(action_id, socket_name=_SOCKET_NAME)
+    except RuntimeError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+    except ProjectNotDiscoveredError as error:
+        raise HTTPException(status_code=404, detail=str(error)) from error
+
+    return result
 
 
 @router.get("/session")
@@ -319,29 +408,23 @@ def get_agents() -> list[dict]:
 
 @router.get("/agents/options")
 def get_agents_options() -> list[dict]:
-    """Catálogo de combinaciones agente/runtime/modelo disponibles
-    (envoltura fina de `list_available_agent_options`, FB-005) — sin
-    reimplementar su contenido. T-FB016-US01-18: ajusta un consumidor real
-    (la app Android) que solo puede hablar HTTP y que antes duplicaba este
-    catálogo en Kotlin; desde aquí la app y la TUI comparten la misma fuente
-    de verdad. No requiere sesión activa: es información estática sin estado.
+    """Catalogo de combinaciones rol/modelo disponibles (T-FB022-US11-01):
+    producto cartesiano de roles x modelos habilitados, con el runtime
+    resuelto internamente del catalogo. No requiere sesion activa.
 
-    T-FB016-US01-19: decisión de producto, NO técnica — por el momento el
-    Critic siempre debe lanzarse con Claude Code, así que la combinación
-    Critic + OpenCode no se ofrece a ningún cliente. Este filtro solo se
-    aplica en la envoltura HTTP (lo que se MUESTRA como opción elegible); la
-    lógica de dominio `list_available_agent_options`/`launch_agent` permanece
-    intacta (sigue admitiendo Critic+OpenCode) para poder revertir esta
-    decisión sin reintroducir código."""
+    El filtro que excluia Critic + OpenCode (T-FB016-US01-19) se eliminó
+    junto con el rol `critic` (FB-022): ya no existe esa combinación que
+    ocultar."""
     return [
         {
             "agent_role": option.agent_role,
+            "model_id": option.model_id,
+            "model_name": option.model_name,
             "runtime_type": option.runtime_type,
             "runtime_name": option.runtime_name,
             "supports_model": option.supports_model,
         }
         for option in list_available_agent_options()
-        if not (option.agent_role == CRITIC_ROLE and option.runtime_type == "opencode")
     ]
 
 
@@ -377,11 +460,19 @@ def post_agents(body: LaunchAgentRequest) -> dict:
         raise HTTPException(status_code=404, detail="No hay ningún proyecto activo.")
 
     try:
+        runtime_type = body.resolved_runtime_type()
+        if runtime_type is None:
+            raise HTTPException(
+                status_code=400,
+                detail="Se requiere 'runtime_type' o 'model_id'/'model' para lanzar un agente.",
+            )
+
+        model = body.resolved_model()
         if body.initial_job_description is None:
             agent, _runtime_instance = launch_agent(
                 body.role,
-                body.runtime_type,
-                body.model,
+                runtime_type,
+                model,
                 session,
                 project.path,
                 socket_name=_SOCKET_NAME,
@@ -390,8 +481,8 @@ def post_agents(body: LaunchAgentRequest) -> dict:
 
         agent, _runtime_instance, job = launch_agent_with_initial_job(
             body.role,
-            body.runtime_type,
-            body.model,
+            runtime_type,
+            model,
             session,
             project.path,
             initial_job_description=body.initial_job_description,
@@ -486,6 +577,157 @@ def get_agent_pane(agent_id: str) -> dict:
         runtime_instance.session_name, socket_name=_SOCKET_NAME
     )
     return {"agent_id": agent_id, "content": "\n".join(content)}
+
+
+@router.get("/agents/{agent_id}/model")
+def get_agent_model(agent_id: str) -> dict:
+    """Modelo activo actual del agente `agent_id`, leido de la barra de
+    estado de OpenCode via `get_active_model` (T-FB004-US05-01).
+
+    Devuelve `{agent_id, model: str | null}`. El valor `null` indica:
+    runtime no OpenCode, sesion muerta, patrón no encontrado o cualquier
+    fallo de lectura del pane — nunca un error HTTP (la ausencia de dato
+    es un dato en si mismo). 404 solo si no hay sesion activa o el agente
+    no existe en ella."""
+    session = get_current_session()
+    if session is None:
+        raise HTTPException(
+            status_code=404, detail="No hay ninguna sesión de desarrollo activa."
+        )
+    agent = _find_agent_by_id(session, agent_id)
+    if agent is None:
+        raise HTTPException(
+            status_code=404, detail=f"No existe ningún agente con id '{agent_id}'."
+        )
+    model = agent_model_get_active_model(agent_id, socket_name=_SOCKET_NAME)
+    return {"agent_id": agent_id, "model": model}
+
+
+@router.put("/agents/{agent_id}/model")
+def put_agent_model(agent_id: str, body: dict) -> dict:
+    """Cambia el modelo activo del agente `agent_id` via
+    `set_active_model` (T-FB004-US05-01). Recibe `{"model": "<id>"}` en el
+    cuerpo. Solo para agentes OpenCode en ejecucion — si el runtime no lo
+    soporta o la sesion tmux no esta viva, devuelve 400 con el motivo
+    (nunca 500). No modifica el estado del agente (sigue `idle`/`working`).
+
+    Devuelve `{agent_id, model, changed: true|false}`."""
+    session = get_current_session()
+    if session is None:
+        raise HTTPException(
+            status_code=404, detail="No hay ninguna sesión de desarrollo activa."
+        )
+    agent = _find_agent_by_id(session, agent_id)
+    if agent is None:
+        raise HTTPException(
+            status_code=404, detail=f"No existe ningún agente con id '{agent_id}'."
+        )
+
+    model_name = body.get("model") if isinstance(body, dict) else None
+    if not isinstance(model_name, str) or not model_name.strip():
+        raise HTTPException(
+            status_code=400,
+            detail="El campo 'model' es obligatorio (cadena no vacía).",
+        )
+
+    # Verificar que el runtime es OpenCode antes de intentar el cambio
+    # (get_active_model ya lo comprueba internamente, pero aquí damos un
+    # 400 explicito con el motivo de dominio en vez de un false silencioso).
+    rt = get_runtime_instance_for_agent(agent.id)
+    if rt is None:
+        raise HTTPException(
+            status_code=400,
+            detail=f"El agente '{agent_id}' no tiene un runtime registrado.",
+        )
+    if rt.runtime.type != "opencode":
+        raise HTTPException(
+            status_code=400,
+            detail=f"El agente '{agent_id}' no usa OpenCode — no admite cambio de modelo.",
+        )
+
+    changed = agent_model_set_active_model(
+        agent_id, model_name.strip(), socket_name=_SOCKET_NAME
+    )
+    return {"agent_id": agent_id, "model": model_name.strip(), "changed": changed}
+
+
+@router.get("/agents/{agent_id}/available-models")
+def get_agent_available_models(agent_id: str) -> dict:
+    """Modelos disponibles para el agente `agent_id`, con indicador de si
+    el agente admite cambio de modelo (runtime OpenCode). La lista se lee
+    del catalogo de configuracion (`models.yml`, T-FB022-US09) — no es un
+    array fijo de codigo ni se interroga al binario de OpenCode.
+
+    Devuelve `{agent_id, supports_model: bool, models: [{id, name, runtime}]}`.
+    404 solo si no hay sesion activa o el agente no existe."""
+    session = get_current_session()
+    if session is None:
+        raise HTTPException(
+            status_code=404, detail="No hay ninguna sesión de desarrollo activa."
+        )
+    agent = _find_agent_by_id(session, agent_id)
+    if agent is None:
+        raise HTTPException(
+            status_code=404, detail=f"No existe ningún agente con id '{agent_id}'."
+        )
+
+    rt = get_runtime_instance_for_agent(agent.id)
+    supports = rt is not None and rt.runtime.type == "opencode"
+    return {
+        "agent_id": agent_id,
+        "supports_model": supports,
+        "models": agent_model_get_available_model_entries() if supports else [],
+    }
+
+
+@router.get("/models/preferences")
+def get_models_preferences() -> dict:
+    """Preferencias de modelos: catalogo completo con habilitado/deshabilitado
+    y defaults por rol (T-FB022-US10-01).
+
+    Devuelve `{models: [{id, name, runtime, enabled}], defaults: {role: model_id}}`.
+    No requiere sesion activa. `enabled` se resuelve asi:
+    - `enabled_model_ids` vacio = todos habilitados.
+    - `enabled_model_ids` con IDs = solo esos habilitados."""
+    catalog = agent_model_get_available_model_entries()
+    prefs = load_model_preferences(state_dir=_STATE_DIR)
+    enabled_ids = prefs["enabled_model_ids"]
+    all_enabled = not enabled_ids  # lista vacia = todos habilitados
+
+    models_with_status = []
+    for entry in catalog:
+        models_with_status.append({
+            "id": entry["id"],
+            "name": entry["name"],
+            "runtime": entry["runtime"],
+            "enabled": all_enabled or entry["id"] in enabled_ids,
+        })
+
+    return {
+        "models": models_with_status,
+        "defaults": prefs["default_model_by_role"],
+    }
+
+
+class UpdateModelsPreferencesRequest(BaseModel):
+    enabled_model_ids: list[str] | None = None
+    default_model_by_role: dict[str, str] | None = None
+
+
+@router.put("/models/preferences")
+def put_models_preferences(body: UpdateModelsPreferencesRequest) -> dict:
+    """Actualiza las preferencias de modelos (T-FB022-US10-01).
+    Recibe `{enabled_model_ids: [...], default_model_by_role: {...}}`.
+    Ambos campos son opcionales — solo se actualiza lo enviado."""
+    current = load_model_preferences(state_dir=_STATE_DIR)
+
+    if body.enabled_model_ids is not None:
+        current["enabled_model_ids"] = body.enabled_model_ids
+    if body.default_model_by_role is not None:
+        current["default_model_by_role"] = body.default_model_by_role
+
+    save_model_preferences(current, state_dir=_STATE_DIR)
+    return current
 
 
 def _find_job_by_id(session, job_id: str) -> Job | None:
@@ -1088,6 +1330,87 @@ def post_launch_development(story_id: str, body: LaunchDevelopmentRequest) -> di
     return _serialize_job(job)
 
 
+# ------------------------------------------------------------------ FB-026
+# Análisis de hilos de desarrollo de una Epic (US-FB026-01 a US-FB026-04):
+# construye el grafo de dependencias, calcula niveles topológicos, agrupa
+# en hilos, detecta cruces, genera recomendación de reparto y persiste el
+# informe en `07-informes/<Epic-id>/`.
+
+
+@router.post("/backlog/epic/{epic_id}/analyze-threads")
+def post_analyze_epic_threads(epic_id: str) -> dict:
+    """Ejecuta el análisis determinista de hilos de desarrollo para una
+    Epic: grafo de dependencias, niveles topológicos, agrupación en hilos
+    paralelizables, detección de cruces y recomendación de reparto entre
+    agentes.
+
+    No despacha un Job al Arquitecto — el análisis es determinista (mismo
+    criterio que `testear` en FB-025), ya implementado en
+    `brain.backlog.dependency_graph`. El informe se persiste en
+    `07-informes/<epic_id>/` con identificador único por ejecución (no se
+    sobrescribe)."""
+    project = get_active_project(state_dir=_STATE_DIR)
+    if project is None:
+        raise HTTPException(status_code=404, detail="No hay ningún proyecto activo.")
+
+    backlog_path = Path(project.path) / "02-backlog"
+    graph = load_backlog(backlog_path)
+
+    if epic_id not in graph.items or not is_epic_item_id(epic_id):
+        raise HTTPException(
+            status_code=404,
+            detail=f"No existe ninguna Epic con id '{epic_id}' en el backlog.",
+        )
+
+    try:
+        analysis = analyze_epic_threads(graph, epic_id)
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+
+    if len(analysis.threads) == 0:
+        raise HTTPException(
+            status_code=400,
+            detail=f"La Epic '{epic_id}' no tiene Tasks con dependencias "
+                    "analizables en el backlog.",
+        )
+
+    num_agents = 2
+    report_path = persist_thread_analysis(analysis, num_agents=num_agents)
+
+    markdown = format_thread_analysis_markdown(analysis, num_agents=num_agents)
+
+    threads_data = []
+    for thread in analysis.threads:
+        threads_data.append({
+            "id": thread.id,
+            "start_level": thread.start_level,
+            "task_count": len(thread.tasks),
+            "tasks": [t.id for t in thread.tasks],
+        })
+
+    crosses_data = [
+        {
+            "from_task": c.from_task,
+            "from_thread": c.from_thread,
+            "to_task": c.to_task,
+            "to_thread": c.to_thread,
+        }
+        for c in analysis.crosses
+    ]
+
+    return {
+        "epic": epic_id,
+        "num_tasks": sum(len(t.tasks) for t in analysis.threads),
+        "num_threads": len(analysis.threads),
+        "num_crosses": len(analysis.crosses),
+        "threads": threads_data,
+        "crosses": crosses_data,
+        "missing_refs": list(analysis.missing_refs),
+        "report_path": str(report_path),
+        "markdown": markdown,
+    }
+
+
 def _serialize_script(script) -> dict:
     return {
         "id": script.id,
@@ -1103,7 +1426,7 @@ def _serialize_generic_script(script) -> dict:
         "id": script.id,
         "name": script.name,
         "command": None,
-        "description": None,
+        "description": script.description,
         "origin": "generic",
     }
 

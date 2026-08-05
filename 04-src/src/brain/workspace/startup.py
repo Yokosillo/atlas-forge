@@ -67,12 +67,12 @@ def resolve_startup_project(
     persisted = get_active_project(state_dir=state_dir)
 
     if persisted is None:
-        return ProjectSelectionRequired(discovered=discover_projects(root))
+        return ProjectSelectionRequired(discovered=discover_projects(root, state_dir=state_dir))
 
     invalid_reason = _validate_persisted_project(persisted)
     if invalid_reason is not None:
         return ProjectSelectionRequiredAfterInvalid(
-            discovered=discover_projects(root),
+            discovered=discover_projects(root, state_dir=state_dir),
             invalid_project=persisted,
             reason=invalid_reason,
         )

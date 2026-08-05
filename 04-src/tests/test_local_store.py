@@ -10,6 +10,7 @@ def _make_project() -> Project:
         name="factory-brain",
         path="/home/dev/factory-brain",
         repository="git@github.com:example/factory-brain.git",
+        workspace_id="ws-1",
     )
 
 
@@ -33,6 +34,7 @@ def test_save_active_project_overwrites_previous_selection(tmp_path: Path) -> No
         name="other-project",
         path="/home/dev/other-project",
         repository="git@github.com:example/other-project.git",
+        workspace_id="ws-2",
     )
 
     save_active_project(first, state_dir=tmp_path)

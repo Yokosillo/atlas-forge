@@ -3,6 +3,7 @@ import os
 from pathlib import Path
 
 from brain.models import Project
+from brain.storage.workspace_store import resolve_workspace_id
 
 # Justificación del mecanismo de almacenamiento (T-FB001-US01-01):
 #
@@ -38,6 +39,7 @@ def save_active_project(project: Project, state_dir: Path | None = None) -> None
         "name": project.name,
         "path": project.path,
         "repository": project.repository,
+        "workspace_id": project.workspace_id,
     }
     path.write_text(json.dumps(payload), encoding="utf-8")
 
@@ -47,9 +49,22 @@ def load_active_project(state_dir: Path | None = None) -> Project | None:
     if not path.exists():
         return None
     payload = json.loads(path.read_text(encoding="utf-8"))
+    # Migración T-FB001-US02-02: un proyecto activo persistido antes de esta
+    # Task no tiene `workspace_id`. Se resuelve en lugar de romper con una
+    # excepción al leer el formato anterior: el Workspace registrado para su
+    # ubicación (path exacto o ancestro) si existe, o un id determinista
+    # derivado del path (workspace implícito) si todavía no hay ninguno
+    # registrado. Al guardar de nuevo el proyecto activo, el formato nuevo
+    # (con `workspace_id`) sustituye al antiguo.
+    workspace_id = payload.get("workspace_id")
+    if workspace_id is None:
+        workspace_id = resolve_workspace_id(
+            Path(payload["path"]), state_dir=state_dir
+        )
     return Project(
         id=payload["id"],
         name=payload["name"],
         path=payload["path"],
         repository=payload["repository"],
+        workspace_id=workspace_id,
     )

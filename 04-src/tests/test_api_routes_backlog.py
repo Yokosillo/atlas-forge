@@ -25,7 +25,7 @@ def _active_project(tmp_path: Path, monkeypatch) -> Path:
 
     from brain.models import Project
 
-    project = Project(id=str(project_path), name="project-a", path=str(project_path), repository="")
+    project = Project(id=str(project_path), name="project-a", path=str(project_path), repository="", workspace_id="ws-test")
     monkeypatch.setattr(routes_module, "get_active_project", lambda **_kwargs: project)
     return project_path
 
@@ -372,6 +372,7 @@ def _active_real_project(monkeypatch) -> None:
         name=REAL_PROJECT_PATH.name,
         path=str(REAL_PROJECT_PATH),
         repository="",
+        workspace_id="ws-real",
     )
     monkeypatch.setattr(routes_module, "get_active_project", lambda **_kwargs: project)
 

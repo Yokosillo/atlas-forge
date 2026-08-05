@@ -7,9 +7,11 @@ import requests
 from brain.local_tools import (
     ScribeUnavailableError,
     index_documents,
+    index_scripts,
     resumir_estado_backlog,
     summarize_document,
 )
+from brain.models import GenericScriptEntry, ScriptEntry
 
 
 def _ollama_is_reachable() -> bool:
@@ -68,6 +70,49 @@ def test_index_documents_sends_the_fixed_prompt_template_without_real_ollama() -
         assert "Construye un índice temático" in prompt
 
 
+def test_index_scripts_sends_the_fixed_prompt_template_without_real_ollama() -> None:
+    # T-FB014-US02-01, criterio 4: test que verifica la plantilla de prompt
+    # enviada sin necesitar Ollama corriendo (mockeando la llamada HTTP,
+    # mismo criterio ya aplicado en T-FB014-US01-01). Se usan scripts reales
+    # del catálogo (genéricos commit/push + un particular de ejemplo) para
+    # verificar también que la serialización incluye id/nombre/comando.
+    scripts = [
+        GenericScriptEntry(id="commit", name="Commit de cambios"),
+        GenericScriptEntry(id="push", name="Push al remoto"),
+        ScriptEntry(
+            id="deploy",
+            name="Desplegar a producción",
+            command="bash scripts/deploy.sh",
+            description="Construye y despliega la app",
+        ),
+    ]
+    with patch("brain.local_tools.scribe.requests.post") as mock_post:
+        mock_post.return_value = _mock_ollama_response(
+            "- commit: realiza un commit de los cambios\n"
+            "- push: sube los cambios al remoto\n"
+            "- deploy: construye y despliega la app"
+        )
+
+        result = index_scripts(scripts, model="test-model")
+
+        assert "commit" in result
+        call_args, call_kwargs = mock_post.call_args
+        assert call_args[0] == "http://localhost:11434/v1/chat/completions"
+        sent_payload = call_kwargs["json"]
+        assert sent_payload["model"] == "test-model"
+        prompt = sent_payload["messages"][0]["content"]
+        # Los tres scripts del catálogo están serializados en el prompt.
+        assert "- commit: Commit de cambios" in prompt
+        assert "- push: Push al remoto" in prompt
+        # El particular incluye su comando y descripción; los genéricos no
+        # tienen esos campos.
+        assert "- deploy: Desplegar a producción (comando: bash scripts/deploy.sh) — Construye y despliega la app" in prompt
+        assert "bash scripts/deploy.sh" in prompt
+        # Plantilla fija propia de esta operación, distinta de index_documents.
+        assert "resumen corto de qué hace cada uno de los siguientes" in prompt
+        assert "no inventes comportamientos" in prompt
+
+
 def test_summarize_document_does_not_accept_arbitrary_prompt_parameter() -> None:
     # No existe ningún parámetro de prompt libre — solo `text`, `model`,
     # `base_url`, `timeout_seconds` (criterio de aceptación: ninguna
@@ -76,6 +121,27 @@ def test_summarize_document_does_not_accept_arbitrary_prompt_parameter() -> None
 
     signature = inspect.signature(summarize_document)
     assert "prompt" not in signature.parameters
+
+
+def test_index_scripts_does_not_accept_arbitrary_prompt_parameter() -> None:
+    # T-FB014-US02-01, criterio 2: no acepta un prompt arbitrario — la
+    # plantilla es fija e interna, igual que el resto del catálogo.
+    import inspect
+
+    signature = inspect.signature(index_scripts)
+    assert "prompt" not in signature.parameters
+
+
+def test_index_scripts_raises_explicit_unavailable_error_when_ollama_is_down() -> None:
+    # T-FB014-US02-01, criterio 3: degradación explícita — si el modelo
+    # local no está disponible lanza ScribeUnavailableError (mismo tipo que
+    # el resto del catálogo), sin bloquear a quien la invoque.
+    scripts = [GenericScriptEntry(id="commit", name="Commit de cambios")]
+    with patch("brain.local_tools.scribe.requests.post") as mock_post:
+        mock_post.side_effect = requests.ConnectionError("connection refused")
+
+        with pytest.raises(ScribeUnavailableError):
+            index_scripts(scripts)
 
 
 def test_resumir_estado_backlog_sends_the_fixed_prompt_template_without_real_ollama() -> (

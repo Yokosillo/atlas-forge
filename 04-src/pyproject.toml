@@ -8,7 +8,6 @@ version = "0.1.0"
 description = "Factory Brain - orquestador de agentes de desarrollo de software"
 requires-python = ">=3.10"
 dependencies = [
-    "GitPython>=3.1,<4",
     "PyYAML>=6,<7",
     "fastapi>=0.115,<1",
     "libtmux>=0.37,<1",

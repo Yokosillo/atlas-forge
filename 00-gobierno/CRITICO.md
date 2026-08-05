@@ -159,6 +159,130 @@ verificación adicional obligatorio en momentos concretos:
   habituales si la Epic es grande — es la excepción a "conciso" cuando el
   volumen de verificación lo justifica.
 
+## Experiencia operando un Developer sobre OpenCode (runtime alternativo, no Claude)
+
+Cuando el worker es una sesión de OpenCode (p. ej. `opencode-session`, modelo
+"DeepSeek V4 Flash Free" u otro del tier gratuito) en vez de un Developer
+Claude con su propio `watch_worker.sh`, aplican matices adicionales
+observados en producción (sesión 2026-08-04, cola de ~17 Tasks):
+
+- **No hay reenvío automático de la siguiente Task.** A diferencia del
+  circuito Developer(Claude)→Crítico, que tiene `watch_worker.sh`/
+  `watch_critic.sh` vigilando `worker_output.txt`/`critic_output.txt` con
+  `inotifywait` y reenviando por tmux solos, no existe un watcher equivalente
+  para el canal de OpenCode (`worker2_output.txt`). Cada `### STORY_DONE ###`
+  hay que detectarlo (monitor sobre ese fichero) y la siguiente Task hay que
+  enviarla manualmente por `tmux send-keys` — si no se hace, la sesión se
+  queda indefinidamente a la espera sin avisar de nada, aunque haya terminado
+  correctamente su trabajo.
+- **El proveedor puede devolver 503 sin reintento automático de la propia
+  TUI.** Con el tier gratuito de OpenCode Zen es frecuente el error
+  `"Streaming response failed: [503] The request queue is full."` a mitad de
+  una respuesta. La sesión se queda parada (sin spinner, sin progreso) y NO
+  reintenta sola — hay que enviar un mensaje corto ("Continua") + Enter en
+  llamadas `tmux send-keys` separadas (mismo patrón de "texto y Enter
+  separados con pausa" que ya se usa para el resto de este protocolo) para
+  que retome exactamente donde se quedó. Es transitorio y no pierde el
+  trabajo ya hecho, pero sí requiere intervención activa — vigilar la sesión
+  periódicamente (p. ej. cada 10-15 min) durante Tasks largas.
+- **El contexto crece más rápido de lo esperable y hay que vigilarlo.** Se
+  observó una sesión subir de ~55% a ~81% de contexto en menos de una hora
+  de trabajo real (varias Tasks con suites de regresión completas incluidas
+  en el propio turno del worker). Al acercarse al límite (~90%+), lo más
+  fiable es matar la sesión tmux y recrearla desde cero, reenviando como
+  primer mensaje el rol de `00-gobierno/developer.md` adaptado (mismo
+  contenido, cambiando `worker_output.txt` por `worker2_output.txt` como
+  canal de reporte, y sin la parte de protocolo hacia una sesión "crítico"
+  separada — aquí la validación la hace quien está operando la sesión
+  directamente). Tras recrearla, confirmar que el rol quedó realmente
+  enviado (a veces el `Enter` no se registra a la primera vía `send-keys` si
+  hay otro cliente tmux con el foco activo — reintentar) antes de asignar
+  ninguna Task.
+- **El criterio de "confía en los tests, verifica el código" se mantiene
+  igual con este worker.** Pese a ser un modelo distinto y más propenso a
+  interrupciones de red, la calidad de sus cierres (evidencia real por
+  criterio, bugs genuinos detectados durante su propia verificación —p. ej.
+  una clave de caché mal calculada, una migración de formato legacy que no
+  resolvía el Workspace esperado— y corregidos antes de reportar
+  `STORY_DONE`) ha sido consistente con la de un Developer Claude. No relajar
+  ni endurecer el criterio de verificación por el hecho de que sea un
+  runtime/modelo distinto.
+
+## Lanzar OpenCode para una tarea puntual sin supervisión (headless) — protocolo obligatorio
+
+Cuando se necesita que OpenCode ejecute una tarea de una sola vez sin que
+nadie vaya a teclear en ella después (p. ej. una auditoría, un análisis, un
+script de un solo uso — a diferencia de un Developer/Critic persistente que
+sí vive en tmux de forma indefinida, ver más abajo), **NO uses la TUI
+interactiva de OpenCode dentro de una sesión tmux controlada por
+`send-keys`/`paste-buffer`**. Se probó exhaustivamente (sesión 2026-08-04/05)
+y falla de forma reproducible por dos causas raíz distintas:
+
+1. **El modal de permisos (`△ Permission required`) cuelga la sesión
+   indefinidamente.** Cuando OpenCode pide confirmar un permiso (p. ej.
+   acceso a `/tmp/*`), deja de procesar el turno del LLM y espera un modal de
+   teclado puro. `tmux send-keys Right`/`Enter` para navegar y confirmar ese
+   modal no llega de forma fiable — confirmado con el log interno
+   (`~/.local/share/opencode/log/opencode.log`): un `asking id=... permission=
+   external_directory` sin ningún evento posterior durante 8 minutos seguidos,
+   sin timeout ni reintento de la propia TUI.
+2. **Bloques de texto largos enviados con `send-keys -l`/`paste-buffer` no
+   se registran en el input**, incluso con el pane confirmado activo y
+   aceptando texto corto (una sola tecla sí funciona, 2+ caracteres a veces
+   ya falla). No es un problema de timing/CPU/RAM de la máquina — es la
+   interacción tmux↔TUI en sí.
+
+**Solución: usar `opencode run` (modo no interactivo), no la TUI:**
+
+```bash
+cd <directorio del proyecto>
+opencode run --auto -m <provider/modelo> "<mensaje completo del encargo>"
+```
+
+- `--auto` autoaprueba cualquier permiso no denegado explícitamente —
+  elimina el modal de raíz, sin necesidad de responderlo por tmux.
+- El mensaje va como argumento del comando, no por `send-keys` — elimina
+  también el problema de envío de texto.
+- Lánzalo en background con `nohup ... > /tmp/algo.log 2>&1 & disown` y
+  vigila el proceso (`ps -p <pid>`) y el log de salida, no una sesión tmux.
+- Para continuar la misma sesión en un segundo mensaje (p. ej. tras una
+  corrección), usa `opencode run --auto -m <modelo> --session <session_id>
+  "<mensaje>"` — el ID se obtiene de `opencode session list` o del propio
+  log (`session.id=ses_...`). Esto reutiliza todo el contexto/trabajo ya
+  hecho sin tener que repetir la investigación desde cero.
+
+**Tercera causa de bloqueo, distinta de las dos anteriores — persiste
+incluso con `opencode run`:** `deepseek-v4-pro` (y probablemente otros
+modelos del mismo tier) se cuelga generando un único tool-call de escritura
+(`Write`) cuando el contenido es muy largo (~150+ líneas) — no da error, no
+hace timeout, dejaba de emitir tokens indefinidamente a mitad de serializar
+el JSON de la llamada. Confirmado dos veces seguidas con el mismo patrón
+exacto (un script de ~150 líneas y luego un informe de tamaño similar),
+verificado con el log interno (`stream`/`llm runtime selected` sin ningún
+evento posterior durante 7+ minutos). **Mitigación: instruir explícitamente
+al agente para que escriba en fragmentos pequeños** — un `Write` inicial
+corto (solo título + resumen) seguido de varias llamadas `Edit`/append, una
+por sección, en vez de un único `Write` con todo el contenido de golpe. Con
+este ajuste el mismo encargo se completó sin problema.
+
+**Qué NO cambia con esto — agentes persistentes siguen necesitando tmux.**
+Este protocolo aplica solo a tareas puntuales de una sola ejecución. Los
+agentes permanentes del pipeline (Developer, Critic/Arquitecto, y en el
+futuro Director) siguen necesitando vivir en una sesión tmux real —
+`opencode run` termina y libera el proceso al acabar, no sirve para un
+agente que debe persistir entre Jobs sucesivos y aceptar instrucciones
+nuevas en cualquier momento. `agents/registry.py` ya resuelve eso
+correctamente para el pipeline; este protocolo es solo para el caso
+"lanzar, que trabaje solo, recoger el resultado" — el mismo patrón que ya
+usa el rol de Auditor UX (`00-gobierno/UX.md`).
+
+**Verificación de progreso sin polling manual constante:** compara el
+timestamp de la última línea de `~/.local/share/opencode/log/opencode.log`
+entre lecturas espaciadas ~10s. Si no cambia durante 12 lecturas seguidas
+(~120s), es cuelgue real, no latencia normal del proveedor — mátalo
+(`kill -9 <pid>`) y relanza (con `--session` si quieres conservar el
+contexto ya construido) en vez de esperar indefinidamente.
+
 ## Principios
 - **No bloqueante**: el worker no debe esperar validación constante. Tu
   intervención es puntual, al cierre de hitos.

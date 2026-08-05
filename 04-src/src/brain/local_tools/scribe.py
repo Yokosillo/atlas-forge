@@ -15,7 +15,7 @@ US-FB014-01)
 
 Si Ollama no está corriendo, el modelo configurado no está descargado, o
 la respuesta llega con una estructura inesperada, toda operación de
-Scribe (`summarize_document`/`index_documents`/`resumir_estado_backlog`)
+Scribe (`summarize_document`/`index_documents`/`index_scripts`/`resumir_estado_backlog`)
 lanza `ScribeUnavailableError` — nunca una excepción genérica de
 `requests` (`ConnectionError`/`Timeout`/`HTTPError`) ni un colgado
 indefinido (`timeout_seconds` acota cada llamada HTTP).
@@ -57,6 +57,11 @@ _BACKLOG_STATUS_PROMPT_TEMPLATE = (
     "BLOQUEADAS (y por qué dependencia pendiente), y el próximo foco "
     "(la cadena de mayor apalancamiento, raíz y qué desbloquea). "
     "Datos del backlog:\n\n{json_report}"
+)
+_INDEX_SCRIPTS_PROMPT_TEMPLATE = (
+    "Genera un resumen corto de qué hace cada uno de los siguientes "
+    "scripts de un proyecto, en una línea por script, fiel a los datos "
+    "(no inventes comportamientos que no aparezcan):\n\n{scripts}"
 )
 
 
@@ -170,4 +175,48 @@ def resumir_estado_backlog(
     disponible, `brain backlog-status` sigue funcionando igual. Plantilla
     fija e interna, como el resto del catálogo."""
     prompt = _BACKLOG_STATUS_PROMPT_TEMPLATE.format(json_report=resultado_json)
+    return _chat_completion(prompt, model, base_url, timeout_seconds)
+
+
+def index_scripts(
+    scripts: list[object],
+    model: str = DEFAULT_MODEL,
+    base_url: str = DEFAULT_OLLAMA_BASE_URL,
+    timeout_seconds: float = 30.0,
+) -> str:
+    """Genera un resumen corto de qué hace cada script de `scripts` usando
+    el modelo local configurado (T-FB014-US02-01, US-FB014-02).
+
+    La entrada es la lista combinada de scripts de un proyecto — genéricos
+    (`GenericScriptEntry`, T-FB018-US01-01) y particulares (`ScriptEntry`,
+    T-FB001-US03-01) — serializados a texto plano por esta función (id,
+    nombre, comando y descripción si los tienen). Scribe no descubre nada:
+    quien la invoque le pasa la lista ya resuelta, coherente con el resto
+    del catálogo (`summarize_document`/`index_documents` tampoco buscan
+    sus entradas).
+
+    Plantilla de prompt fija e interna (no acepta un prompt arbitrario),
+    distinta de `_INDEX_PROMPT_TEMPLATE` de `index_documents` — la entrada
+    aquí son scripts con nombre+comando, no documentos de texto libre;
+    comparte solo el mecanismo interno de llamada HTTP (`_chat_completion`).
+
+    Degradación explícita: si el modelo local no está disponible, lanza
+    `ScribeUnavailableError` (mismo contrato que el resto del catálogo) —
+    quien la invoque puede capturarlo y seguir mostrando el catálogo crudo
+    sin el resumen."""
+    entries = [
+        "- {id}: {name}{command}{description}".format(
+            id=getattr(script, "id", "?"),
+            name=getattr(script, "name", "?"),
+            command=(
+                f" (comando: {script.command})" if getattr(script, "command", None) else ""
+            ),
+            description=(
+                f" — {script.description}" if getattr(script, "description", None) else ""
+            ),
+        )
+        for script in scripts
+    ]
+    scripts_text = "\n".join(entries)
+    prompt = _INDEX_SCRIPTS_PROMPT_TEMPLATE.format(scripts=scripts_text)
     return _chat_completion(prompt, model, base_url, timeout_seconds)

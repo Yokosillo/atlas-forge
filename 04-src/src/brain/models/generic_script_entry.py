@@ -11,7 +11,9 @@ class GenericScriptEntry:
 
     `id` es el identificador estable por el que `run_generic_script`
     (T-FB018-US01-01) lo localizará para ejecutarlo; `name` es el nombre
-    visible en la interfaz."""
+    visible en la interfaz; `description` es una descripción de una línea
+    (T-FB024-US03-01)."""
 
     id: str
     name: str
+    description: str | None = None

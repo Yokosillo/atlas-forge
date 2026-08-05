@@ -45,11 +45,10 @@ _TUI_ALLOWED = {
     "tui/screens/agents.py": {
         "brain.agents.agent_options": {
             "list_available_agent_options",
-            # T-FB016-US01-19: la TUI aplica el filtro de producto (no ofrecer
-            # Critic+OpenCode) en su propio punto de consumo; necesita la
-            # constante de rol para comparar, sin tocar el dominio.
-            "CRITIC_ROLE",
-        }
+        },
+        # T-FB022-US01-01: CRITIC_ROLE ya no vive en agent_options sino en
+        # brain.agents (rol generalizado con registry).
+        "brain.agents": {"CRITIC_ROLE"},
     },
     "tui/screens/jobs.py": {
         "brain.agents": {"CRITIC_ROLE", "DEVELOPER_ROLE"}

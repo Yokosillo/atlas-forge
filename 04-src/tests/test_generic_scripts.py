@@ -74,7 +74,7 @@ def _current_branch(repo_path: Path) -> str:
 # ---------------------------------------------------------------------------
 
 
-def test_list_generic_scripts_returns_the_fixed_catalog_with_its_6_identifiers() -> None:
+def test_list_generic_scripts_returns_the_fixed_catalog_with_its_7_identifiers() -> None:
     entries = list_generic_scripts()
 
     assert [entry.id for entry in entries] == [
@@ -84,6 +84,7 @@ def test_list_generic_scripts_returns_the_fixed_catalog_with_its_6_identifiers()
         "diff_stat",
         "language_stats",
         "backlog_status",
+        "run_tests",
     ]
     # Cada entrada tiene un nombre visible (no vacío) para la interfaz.
     assert all(entry.name.strip() for entry in entries)
@@ -100,6 +101,7 @@ def test_list_generic_scripts_does_not_leak_mutable_internal_state() -> None:
         "diff_stat",
         "language_stats",
         "backlog_status",
+        "run_tests",
     ]
 
 

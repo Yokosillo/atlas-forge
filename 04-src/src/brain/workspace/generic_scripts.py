@@ -135,12 +135,13 @@ LANGUAGE_STATS_INSTALL_HINT = (
 # aceptación explícito de T-FB018-US01-01): mismos scripts para cualquier
 # proyecto, sin parámetro de proyecto en la consulta.
 GENERIC_SCRIPTS: tuple[GenericScriptEntry, ...] = (
-    GenericScriptEntry(id="commit", name="Commit de cambios"),
-    GenericScriptEntry(id="push", name="Push al remoto"),
-    GenericScriptEntry(id="changed_files", name="Ficheros modificados"),
-    GenericScriptEntry(id="diff_stat", name="Resumen de cambios por fichero"),
-    GenericScriptEntry(id="language_stats", name="Desglose de lenguajes y líneas de código"),
-    GenericScriptEntry(id="backlog_status", name="Estado del backlog (conteo, dependencias y siguiente foco)"),
+    GenericScriptEntry(id="commit", name="Commit de cambios", description="Guarda los cambios del área de staging en el historial de git con un mensaje descriptivo."),
+    GenericScriptEntry(id="push", name="Push al remoto", description="Envía los commits locales al repositorio remoto configurado."),
+    GenericScriptEntry(id="changed_files", name="Ficheros modificados", description="Lista los nombres de los ficheros con cambios respecto al último commit."),
+    GenericScriptEntry(id="diff_stat", name="Resumen de cambios por fichero", description="Muestra un resumen de líneas añadidas y eliminadas por cada fichero modificado."),
+    GenericScriptEntry(id="language_stats", name="Desglose de lenguajes y líneas de código", description="Analiza el proyecto con cloc y muestra el desglose de líneas de código por lenguaje."),
+    GenericScriptEntry(id="backlog_status", name="Estado del backlog (conteo, dependencias y siguiente foco)", description="Calcula el estado actual del backlog: conteo por estado, dependencias bloqueantes y cadena de mayor apalancamiento."),
+    GenericScriptEntry(id="run_tests", name="Ejecutar tests del proyecto", description="Ejecuta la suite de tests del proyecto con pytest y muestra el resultado."),
 )
 
 
@@ -192,6 +193,54 @@ def _require_external_tool(script_id: str) -> ScriptRunResult | None:
     return None
 
 
+def _find_test_runner(project_path: str) -> list[str] | None:
+    """Busca un test runner disponible en `project_path`. Prueba en orden:
+    `pytest`, `python3 -m pytest`. Devuelve la lista de argumentos sin
+    shell o `None` si ninguno está disponible."""
+    import shutil as _shutil
+
+    tests_dir = Path(project_path) / "tests"
+    if not tests_dir.is_dir():
+        return None
+
+    if _shutil.which("pytest"):
+        return ["pytest", str(tests_dir), "-v"]
+    if _shutil.which("python3"):
+        return ["python3", "-m", "pytest", str(tests_dir), "-v"]
+    return None
+
+
+def _run_project_tests(project_path: str) -> ScriptRunResult:
+    """Ejecuta los tests del proyecto (`pytest` o equivalente) como paso
+    determinista (T-FB022-US12-03). No es parte del razonamiento del
+    Tester — es un script genérico del catálogo FB-018.
+
+    Devuelve `ScriptRunResult` con `success=True` si todos los tests
+    pasan (exit_code 0), o `success=False` con el detalle de fallos en
+    `stdout`/`stderr`. Si no se encuentra un test runner disponible,
+    devuelve un resultado de error explícito, nunca una excepción no
+    controlada."""
+    command = _find_test_runner(project_path)
+    if command is None:
+        return ScriptRunResult(
+            success=False,
+            exit_code=None,
+            stdout="",
+            stderr="",
+            error_message=(
+                "No se encontró un test runner disponible en este "
+                "proyecto. Se necesita 'pytest' instalado y un "
+                "directorio 'tests/' con tests."
+            ),
+        )
+    return run_subprocess(
+        command,
+        project_path,
+        DEFAULT_SCRIPT_TIMEOUT_SECONDS,
+        action_description="el script genérico 'run_tests'",
+    )
+
+
 def run_generic_script(
     script_id: str,
     project_path: str,
@@ -227,7 +276,7 @@ def run_generic_script(
             )
 
     resolved = _git_command(script_id, params)
-    if resolved is None and script_id not in ("language_stats", "backlog_status"):
+    if resolved is None and script_id not in ("language_stats", "backlog_status", "run_tests"):
         return ScriptRunResult(
             success=False,
             exit_code=None,
@@ -259,11 +308,6 @@ def run_generic_script(
             project_path,
         ]
     elif script_id == "backlog_status":
-        # Única entrada pura de Python del catálogo: reusa el cálculo del
-        # comando `brain backlog-status` (misma fuente de verdad), no ejecuta
-        # un subproceso propio — decisión documentada en el docstring del
-        # módulo. Un proyecto recién creado sin US/Tasks es un resultado
-        # válido (`success=True`, informe `empty=True`), igual que el comando.
         backlog_path = Path(project_path) / "02-backlog"
         report = build_backlog_report(backlog_path)
         return ScriptRunResult(
@@ -272,6 +316,8 @@ def run_generic_script(
             stdout=render_json_report(report),
             stderr="",
         )
+    elif script_id == "run_tests":
+        return _run_project_tests(project_path)
     else:
         command, _label = resolved  # type: ignore[misc]
 

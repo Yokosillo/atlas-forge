@@ -23,19 +23,23 @@ token del valor literal de `## Prioridad` (p. ej. `Alta.`, `Baja — ...`,
 from __future__ import annotations
 
 import json
+import re
 from pathlib import Path
 
 from brain.backlog.parser import (
     classify_todo_items,
     find_max_leverage_chain,
     load_backlog,
+    calculate_unblock_degree,
 )
-from brain.models.backlog import ITEM_KIND_USER_STORY
+from brain.models.backlog import ITEM_KIND_EPIC, ITEM_KIND_TASK, ITEM_KIND_USER_STORY
 
 BACKLOG_STATUS_NO_DATA_TEXT = "Sin datos: el backlog no tiene aún US/Tasks."
 
 _PRIORITY_RANK = {"Crítica": 0, "Alta": 1, "Media": 2, "Baja": 3}
 _PRIORITY_LABEL = {0: "Crítica", 1: "Alta", 2: "Media", 3: "Baja", 4: "Sin prioridad"}
+
+_EPIC_PREFIX_PATTERN = re.compile(r"^(FB-\d{3,})")
 
 
 def priority_rank(priority: str | None) -> int:
@@ -58,7 +62,24 @@ def _state_counts(items: list) -> dict[str, int]:
 
 
 def _epic_label(epic: str | None) -> str:
-    return epic if epic is not None else "(sin epic)"
+    if epic is None:
+        return "(sin epic)"
+    return epic
+
+def _epic_prefix(epic: str | None) -> str | None:
+    if epic is None:
+        return None
+    match = _EPIC_PREFIX_PATTERN.match(epic.strip())
+    return match.group(1) if match else None
+
+def _epic_label_from_file(backlog_path: str | Path, epic_id: str) -> str:
+    epics_dir = Path(backlog_path) / "epics"
+    epic_file = next(iter(sorted(epics_dir.glob(f"{epic_id}-*.md"))), None) if epics_dir.is_dir() else None
+    if epic_file is not None:
+        first_line = epic_file.read_text(encoding="utf-8").splitlines()[0]
+        if first_line.startswith("# "):
+            return first_line[2:].strip()
+    return epic_id
 
 
 def _summary(item) -> dict:
@@ -67,6 +88,7 @@ def _summary(item) -> dict:
         "kind": item.kind,
         "epic": item.epic,
         "priority": item.priority,
+        "fase": item.fase,
     }
 
 
@@ -88,16 +110,35 @@ def build_backlog_report(backlog_path: str | Path) -> dict:
     lista, bloqueada = classify_todo_items(graph)
     chain = find_max_leverage_chain(graph)
 
+    epics_items = [item for item in graph.items.values() if item.kind == ITEM_KIND_EPIC]
     user_stories = [item for item in graph.items.values() if item.kind == ITEM_KIND_USER_STORY]
-    tasks = [item for item in graph.items.values() if item.kind != ITEM_KIND_USER_STORY]
+    tasks = [item for item in graph.items.values() if item.kind == ITEM_KIND_TASK]
 
     by_epic: dict[str, dict] = {}
     for item in graph.items.values():
-        label = _epic_label(item.epic)
-        entry = by_epic.setdefault(label, {"epic": label, "user_stories": {}, "tasks": {}})
+        if item.kind == ITEM_KIND_EPIC:
+            continue
+        prefix = _epic_prefix(item.epic)
+        label = prefix if prefix is not None else "(sin epic)"
+        entry = by_epic.setdefault(
+            label,
+            {
+                "epic": label,
+                "epic_label": _epic_label_from_file(backlog_path, label) if prefix else "(sin epic)",
+                "user_stories": {},
+                "tasks": {},
+            },
+        )
         target = entry["user_stories"] if item.kind == ITEM_KIND_USER_STORY else entry["tasks"]
         target[item.state] = target.get(item.state, 0) + 1
-    epics = sorted(by_epic.values(), key=lambda entry: entry["epic"])
+    epics_sorted = sorted(by_epic.values(), key=lambda e: e["epic"])
+
+    for entry in epics_sorted:
+        if entry["epic"] != "(sin epic)":
+            entry["unblock_degree"] = calculate_unblock_degree(graph, entry["epic"])
+            epic_item = graph.items.get(entry["epic"])
+            if epic_item is not None and epic_item.fase:
+                entry["fase"] = epic_item.fase
 
     items_bloqueada = []
     for item in bloqueada:
@@ -124,14 +165,15 @@ def build_backlog_report(backlog_path: str | Path) -> dict:
 
     return {
         "backlog_path": str(Path(backlog_path)),
-        "empty": len(graph.items) == 0,
+        "empty": len(user_stories) + len(tasks) == 0,
         "total": {
-            "items": len(graph.items),
+            "items": len(user_stories) + len(tasks),
+            "epics": _state_counts(epics_items),
             "user_stories": _state_counts(user_stories),
             "tasks": _state_counts(tasks),
             "errors": len(errors),
         },
-        "by_epic": epics,
+        "by_epic": epics_sorted,
         "items_lista": _sorted_by_priority([_summary(item) for item in lista]),
         "items_bloqueada": items_bloqueada,
         "max_leverage_chain": [_summary(item) for item in chain],
@@ -165,7 +207,7 @@ def format_human_report(report: dict) -> str:
 
     lines.append("\nPor Epic:")
     for epic in report["by_epic"]:
-        lines.append(f"  {epic['epic']}")
+        lines.append(f"  {epic.get('epic_label', epic['epic'])}")
         if epic["user_stories"]:
             lines.append(f"    US:   {format_kind('US', epic['user_stories'])}")
         if epic["tasks"]:

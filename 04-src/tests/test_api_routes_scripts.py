@@ -61,7 +61,7 @@ def _active_project(tmp_path: Path, monkeypatch) -> Path:
 
     from brain.models import Project
 
-    project = Project(id=str(project_path), name="project-a", path=str(project_path), repository="")
+    project = Project(id=str(project_path), name="project-a", path=str(project_path), repository="", workspace_id="ws-test")
     monkeypatch.setattr(routes_module, "get_active_project", lambda **_kwargs: project)
     return project_path
 
@@ -97,10 +97,13 @@ def test_get_scripts_returns_the_generic_catalog_for_a_project_without_a_manifes
     body = response.json()
     assert [entry["id"] for entry in body] == _generic_ids()
     assert all(entry["origin"] == "generic" for entry in body)
-    # Los genéricos no tienen comando ni descripción (se distinguen por
-    # `origin`, criterio 1 de la Task).
+    # Los genéricos no tienen comando (ninguno ejecuta un subproceso declarado
+    # externamente), pero sí descripción (T-FB024-US03-01).
     assert all(entry["command"] is None for entry in body)
-    assert all(entry["description"] is None for entry in body)
+    assert all(
+        isinstance(entry.get("description"), str) and entry["description"].strip()
+        for entry in body
+    )
 
 
 def test_get_scripts_returns_both_catalogs_distinguishable_by_origin(
@@ -247,7 +250,7 @@ def test_post_script_run_executes_a_generic_script_without_params(tmp_path: Path
 
     from brain.models import Project
 
-    project = Project(id=str(repo_path), name="project-a", path=str(repo_path), repository="")
+    project = Project(id=str(repo_path), name="project-a", path=str(repo_path), repository="", workspace_id="ws-test")
     monkeypatch.setattr(routes_module, "get_active_project", lambda **_kwargs: project)
     client = TestClient(create_app())
 
@@ -280,7 +283,7 @@ def test_post_script_run_commit_requires_a_message_and_performs_a_real_commit(
 
     from brain.models import Project
 
-    project = Project(id=str(repo_path), name="project-a", path=str(repo_path), repository="")
+    project = Project(id=str(repo_path), name="project-a", path=str(repo_path), repository="", workspace_id="ws-test")
     monkeypatch.setattr(routes_module, "get_active_project", lambda **_kwargs: project)
     client = TestClient(create_app())
 
@@ -315,7 +318,7 @@ def test_post_script_run_commit_without_a_message_is_rejected_with_an_explicit_r
 
     from brain.models import Project
 
-    project = Project(id=str(repo_path), name="project-a", path=str(repo_path), repository="")
+    project = Project(id=str(repo_path), name="project-a", path=str(repo_path), repository="", workspace_id="ws-test")
     monkeypatch.setattr(routes_module, "get_active_project", lambda **_kwargs: project)
     client = TestClient(create_app())
 
@@ -336,7 +339,7 @@ def test_post_script_run_commit_with_an_empty_message_is_rejected(tmp_path: Path
 
     from brain.models import Project
 
-    project = Project(id=str(repo_path), name="project-a", path=str(repo_path), repository="")
+    project = Project(id=str(repo_path), name="project-a", path=str(repo_path), repository="", workspace_id="ws-test")
     monkeypatch.setattr(routes_module, "get_active_project", lambda **_kwargs: project)
     client = TestClient(create_app())
 

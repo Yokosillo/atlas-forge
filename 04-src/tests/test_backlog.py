@@ -429,15 +429,42 @@ def test_loading_and_classifying_twice_is_identical(tmp_path: Path) -> None:
 def test_load_backlog_on_the_real_backlog_matches_the_file_count() -> None:
     """Criterio de aceptación estructural de la Task: `load_backlog` sobre
     el `02-backlog/` real produce un nodo por cada fichero
-    `user-stories/*.md`/`tasks/*.md`. El número de ficheros se calcula en
-    este mismo test (el backlog cambia constantemente), nunca es un número
-    fijo copiado de la Task."""
+    `epics/*.md`/`user-stories/*.md`/`tasks/*.md`. El número de ficheros se
+    calcula en este mismo test (el backlog cambia constantemente), nunca es
+    un número fijo copiado de la Task."""
+    epics = sorted((REAL_BACKLOG_PATH / "epics").glob("*.md"))
     user_stories = sorted((REAL_BACKLOG_PATH / "user-stories").glob("*.md"))
     tasks = sorted((REAL_BACKLOG_PATH / "tasks").glob("*.md"))
-    expected_count = len(user_stories) + len(tasks)
+    expected_count = len(epics) + len(user_stories) + len(tasks)
 
     graph = load_backlog(REAL_BACKLOG_PATH)
 
     assert len(graph.items) == expected_count
     # Todo el backlog real existente sigue la convención (cero errores).
     assert graph.errors == ()
+
+
+def test_read_state_strips_trailing_note_from_the_comparable_value(
+    tmp_path: Path,
+) -> None:
+    """T-FB018-US02-05: un `## Estado` con nota de trazabilidad
+    (`DONE  # DESCARTADA (en principio)...`, caso real FB-015) debe
+    devolver el valor del conjunto cerrado limpio (`DONE`), comparable por
+    igualdad exacta — la nota no es parte del valor real. Regresión: antes
+    de este fix, `state` conservaba la nota completa y `FB-015` no se
+    agrupaba con el resto de items `DONE` en los conteos agregados."""
+    epic_path = tmp_path / "FB-999.md"
+    epic_path.write_text(
+        "# FB-999 · Ejemplo\n\n"
+        "## Descripción\n\n"
+        "Nada que verificar aquí.\n\n"
+        "## Dependencias\n\n"
+        "Ninguna.\n\n"
+        "## Estado\n\n"
+        "DONE  # DESCARTADA (en principio) — nota de trazabilidad\n",
+        encoding="utf-8",
+    )
+
+    item = parse_backlog_item(epic_path)
+
+    assert item.state == "DONE"

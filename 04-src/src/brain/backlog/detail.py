@@ -106,10 +106,12 @@ def build_epic_detail(backlog_path: str | Path, graph: BacklogGraph, epic_id: st
     epic_file = next(iter(sorted(epics_dir.glob(f"{epic_id}-*.md"))), None) if epics_dir.is_dir() else None
 
     objetivo: str | None = None
+    fase: str | None = None
     parse_warning: str | None = None
     if epic_file is not None:
         text = epic_file.read_text(encoding="utf-8")
         objetivo = _read_section(text, "Objetivo")
+        fase = _read_section(text, "Fase")
         if objetivo is None:
             parse_warning = "sección `## Objetivo` ausente o vacía en el fichero de la Epic"
     else:
@@ -134,6 +136,7 @@ def build_epic_detail(backlog_path: str | Path, graph: BacklogGraph, epic_id: st
         "id": epic_id,
         "kind": "epic",
         "objetivo": objetivo,
+        "fase": fase,
         "user_stories": [
             {"id": item.id, "state": item.state} for item in user_stories
         ],
@@ -182,7 +185,14 @@ def build_item_detail(graph: BacklogGraph, item_id: str) -> dict | None:
         "epic": item.epic,
         "state": item.state,
         "priority": item.priority,
-        "dependencies": list(item.dependencies),
+        "fase": item.fase,
+        "dependencies": [
+            {
+                "id": dep_id,
+                "state": graph.items[dep_id].state if dep_id in graph.items else None,
+            }
+            for dep_id in item.dependencies
+        ],
         "objetivo": objetivo,
         "criterios_aceptacion": criterios,
     }

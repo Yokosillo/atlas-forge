@@ -78,6 +78,52 @@ internal fun visibleAgentsFor(agents: List<AgentDto>, showStopped: Boolean): Lis
     if (showStopped) agents else agents.filter { it.status != "stopped" }
 
 /**
+ * Fondos reales del tema de la app en claro/oscuro (T-FB017-US04-06,
+ * `theme/Theme.kt`) — usados como referencia para verificar el contraste
+ * WCAG 1.4.11 de cualquier indicador de color fijo (semáforo de estado)
+ * contra el fondo real sobre el que se pinta, en ambos temas.
+ */
+internal val LIGHT_THEME_BACKGROUND = Color(0xFFFAFDFD)
+internal val DARK_THEME_BACKGROUND = Color(0xFF191C1C)
+
+private fun srgbChannelToLinear(channel: Float): Double =
+    if (channel <= 0.04045f) channel / 12.92 else Math.pow((channel + 0.055) / 1.055, 2.4)
+
+/**
+ * Luminancia relativa WCAG de un [Color] (fórmula exacta de la
+ * especificación W3C, https://www.w3.org/TR/WCAG21/#dfn-relative-luminance).
+ * Usa los accesores públicos `.red`/`.green`/`.blue` (0f..1f) de Compose
+ * en vez de desempaquetar bits de `Color.value` a mano — ese campo no es
+ * un simple ARGB de 32 bits en todas las representaciones internas de
+ * `Color` (espacio de color/alpha empaquetados junto al RGB), los
+ * accesores públicos sí son estables.
+ */
+internal fun relativeLuminance(color: Color): Double {
+    val rLin = srgbChannelToLinear(color.red)
+    val gLin = srgbChannelToLinear(color.green)
+    val bLin = srgbChannelToLinear(color.blue)
+    return 0.2126 * rLin + 0.7152 * gLin + 0.0722 * bLin
+}
+
+/**
+ * Ratio de contraste WCAG 1.4.11 entre dos [Color] — `(L_claro + 0.05) /
+ * (L_oscuro + 0.05)`, siempre ≥1. Función pura, verificable directamente
+ * sin instrumentación ni dispositivo: el criterio de aceptación
+ * "contraste ≥3:1 verificado en claro y oscuro" (T-FB020-US03-01) se
+ * comprueba con esta función contra [LIGHT_THEME_BACKGROUND]/
+ * [DARK_THEME_BACKGROUND], no solo como afirmación de diseño en un
+ * comentario (como hasta ahora en `colorForAgentStatus`, ver
+ * `ContrastRatioTest.kt`).
+ */
+internal fun wcagContrastRatio(colorA: Color, colorB: Color): Double {
+    val luminanceA = relativeLuminance(colorA)
+    val luminanceB = relativeLuminance(colorB)
+    val lighter = maxOf(luminanceA, luminanceB)
+    val darker = minOf(luminanceA, luminanceB)
+    return (lighter + 0.05) / (darker + 0.05)
+}
+
+/**
  * Color asociado a `status` (T-FB017-US04-05) — indicador visual
  * complementario, NUNCA sustituto del texto de estado ya existente
  * (criterio de aceptación explícito: "sin depender solo del color").

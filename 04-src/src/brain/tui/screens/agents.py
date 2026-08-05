@@ -38,29 +38,8 @@ from textual.containers import Vertical
 from textual.screen import Screen
 from textual.widgets import Button, Input, Select, Static
 
-from brain.agents.agent_options import CRITIC_ROLE, list_available_agent_options
+from brain.agents.agent_options import list_available_agent_options
 from brain.tui.backend_client import BackendClient, BackendUnavailableError, error_detail
-
-
-def _eligible_agent_options() -> list:
-    """Catálogo de combinaciones agente/runtime que se OFRECEN al usuario en
-    esta pantalla (T-FB016-US01-19).
-
-    Decisión de producto, NO técnica: por el momento el Critic siempre debe
-    lanzarse con Claude Code, así que la combinación Critic + OpenCode no se
-    ofrece en ningún cliente. El dominio (`list_available_agent_options`)
-    sigue devolviendo las 4 combinaciones intactas (es la fuente de verdad y
-    permite revertir la decisión sin tocar dominio); el filtro se aplica aquí,
-    en el punto de consumo de la TUI, y en `GET /agents/options` (backend) — se
-    replica en ambas superficies de presentación porque la TUI importa el
-    dominio directamente (excepción documentada en `test_module_boundaries.py`),
-    no el endpoint.
-    """
-    return [
-        option
-        for option in list_available_agent_options()
-        if not (option.agent_role == CRITIC_ROLE and option.runtime_type == "opencode")
-    ]
 
 
 def _agents_with_running_job(jobs: list[dict]) -> set[str]:
@@ -84,7 +63,7 @@ class AgentsScreen(Screen):
         self._workspace_root = workspace_root
         self._state_dir = state_dir
         self._backend = backend_client if backend_client is not None else BackendClient()
-        self._options = _eligible_agent_options()
+        self._options = list_available_agent_options()
         self._agents: list[dict] = []
         # T-FB019-US01-03: confirmación de "segunda pulsación" — el
         # `agent_id` con la confirmación pendiente, o `None` si no hay
@@ -112,7 +91,7 @@ class AgentsScreen(Screen):
         # son operaciones asíncronas en Textual, y montar un botón con un
         # `id` que otro `remove()` todavía no ha retirado del árbol causa
         # `DuplicateIds` (mismo bug real ya documentado y evitado en
-        # `JobsScreen._render_chain_to_critic_offer`, T-FB002-US03-02).
+        # `JobsScreen`, T-FB002-US03-02).
         stop_container = self.query_one("#stop-buttons")
         stoppable_ids = {
             agent["id"] for agent in self._agents if agent["status"] != "stopped"

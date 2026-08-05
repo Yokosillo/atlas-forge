@@ -5,6 +5,49 @@ activo con conteo de sus User Stories por estado, detalle de una Epic
 Story/Task (objetivo, criterios de aceptación, Tasks con estado para una
 US).
 
+## Código de color y progreso (T-FB020-US03-01)
+
+Equivalencia semántica explícita con la paleta WCAG ya validada de
+Android (`colorForBacklogState`, `BacklogScreen.kt`, que reutiliza
+literalmente los valores de `colorForAgentStatus`): esta TUI no tiene
+noción de contraste WCAG (terminal, sin control sobre el tema/fondo real
+del usuario) — en su lugar usa los NOMBRES de color semánticamente
+equivalentes de Rich/Textual, los mismos que ya eligen la mayoría de
+temas de terminal para transmitir "éxito"/"pendiente"/"neutro":
+
+| Estado             | Android (hex, WCAG ≥3:1)      | TUI (Rich markup) |
+|---------------------|--------------------------------|--------------------|
+| `DONE`              | `0xFF2E7D32` (verde)           | `[green]`          |
+| `TODO`              | `0xFFEF6C00` (ámbar/naranja)   | `[dark_orange]`    |
+| no reconocido       | `0xFF757575` (gris)            | `[bright_black]`   |
+
+Mismo criterio de igualdad EXACTA que el backend
+(`brain/models/backlog.py::STATE_DONE`/`STATE_TODO`,
+`parser.py::classify_todo_items`, `state == "DONE"`): un valor como
+`"DONE (aplicada directamente por el crítico...)"` (caso real verificado
+en el backlog de este proyecto) NO es `"DONE"` para el propio dominio,
+así que tampoco lo es aquí — cae al color neutro, nunca al verde/ámbar
+por defecto (criterio de aceptación explícito de la Task).
+
+`Static`/`Button` de Textual interpretan `[...]` como marcado Rich por
+defecto (`markup=True`) — el color se aplica envolviendo el texto de
+estado en `[color]...[/color]`, NUNCA sustituyéndolo (mismo criterio de
+accesibilidad que Android: el indicador es complementario al texto, no
+su reemplazo).
+
+Progreso agregado por Epic (criterio de aceptación 2): representación
+textual proporcional (`███░░ 3/5`, `_progress_bar_text`) sobre el conteo
+de User Stories `DONE`/total — misma decisión ya documentada en
+`epicProgressFraction` (Android): User Stories, no Tasks, por ser la
+unidad de valor de producto más estable que usa el propio backlog.
+
+Expandir/colapsar in-place (criterio de aceptación 3): cada Epic del
+listado tiene un botón "Expandir"/"Colapsar" que despliega/oculta su
+desglose de US/Task por estado (ya visible hoy, ahora con color) SIN
+empujar una pantalla nueva — convive con la navegación de drill-down ya
+construida en T-FB020-US01-02 (el botón "Ver {epic}" original sigue
+navegando a `BacklogEpicScreen` para el detalle completo, US a US).
+
 ## Por qué es una pantalla propia (no dentro de `plan.py`)
 
 La propia Descripción de la Task deja la decisión abierta ("o pantalla
@@ -47,22 +90,87 @@ from brain.tui.backend_client import BackendClient, BackendUnavailableError, err
 
 _EPIC_LABEL_PREFIX_PATTERN = re.compile(r"^(FB-\d{3,})")
 
+_STATE_MARKUP_COLOR = {
+    "DONE": "green",
+    "TODO": "dark_orange",
+}
+_UNKNOWN_STATE_MARKUP_COLOR = "bright_black"
 
-def _render_epic_list_text(by_epic: list[dict]) -> str:
+_PROGRESS_BAR_WIDTH = 10
+
+
+def _markup_color_for_state(state: str | None) -> str:
+    """Nombre de color Rich equivalente semántico de `colorForBacklogState`
+    (Android) — ver tabla de equivalencia en el docstring de módulo.
+    Igualdad EXACTA contra `"DONE"`/`"TODO"` (mismo criterio que el propio
+    backend, `state == "DONE"`), nunca un prefijo/heurística de texto
+    libre: un estado no reconocido cae siempre al gris neutro, nunca se
+    confunde con `DONE`/`TODO` (criterio de aceptación explícito)."""
+    return _STATE_MARKUP_COLOR.get(state, _UNKNOWN_STATE_MARKUP_COLOR)
+
+
+def _colorize_state(state: str | None) -> str:
+    """Envuelve el texto literal de `state` en marcado Rich de color —
+    complementario, nunca sustituto del texto (mismo criterio de
+    accesibilidad que el indicador de Android)."""
+    label = state if state is not None else "desconocido"
+    return f"[{_markup_color_for_state(state)}]{label}[/]"
+
+
+def _epic_progress_fraction(epic: dict) -> float:
+    """Progreso agregado `DONE / total` de una Epic sobre el conteo de
+    User Stories — misma función y misma decisión ya documentada en
+    `epicProgressFraction` (Android, `BacklogScreen.kt`): User Stories,
+    no Tasks, ver ese docstring para el razonamiento completo. `0.0` si
+    la Epic no tiene ninguna User Story todavía (nunca división por cero)."""
+    user_stories = epic.get("user_stories", {})
+    total = sum(user_stories.values())
+    if total == 0:
+        return 0.0
+    done = user_stories.get("DONE", 0)
+    return done / total
+
+
+def _progress_bar_text(epic: dict) -> str | None:
+    """Representación textual proporcional del progreso de una Epic
+    (criterio de aceptación 2, p. ej. `███░░░░░░░ 3/10`) — `None` si la
+    Epic no tiene ninguna User Story todavía (nada que mostrar, mismo
+    criterio que Android oculta la barra en ese caso)."""
+    user_stories = epic.get("user_stories", {})
+    total = sum(user_stories.values())
+    if total == 0:
+        return None
+    done = user_stories.get("DONE", 0)
+    fraction = _epic_progress_fraction(epic)
+    filled = round(fraction * _PROGRESS_BAR_WIDTH)
+    bar = "█" * filled + "░" * (_PROGRESS_BAR_WIDTH - filled)
+    return f"{bar} {done}/{total} US DONE"
+
+
+def _render_epic_list_text(by_epic: list[dict], expanded_epics: set[int]) -> str:
     if not by_epic:
         return "El backlog está vacío (aún no hay Epics/User Stories)."
     lines = ["Epics del proyecto activo:"]
-    for epic in by_epic:
-        line = f"  {epic['epic']}"
-        if epic.get("user_stories"):
-            line += " · US: " + ", ".join(
-                f"{state}={count}" for state, count in sorted(epic["user_stories"].items())
-            )
-        if epic.get("tasks"):
-            line += " · Task: " + ", ".join(
-                f"{state}={count}" for state, count in sorted(epic["tasks"].items())
-            )
+    for index, epic in enumerate(by_epic):
+        line = f"  {epic.get('epic_label', epic['epic'])}"
         lines.append(line)
+        progress_text = _progress_bar_text(epic)
+        if progress_text is not None:
+            lines.append(f"    {progress_text}")
+        if index not in expanded_epics:
+            continue
+        if epic.get("user_stories"):
+            us_summary = ", ".join(
+                f"{_colorize_state(state)}={count}"
+                for state, count in sorted(epic["user_stories"].items())
+            )
+            lines.append(f"    US: {us_summary}")
+        if epic.get("tasks"):
+            task_summary = ", ".join(
+                f"{_colorize_state(state)}={count}"
+                for state, count in sorted(epic["tasks"].items())
+            )
+            lines.append(f"    Task: {task_summary}")
     return "\n".join(lines)
 
 
@@ -82,6 +190,13 @@ class BacklogScreen(Screen):
         self._state_dir = state_dir
         self._backend = backend_client if backend_client is not None else BackendClient()
         self._by_epic: list[dict] = []
+        # T-FB020-US03-01, criterio de aceptación 3: expandir/colapsar
+        # in-place — índices de Epic actualmente desplegadas. Estado
+        # puramente de presentación de esta instancia de pantalla (no
+        # sobrevive a "Volver al Dashboard" y reentrar, mismo criterio que
+        # el resto de la TUI: cada navegación a Backlog es una instancia
+        # nueva que empieza colapsada).
+        self._expanded_epics: set[int] = set()
 
     def compose(self):
         try:
@@ -108,16 +223,31 @@ class BacklogScreen(Screen):
 
         self._by_epic = report.get("by_epic", [])
 
-        widgets: list = [Static(_render_epic_list_text(self._by_epic), id="epic-list")]
+        widgets: list = [Static(self._render_epic_list(), id="epic-list")]
         for index, epic in enumerate(self._by_epic):
+            is_expanded = index in self._expanded_epics
+            widgets.append(
+                Button(
+                    "Colapsar" if is_expanded else "Expandir",
+                    id=f"toggle-epic-{index}",
+                )
+            )
             widgets.append(Button(f"Ver {epic['epic']}", id=f"open-epic-{index}"))
         widgets.append(Button("Volver al Dashboard", id="go-to-dashboard"))
 
         yield VerticalScroll(*widgets)
 
+    def _render_epic_list(self) -> str:
+        return _render_epic_list_text(self._by_epic, self._expanded_epics)
+
     def on_button_pressed(self, event: Button.Pressed) -> None:
         if event.button.id == "go-to-dashboard":
             self.app.pop_screen()
+            return
+
+        if event.button.id is not None and event.button.id.startswith("toggle-epic-"):
+            index = int(event.button.id.removeprefix("toggle-epic-"))
+            self._toggle_epic_expanded(index, event.button)
             return
 
         if event.button.id is not None and event.button.id.startswith("open-epic-"):
@@ -140,6 +270,19 @@ class BacklogScreen(Screen):
                     backend_client=self._backend,
                 )
             )
+
+    def _toggle_epic_expanded(self, index: int, toggle_button: Button) -> None:
+        # T-FB020-US03-01, criterio de aceptación 3: sin abandonar la
+        # pantalla de listado — actualiza el `Static` ya montado
+        # (`#epic-list`) y la etiqueta del propio botón, sin recomponer
+        # toda la pantalla ni volver a pedir `GET /backlog`.
+        if index in self._expanded_epics:
+            self._expanded_epics.discard(index)
+            toggle_button.label = "Expandir"
+        else:
+            self._expanded_epics.add(index)
+            toggle_button.label = "Colapsar"
+        self.query_one("#epic-list", Static).update(self._render_epic_list())
 
 
 def _epic_id_from_label(epic_label: str) -> str | None:
@@ -212,12 +355,18 @@ class BacklogEpicScreen(Screen):
 
         widgets: list = [Static("\n".join(lines), id="epic-detail")]
         for index, user_story in enumerate(self._user_stories):
-            # Paréntesis, no corchetes: `Button.label` interpreta
-            # `[...]` como marcado Rich/Textual (estilo), no como texto
-            # literal — un estado como `[TODO]` desaparecería del label
-            # renderizado (verificado con un test que lo detectó).
+            # Paréntesis alrededor del estado (no corchetes sueltos como
+            # texto literal — ver comentario histórico en el git blame de
+            # esta línea): pero DENTRO de los paréntesis sí se usa marcado
+            # `[color]...[/]` real (T-FB020-US03-01) — `Button.label`
+            # interpreta `[...]` como marcado Rich, que es precisamente lo
+            # que se quiere aquí (un `[TODO]` literal desaparecería; un
+            # `[dark_orange]TODO[/]` se renderiza en color, intencionado).
             widgets.append(
-                Button(f"Ver {user_story['id']} ({user_story['state']})", id=f"open-item-{index}")
+                Button(
+                    f"Ver {user_story['id']} ({_colorize_state(user_story['state'])})",
+                    id=f"open-item-{index}",
+                )
             )
         widgets.append(Button("Volver", id="go-back"))
 
@@ -295,7 +444,8 @@ class BacklogItemScreen(Screen):
             )
             return
 
-        lines = [f"{detail['id']} [{detail.get('kind')}] — Estado: {detail.get('state') or 'desconocido'}"]
+        state_label = _colorize_state(detail.get("state")) if detail.get("state") else "desconocido"
+        lines = [f"{detail['id']} [{detail.get('kind')}] — Estado: {state_label}"]
         if detail.get("epic"):
             lines.append(f"Epic: {detail['epic']}")
         lines.append("")
@@ -321,7 +471,7 @@ class BacklogItemScreen(Screen):
             tasks = detail.get("tasks", [])
             if tasks:
                 for task in tasks:
-                    lines.append(f"  {task['id']} [{task['state']}]")
+                    lines.append(f"  {task['id']} ({_colorize_state(task['state'])})")
             else:
                 lines.append("  (ninguna)")
 

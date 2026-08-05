@@ -147,20 +147,25 @@ def test_build_backlog_report_counts_by_epic_and_state(tmp_path: Path) -> None:
     assert report["empty"] is False
     assert report["total"] == {
         "items": 5,
+        "epics": {},
         "user_stories": {"DONE": 1, "TODO": 1},
         "tasks": {"TODO": 3},
         "errors": 0,
     }
     assert report["by_epic"] == [
         {
-            "epic": "FB-100 · Uno",
+            "epic": "FB-100",
+            "epic_label": "FB-100",
             "user_stories": {"DONE": 1},
             "tasks": {"TODO": 2},
+            "unblock_degree": 1.0,
         },
         {
-            "epic": "FB-101 · Dos",
+            "epic": "FB-101",
+            "epic_label": "FB-101",
             "user_stories": {"TODO": 1},
             "tasks": {"TODO": 1},
+            "unblock_degree": 0.5,
         },
     ]
 

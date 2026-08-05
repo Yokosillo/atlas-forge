@@ -62,6 +62,7 @@ en la pantalla Jobs) ve el paso en curso reflejado como `running`.
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Any, Callable
 
 from brain.core.session_lifecycle import list_agents
@@ -74,6 +75,13 @@ from brain.dispatcher.job_plan_cancellation_registry import (
     set_active_job_for_plan,
 )
 from brain.dispatcher.job_plan_lifecycle import transition_job_plan
+from brain.dispatcher.job_report import write_job_report
+from brain.dispatcher.architect_verdict import (
+    VERDICT_APPROVED,
+    VERDICT_APPROVED_WITH_NOTES,
+    VERDICT_REJECTED,
+    parse_verdict,
+)
 from brain.local_tools import ScribeUnavailableError, summarize_document
 from brain.models import Agent, DevelopmentSession, JobPlan, JobPlanStep
 from brain.runtime.agent_runtime_registry import get_runtime_instance_for_agent
@@ -91,7 +99,20 @@ class _StepCancelledSignal(Exception):
     `cancelled` en vez de `blocked`."""
 
 
-def _find_agent_by_role(session: DevelopmentSession, role: str) -> Agent | None:
+def _find_agent_by_role(
+    session: DevelopmentSession, role: str, agent_id: str | None = None
+) -> Agent | None:
+    if agent_id is not None:
+        return next(
+            (
+                agent
+                for agent in list_agents(session)
+                if isinstance(agent, Agent)
+                and agent.role == role
+                and agent.id == agent_id
+            ),
+            None,
+        )
     return next(
         (
             agent
@@ -111,8 +132,13 @@ def _dispatch_agent_step(
             "resolver el agente destinatario."
         )
 
-    agent = _find_agent_by_role(session, step.agent_role)
+    agent = _find_agent_by_role(session, step.agent_role, agent_id=step.agent_id)
     if agent is None:
+        if step.agent_id is not None:
+            raise JobCreationError(
+                f"No hay ningún agente con role '{step.agent_role}' y "
+                f"agent_id '{step.agent_id}' en la sesión activa."
+            )
         raise JobCreationError(
             f"No hay ningún agente con role '{step.agent_role}' en la "
             f"sesión activa para despachar este paso."
@@ -126,6 +152,7 @@ def _dispatch_agent_step(
         )
 
     job = create_job(step.description, agent, session)
+    job.story_id = plan.goal
     # Registrado ANTES de despachar (T-FB008-US08-01): si se cancela el
     # plan mientras este paso está en curso, `request_cancellation(plan)`
     # necesita encontrar este `job` para reenviarle la cancelación
@@ -135,6 +162,15 @@ def _dispatch_agent_step(
         dispatch_job(job, agent, runtime_instance, socket_name=socket_name)
     finally:
         clear_active_job_for_plan(plan)
+        # T-FB022-US06-03: persistir informe de cierre en
+        # 07-informes/<story_id>/<job_id>.md siempre, tanto si el Job se
+        # completó como si falló — un Job `cancelled` no se reporta aquí
+        # (el paso se cancela sin información útil que persistir).
+        if job.status in ("completed", "failed"):
+            try:
+                write_job_report(job)
+            except Exception:
+                pass
 
     if job.status == "cancelled":
         step.result = job.result
@@ -289,6 +325,19 @@ def dispatch_plan(
     finally:
         clear_job_plan_cancellation(plan)
 
+    # T-FB022-US05-02: disparo automático del Job de veredicto al
+    # completarse todos los pasos del plan. Si el plan terminó en estado
+    # 'approved' o 'blocked' (con trabajos completados), el veredicto
+    # procede — el Arquitecto decide si bloquea o aprueba.
+    # Si el plan fue cancelado, no hay trabajo que veredictar.
+    if plan.status != "cancelled":
+        try:
+            trigger_architect_verdict(
+                plan.goal, session, socket_name=socket_name
+            )
+        except Exception:
+            pass
+
 
 def get_plan_progress(plan: JobPlan) -> dict[str, Any]:
     """Consulta el progreso de `plan` en cualquier momento: estado global
@@ -305,3 +354,101 @@ def get_plan_progress(plan: JobPlan) -> dict[str, Any]:
             for step in plan.steps
         ],
     }
+
+
+def _collect_story_reports(story_id: str, reports_root: Path) -> list[str]:
+    """Colecciona el contenido de todos los informes de cierre para
+    `story_id` en `reports_root/<story_id>/`. Devuelve una lista de
+    contenidos, uno por fichero `.md` encontrado. Si el directorio no
+    existe, devuelve lista vacía."""
+    story_dir = reports_root / story_id
+    if not story_dir.is_dir():
+        return []
+    reports = []
+    for report_path in sorted(story_dir.glob("*.md")):
+        reports.append(report_path.read_text(encoding="utf-8"))
+    return reports
+
+
+def trigger_architect_verdict(
+    story_id: str,
+    session: DevelopmentSession,
+    socket_name: str = DEFAULT_SOCKET_NAME,
+    reports_root: Path | None = None,
+) -> None:
+    """T-FB022-US05-02 / T-FB022-US07-01: encola automáticamente un Job de
+    veredicto hacia el Arquitecto cuando todo el trabajo de Developer (y
+    opcionalmente Tester) para `story_id` ha terminado.
+
+    A partir de T-FB022-US07-01, esta función no despacha el veredicto
+    directamente — lo encola en la cola FIFO (`architect_verdict_queue`),
+    que garantiza que el Arquitecto procese los veredictos uno detrás de
+    otro, sin solapamiento, en orden de llegada.
+
+    Retorna inmediatamente (el worker daemon procesa la cola en segundo
+    plano) — el estado "en cola, esperando veredicto" es consultable vía
+    `get_verdict_queue_status()`.
+    """
+    from brain.dispatcher.architect_verdict_queue import enqueue_architect_verdict
+
+    enqueue_architect_verdict(story_id, session, socket_name, reports_root)
+
+
+def _process_verdict_result(story_id: str, verdict_output: str) -> None:
+    """T-FB022-US05-03: procesa el resultado del veredicto del Arquitecto.
+
+    - APROBADO / APROBADO_CON_OBSERVACIONES: marca `Estado: DONE` en
+      todos los ficheros de Task de `story_id` que estén en TODO.
+    - RECHAZADO: genera instrucción de corrección accionable (persistida
+      como informe en 07-informes/<story_id>/_rechazo.md).
+    """
+    if not verdict_output:
+        return
+
+    estado, justificacion, siguiente_prompt = parse_verdict(verdict_output)
+
+    if estado in (VERDICT_APPROVED, VERDICT_APPROVED_WITH_NOTES):
+        _mark_story_tasks_done(story_id)
+    elif estado == VERDICT_REJECTED:
+        _write_rejection_instruction(story_id, justificacion, siguiente_prompt)
+
+
+def _mark_story_tasks_done(story_id: str) -> None:
+    """Marca `Estado: DONE` en todos los ficheros de Task de `story_id`
+    que actualmente están en `TODO`."""
+    tasks_dir = (
+        Path(__file__).resolve().parents[4] / "02-backlog" / "tasks"
+    )
+    prefix = f"T-{story_id}-"
+    for task_path in sorted(tasks_dir.glob(f"{prefix}*.md")):
+        text = task_path.read_text(encoding="utf-8")
+        state = _read_task_state(text)
+        if state == "TODO":
+            updated = text.replace(
+                "## Estado\n\nTODO", "## Estado\n\nDONE"
+            )
+            task_path.write_text(updated, encoding="utf-8")
+
+
+def _write_rejection_instruction(
+    story_id: str, justificacion: str, siguiente_prompt: str
+) -> None:
+    """Persiste la instrucción de corrección del Arquitecto en
+    07-informes/<story_id>/_rechazo.md."""
+    root = Path(__file__).resolve().parents[4] / "07-informes"
+    story_dir = root / story_id
+    story_dir.mkdir(parents=True, exist_ok=True)
+    content = (
+        f"# Veredicto RECHAZADO · {story_id}\n\n"
+        f"## Justificación\n\n{justificacion}\n\n"
+        f"## Instrucción para el Developer\n\n{siguiente_prompt}\n"
+    )
+    (story_dir / "_rechazo.md").write_text(content, encoding="utf-8")
+
+
+def _read_task_state(text: str) -> str:
+    """Lee el valor del campo `## Estado` de un fichero de Task."""
+    import re
+
+    match = re.search(r"^##\s*Estado\s*\n\s*(.+)$", text, re.MULTILINE)
+    return match.group(1).strip() if match else ""

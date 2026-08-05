@@ -36,6 +36,20 @@ from brain.tmux.manager import DEFAULT_SOCKET_NAME
 # diseño").
 _REPORT_END_MARKER = "___FACTORY_BRAIN_JOB_DONE___"
 
+# Reintento acotado de lectura del fichero de marcador ante fallo
+# TRANSITORIO (T-FB008-US01-05): un error puntual de lectura (p. ej. el
+# fichero momentáneamente bloqueado por otro proceso durante unos
+# milisegundos) no debe abortar el despacho ni considerarse timeout — se
+# reintenta leer el MISMO fichero un número FIJO de veces con un pequeño
+# retardo, nunca un bucle indefinido, y el retardo total añadido
+# (2 × 0.1s = 0.2s) es despreciable frente al timeout, de modo que NO se
+# enmascara un timeout real (un agente que de verdad no reporta sigue
+# escuchando el timeout normal casi al mismo tiempo). Solo se reintenta
+# ante errores de I/O de lectura; la ausencia del fichero (el agente aún no
+# ha terminado) sigue siendo el caso "esperado" que cubre el polling.
+_MAX_REPORT_READ_RETRIES = 2
+_REPORT_READ_RETRY_DELAY_SECONDS = 0.1
+
 
 class JobDispatchError(ValueError):
     """No se puede despachar el Job (agente/runtime en un estado inválido)."""
@@ -104,6 +118,48 @@ def _build_report_instruction(description: str, report_file: Path) -> str:
     )
 
 
+def _read_report_with_retry(report_file: Path) -> str | None:
+    """Lee `report_file` e intenta detectar el marcador de fin, con un
+    reintento ACOTADO ante fallos transitorios de lectura (T-FB008-US01-05).
+
+    Devuelve el contenido sin el marcador si este está presente, o `None`
+    en cualquier caso en que todavía no hay resultado leíble (el fichero no
+    existe todavía, el marcador aún no está, o la lectura se reintentó sin
+    éxito). Distingue explícitamente dos situaciones que el polling del
+    llamador trata igual (esperando) pero que NO son lo mismo:
+
+    - "El agente no ha terminado todavía" — `FileNotFoundError`: esperado,
+      NO es candidato a reintento; se devuelve `None` de inmediato y el
+      polling sigue hasta el `deadline`.
+    - "Fallo transitorio del mecanismo de auto-reporte" — cualquier otro
+      `OSError` al leer un fichero existente (p. ej. bloqueado durante un
+      instante): sí es candidato a reintento; se vuelve a intentar leer el
+      MISMO fichero hasta `_MAX_REPORT_READ_RETRIES` veces con un pequeño
+      retardo. Si el marcador aparece en un reintento, se devuelve el
+      resultado; si se agotan los reintentos, se devuelve `None` y el
+      polling del llamador sigue — el Job solo pasa a timeout al agotarse
+      el `deadline`, nunca por un fallo puntual de lectura.
+    """
+    content: str | None = None
+    for attempt in range(_MAX_REPORT_READ_RETRIES + 1):
+        try:
+            content = report_file.read_text()
+            break
+        except FileNotFoundError:
+            return None
+        except OSError:
+            if attempt < _MAX_REPORT_READ_RETRIES:
+                time.sleep(_REPORT_READ_RETRY_DELAY_SECONDS)
+                continue
+            return None
+
+    if content is None:
+        return None
+    if _REPORT_END_MARKER not in content:
+        return None
+    return content.replace(_REPORT_END_MARKER, "").rstrip("\n")
+
+
 def _wait_for_report(
     report_file: Path,
     timeout_seconds: float,
@@ -118,18 +174,24 @@ def _wait_for_report(
     solicitado la cancelación de `job_id` (T-FB008-US05-01,
     `job_cancellation_registry`, señalizado desde otro hilo — p. ej.
     `POST /jobs/{id}/cancel`) — si es así, lanza `JobCancelledError`
-    inmediatamente, sin esperar al timeout normal."""
+    inmediatamente, sin esperar al timeout normal.
+
+    La lectura del fichero de marcador pasa por `_read_report_with_retry`
+    (T-FB008-US01-05): un fallo transitorio de lectura no aborta ni se
+    considera timeout — se reintenta de forma acotada en el acto y, si aun
+    así no hay resultado, el polling continúa hasta el `deadline`. De este
+    modo un timeout REAL (agente colgado o sin responder) se sigue
+    detectando en el mismo orden de tiempo, solo se cubren fallos punctuales
+    de I/O."""
     deadline = time.monotonic() + timeout_seconds
     while time.monotonic() < deadline:
         if is_job_cancellation_requested(job_id):
             raise JobCancelledError(
                 f"Job '{job_id}' cancelado mientras se esperaba el reporte del agente."
             )
-        if report_file.exists():
-            content = report_file.read_text()
-            if _REPORT_END_MARKER in content:
-                result = content.replace(_REPORT_END_MARKER, "").rstrip("\n")
-                return result
+        result = _read_report_with_retry(report_file)
+        if result is not None:
+            return result
         time.sleep(poll_interval_seconds)
 
     raise JobReportTimeoutError(
@@ -203,7 +265,8 @@ def dispatch_job(
     **Decisión: polling simple, no `inotifywait`.** `watch_worker.sh` usa
     `inotifywait` (evento-driven), pero es un binario externo del sistema,
     no una dependencia Python declarada en `T-FB000-01` (`pyproject.toml`
-    solo declara `GitPython`/`libtmux`/`pytest`). Añadirlo implicaría
+    declara dependencias base como `libtmux`/`PyYAML` y `pytest` como
+    dependencia dev). Añadirlo implicaría
     gestionar un subproceso externo (parsear su salida, matarlo si hay
     timeout, manejar su ausencia) sin necesidad real en v1: el polling
     simple ya es el patrón establecido en este mismo módulo (idéntico al

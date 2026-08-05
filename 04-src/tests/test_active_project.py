@@ -12,7 +12,13 @@ from brain.workspace import (
 
 
 def _project(path: Path, name: str) -> Project:
-    return Project(id=str(path), name=name, path=str(path), repository="")
+    return Project(
+        id=str(path),
+        name=name,
+        path=str(path),
+        repository="",
+        workspace_id=f"ws-{name}",
+    )
 
 
 def test_select_active_project_persists_it(tmp_path: Path) -> None:

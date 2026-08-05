@@ -110,6 +110,7 @@ def test_get_project_returns_the_real_active_project(
         "name": project.name,
         "path": project.path,
         "repository": project.repository,
+        "workspace_id": project.workspace_id,
     }
 
 
@@ -406,7 +407,7 @@ def test_post_agents_with_model_on_claude_code_returns_400_with_domain_message(
 
     response = client.post(
         "/agents",
-        json={"role": "developer", "runtime_type": "claude-code", "model": "gpt-4"},
+        json={"role": "developer", "model": "claude-code"},
     )
 
     assert response.status_code == 400
@@ -511,24 +512,33 @@ def test_get_agents_options_hides_critic_opencode_from_the_catalog(
     ofrece la combinación Critic + OpenCode (decisión de producto), aunque el
     dominio `list_available_agent_options` la siga manteniendo. El resto del
     catálogo queda intacto para cualquier cliente."""
-    from brain.agents.agent_options import CRITIC_ROLE, list_available_agent_options
+    from brain.agents import CRITIC_ROLE
+    from brain.agents.agent_options import list_available_agent_options
 
     client = TestClient(create_app())
     response = client.get("/agents/options")
 
     assert response.status_code == 200
     body = response.json()
-    assert len(body) == len(list_available_agent_options()) - 1
+    all_options = list_available_agent_options()
+    hidden_count = sum(
+        1
+        for option in all_options
+        if option.agent_role == CRITIC_ROLE and option.runtime_type == "opencode"
+    )
+    assert len(body) == len(all_options) - hidden_count
     for combo in body:
         assert not (
             combo["agent_role"] == CRITIC_ROLE
             and combo["runtime_type"] == "opencode"
         )
-    # Cada una de las 3 restantes se corresponde con una combinación del
-    # dominio sin filtrar (nada se inventa ni se pierde salvo la excluida).
+    # Cada una de las restantes se corresponde con una combinación del
+    # dominio sin filtrar (nada se inventa ni se pierde salvo las excluidas).
     full = [
         {
             "agent_role": o.agent_role,
+            "model_id": o.model_id,
+            "model_name": o.model_name,
             "runtime_type": o.runtime_type,
             "runtime_name": o.runtime_name,
             "supports_model": o.supports_model,
@@ -545,10 +555,11 @@ def test_list_available_agent_options_still_returns_the_full_catalog() -> None:
     `list_available_agent_options` (4 combinaciones), para poder revertir la
     decisión de producto sin reintroducir código. El filtro vive solo en la
     superficie HTTP (y en la TUI), no en la fuente de verdad."""
-    from brain.agents.agent_options import CRITIC_ROLE, list_available_agent_options
+    from brain.agents import CRITIC_ROLE
+    from brain.agents.agent_options import list_available_agent_options
 
     full = list_available_agent_options()
-    assert len(full) == 4
+    assert len(full) >= 6
     assert any(
         option.agent_role == CRITIC_ROLE and option.runtime_type == "opencode"
         for option in full
@@ -608,3 +619,166 @@ def test_get_agent_pane_returns_404_when_agent_does_not_exist(
 
     assert response.status_code == 404
     assert "no existe" in response.json()["detail"].lower()
+
+
+# ---------------------------------------------------------------------------
+# GET/PUT /agents/{agent_id}/model y GET /agents/{agent_id}/available-models
+# (T-FB021-US07-01)
+# ---------------------------------------------------------------------------
+
+
+def test_get_agent_model_returns_404_when_no_session(monkeypatch) -> None:
+    monkeypatch.setattr(routes_module, "get_current_session", lambda **_kwargs: None)
+    client = TestClient(create_app())
+
+    response = client.get("/agents/any-id/model")
+
+    assert response.status_code == 404
+
+
+def test_get_agent_model_returns_404_when_agent_does_not_exist(
+    tmp_path: Path, monkeypatch
+) -> None:
+    _project, _session = _active_project_and_session(tmp_path, monkeypatch)
+    client = TestClient(create_app())
+
+    response = client.get("/agents/does-not-exist/model")
+
+    assert response.status_code == 404
+    assert "no existe" in response.json()["detail"].lower()
+
+
+def test_get_agent_model_returns_null_for_non_opencode_agent(
+    tmp_path: Path, monkeypatch, isolated_socket,
+) -> None:
+    """Agente Claude Code lanzado → GET /agents/{id}/model devuelve model: null
+    (el agente existe pero su runtime no es OpenCode, asi que no hay modelo que
+    leer)."""
+    _project, _session = _active_project_and_session(tmp_path, monkeypatch)
+    client = TestClient(create_app())
+
+    resp = client.post("/agents", json={"role": "developer", "runtime_type": "claude-code"})
+    assert resp.status_code in (200, 201)
+    agent_id = resp.json()["id"]
+
+    resp = client.get(f"/agents/{agent_id}/model")
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["agent_id"] == agent_id
+    assert body["model"] is None
+
+
+def test_get_agent_model_returns_model_for_opencode_with_sleep_binary(
+    tmp_path: Path, monkeypatch, isolated_socket,
+) -> None:
+    """Agente OpenCode lanzado (con sleep) → el endpoint no falla, devuelve
+    model: null (porque sleep no tiene barra de estado 'Build · ')."""
+    _project, _session = _active_project_and_session(tmp_path, monkeypatch)
+    client = TestClient(create_app())
+
+    resp = client.post("/agents", json={"role": "developer", "runtime_type": "opencode"})
+    assert resp.status_code in (200, 201)
+    agent_id = resp.json()["id"]
+
+    resp = client.get(f"/agents/{agent_id}/model")
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["agent_id"] == agent_id
+    assert body["model"] is None  # sleep no tiene barra de estado
+
+
+def test_put_agent_model_returns_400_for_non_opencode(
+    tmp_path: Path, monkeypatch, isolated_socket,
+) -> None:
+    """PUT /agents/{id}/model sobre agente Claude Code → 400 con motivo
+    explicito (no admite cambio de modelo)."""
+    _project, _session = _active_project_and_session(tmp_path, monkeypatch)
+    client = TestClient(create_app())
+
+    resp = client.post("/agents", json={"role": "developer", "runtime_type": "claude-code"})
+    assert resp.status_code in (200, 201)
+    agent_id = resp.json()["id"]
+
+    resp = client.put(
+        f"/agents/{agent_id}/model",
+        json={"model": "deepseek/deepseek-chat"},
+    )
+    assert resp.status_code == 400
+    assert "OpenCode" in resp.json()["detail"] or "modelo" in resp.json()["detail"].lower()
+
+
+def test_put_agent_model_returns_400_when_model_field_is_missing(
+    tmp_path: Path, monkeypatch, isolated_socket,
+) -> None:
+    _project, _session = _active_project_and_session(tmp_path, monkeypatch)
+    client = TestClient(create_app())
+
+    resp = client.post("/agents", json={"role": "developer", "runtime_type": "opencode"})
+    assert resp.status_code in (200, 201)
+    agent_id = resp.json()["id"]
+
+    resp = client.put(f"/agents/{agent_id}/model", json={})
+    assert resp.status_code == 400
+    assert "model" in resp.json()["detail"].lower()
+
+
+def test_put_agent_model_returns_changed_false_on_sleep_opencode(
+    tmp_path: Path, monkeypatch, isolated_socket,
+) -> None:
+    """Agente OpenCode lanzado con sleep → intento de cambio de modelo via
+    keystrokes en un pane sin OpenCode real devuelve 200 con changed=false
+    (no lanza excepcion)."""
+    _project, _session = _active_project_and_session(tmp_path, monkeypatch)
+    client = TestClient(create_app())
+
+    resp = client.post("/agents", json={"role": "developer", "runtime_type": "opencode"})
+    assert resp.status_code in (200, 201)
+    agent_id = resp.json()["id"]
+
+    resp = client.put(
+        f"/agents/{agent_id}/model",
+        json={"model": "deepseek/deepseek-chat"},
+    )
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["agent_id"] == agent_id
+    assert body["model"] == "deepseek/deepseek-chat"
+    assert body["changed"] is False  # sleep binario no responde a C-p / C-x
+
+
+def test_get_agent_available_models_returns_list_for_opencode(
+    tmp_path: Path, monkeypatch, isolated_socket,
+) -> None:
+    _project, _session = _active_project_and_session(tmp_path, monkeypatch)
+    client = TestClient(create_app())
+
+    resp = client.post("/agents", json={"role": "developer", "runtime_type": "opencode"})
+    assert resp.status_code in (200, 201)
+    agent_id = resp.json()["id"]
+
+    resp = client.get(f"/agents/{agent_id}/available-models")
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["agent_id"] == agent_id
+    assert body["supports_model"] is True
+    assert isinstance(body["models"], list)
+    assert len(body["models"]) > 0
+    assert "opencode-go/deepseek-v4-flash" in [m["id"] for m in body["models"]]
+
+
+def test_get_agent_available_models_returns_empty_for_non_opencode(
+    tmp_path: Path, monkeypatch, isolated_socket,
+) -> None:
+    _project, _session = _active_project_and_session(tmp_path, monkeypatch)
+    client = TestClient(create_app())
+
+    resp = client.post("/agents", json={"role": "developer", "runtime_type": "claude-code"})
+    assert resp.status_code in (200, 201)
+    agent_id = resp.json()["id"]
+
+    resp = client.get(f"/agents/{agent_id}/available-models")
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["agent_id"] == agent_id
+    assert body["supports_model"] is False
+    assert body["models"] == []

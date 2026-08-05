@@ -1,6 +1,5 @@
-from brain.agents import register_critic, register_developer
-from brain.agents.critic import CRITIC_ROLE
-from brain.agents.developer import DEVELOPER_ROLE
+from brain.agents import register_developer
+from brain.agents.roles import get_register_fn_for_role, list_roles
 from brain.dispatcher.job_dispatch import dispatch_job
 from brain.dispatcher.job_orchestration import create_and_record_job
 from brain.models import Agent, DevelopmentSession, Job
@@ -9,11 +8,6 @@ from brain.tmux.manager import DEFAULT_SOCKET_NAME
 
 _CLAUDE_CODE_TYPE = register_claude_code_runtime().type
 _OPENCODE_TYPE = register_opencode_runtime().type
-
-_REGISTER_AGENT_BY_ROLE = {
-    DEVELOPER_ROLE: register_developer,
-    CRITIC_ROLE: register_critic,
-}
 
 
 class AgentLaunchError(ValueError):
@@ -36,9 +30,9 @@ def launch_agent(
     elegido lo soporta (Claude Code no; OpenCode sí — T-FB002-US01-01).
     Cualquier rechazo se señala con `AgentLaunchError` (motivo explícito).
 
-    Reutiliza `register_developer`/`register_critic` (FB-005). Desde
-    T-FB005-US01-04, ambos ya no se comportan igual: `register_critic`
-    sigue reutilizando el Critic existente de `session` si ya hay uno
+    Reutiliza `register_developer`/`register_arquitecto` (FB-005). Desde
+    T-FB005-US01-04, no se comportan igual: `register_arquitecto` reutiliza
+    el Arquitecto existente de `session` si ya hay uno
     (`register_agent_with_reuse`); `register_developer` crea SIEMPRE una
     instancia nueva (`register_agent` directo), permitiendo varios
     Developer simultáneos en la misma sesión — decisión explícita del
@@ -58,10 +52,10 @@ def launch_agent(
             f"'{session.status}', debe estar 'active'."
         )
 
-    if role not in _REGISTER_AGENT_BY_ROLE:
+    if role not in (available := list_roles()):
         raise AgentLaunchError(
             f"No se puede lanzar el agente: rol '{role}' no reconocido. "
-            f"Roles disponibles: {sorted(_REGISTER_AGENT_BY_ROLE)}."
+            f"Roles disponibles: {available}."
         )
 
     if runtime_type == _CLAUDE_CODE_TYPE:
@@ -80,7 +74,12 @@ def launch_agent(
             f"{[_CLAUDE_CODE_TYPE, _OPENCODE_TYPE]}."
         )
 
-    register_agent_for_role = _REGISTER_AGENT_BY_ROLE[role]
+    register_agent_for_role = get_register_fn_for_role(role)
+    if register_agent_for_role is None:
+        raise AgentLaunchError(
+            f"No se puede lanzar el agente: rol '{role}' no tiene función de "
+            f"registro asociada."
+        )
     return register_agent_for_role(
         session, runtime, project_path, socket_name=socket_name
     )

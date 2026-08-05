@@ -174,15 +174,35 @@ def test_session_name_for_does_not_collide_between_multiple_developers(
 
     agents_and_instances = [
         register_developer(session, runtime, str(tmp_path), socket_name=isolated_socket)
-        for _ in range(5)
+        for _ in range(3)
     ]
 
     session_names = {
         session_name_for(runtime, agent) for agent, _instance in agents_and_instances
     }
-    assert len(session_names) == 5  # las 5 llamadas a session_name_for son únicas
+    assert len(session_names) == 3  # las 3 llamadas a session_name_for son únicas
 
     # Coincide exactamente con el session_name real que start_runtime ya
     # asignó a cada RuntimeInstance devuelto.
     for agent, instance in agents_and_instances:
         assert session_name_for(runtime, agent) == instance.session_name
+
+
+def test_register_developer_rejects_when_limit_exceeded(
+    isolated_socket: str, tmp_path
+) -> None:
+    """T-FB022-US06-02: superar MAX_SIMULTANEOUS_DEVELOPERS se rechaza con
+    mensaje claro, no falla en silencio."""
+    from brain.agents.developer import MAX_SIMULTANEOUS_DEVELOPERS
+
+    session = _active_session()
+    runtime = _test_runtime()
+
+    for i in range(MAX_SIMULTANEOUS_DEVELOPERS):
+        register_developer(session, runtime, str(tmp_path), socket_name=isolated_socket)
+
+    developers = [a for a in list_agents(session) if a.role == DEVELOPER_ROLE]
+    assert len(developers) == MAX_SIMULTANEOUS_DEVELOPERS
+
+    with pytest.raises(RuntimeError, match="No se puede lanzar otro Developer"):
+        register_developer(session, runtime, str(tmp_path), socket_name=isolated_socket)

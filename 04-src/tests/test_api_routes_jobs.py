@@ -232,6 +232,42 @@ def test_post_jobs_chains_developer_result_into_critic_job(
     stop_runtime(critic_runtime, socket_name=isolated_socket)
 
 
+def test_post_jobs_rejects_developer_to_developer_chaining(
+    tmp_path: Path, isolated_socket: str, monkeypatch
+) -> None:
+    """T-FB008-US07-01 vía HTTP (consumidor real de `create_job`): encadenar
+    Developer→Developer se rechaza con 400 y mensaje explícito, sin crear el
+    Job — el dominio no registra nada (no hay Job nuevo en el histórico)."""
+    _project, session = _active_project_and_session(tmp_path, monkeypatch)
+    developer, dev_runtime = _launch_cooperative_agent(
+        "developer", tmp_path, session, isolated_socket, monkeypatch
+    )
+
+    client = TestClient(create_app())
+    dev_job = client.post(
+        "/jobs",
+        json={"agent_id": developer.id, "description": "implement something"},
+    ).json()
+    assert dev_job["status"] == "completed"
+
+    before = {job["id"] for job in client.get("/jobs").json()}
+    response = client.post(
+        "/jobs",
+        json={
+            "agent_id": developer.id,
+            "description": "implement something else",
+            "previous_job_id": dev_job["id"],
+        },
+    )
+    after = {job["id"] for job in client.get("/jobs").json()}
+
+    assert response.status_code == 400
+    assert "debe encadenarse a un Critic" in response.json()["detail"]
+    assert after == before  # ningún Job nuevo registrado
+
+    stop_runtime(dev_runtime, socket_name=isolated_socket)
+
+
 def test_post_jobs_returns_404_for_unknown_agent(tmp_path: Path, monkeypatch) -> None:
     _active_project_and_session(tmp_path, monkeypatch)
     client = TestClient(create_app())

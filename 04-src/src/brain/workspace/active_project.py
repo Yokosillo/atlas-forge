@@ -26,7 +26,7 @@ def select_active_project(
     """
     if discovered is None:
         root = workspace_root if workspace_root is not None else Path.cwd()
-        discovered = discover_projects(root)
+        discovered = discover_projects(root, state_dir=state_dir)
 
     if project.id not in {candidate.id for candidate in discovered}:
         raise ProjectNotDiscoveredError(

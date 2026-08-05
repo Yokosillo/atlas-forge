@@ -70,6 +70,17 @@ def capture_pane_lines(
     return session.active_pane.capture_pane()
 
 
+def send_keys_literal(
+    session_name: str, keys: str, *, socket_name: str = DEFAULT_SOCKET_NAME
+) -> None:
+    """Envía teclas literales (como `C-p`, `Down`, `Enter`) al pane de la
+    sesión, para interactuar con TUIs que aceptan atajos de teclado
+    (OpenCode, Claude Code...). Usa notación de tmux (`send-keys`)."""
+    server = _get_server(socket_name)
+    session = server.sessions.get(session_name=session_name)
+    session.active_pane.cmd('send-keys', keys)
+
+
 def run_command_and_capture(
     session_name: str,
     command: str,

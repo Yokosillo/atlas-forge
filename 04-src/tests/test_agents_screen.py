@@ -9,7 +9,7 @@ from textual.widgets import Button, Select
 sys.path.insert(0, str(Path(__file__).parent / "fixtures"))
 from backend_server import running_backend  # noqa: E402
 
-from brain.agents import CRITIC_ROLE, DEVELOPER_ROLE
+from brain.agents import ARQUITECTO_ROLE, DEVELOPER_ROLE
 from brain.core.session_registry import (
     _reset_registry_for_tests,
     resolve_startup_session,
@@ -232,14 +232,14 @@ async def test_launching_a_second_agent_works_on_same_session_without_leaving_sc
         await pilot.click("#launch-agent")
         await pilot.pause()
 
-        _select_option(select_widget, CRITIC_ROLE, "claude-code")
+        _select_option(select_widget, ARQUITECTO_ROLE, "claude-code")
         await pilot.click("#launch-agent")
         await pilot.pause()
 
         assert pilot.app.screen is agents_screen
 
         agents = backend.get_agents()
-        assert {agent["role"] for agent in agents} == {DEVELOPER_ROLE, CRITIC_ROLE}
+        assert {agent["role"] for agent in agents} == {DEVELOPER_ROLE, ARQUITECTO_ROLE}
 
 
 async def test_catalog_matches_list_available_agent_options(tmp_path, backend) -> None:

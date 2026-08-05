@@ -1,31 +1,48 @@
+from brain.agents.governance import project_governance_instruction
 from brain.agents.registry import register_agent
+from brain.agents.roles import RoleConfig, register_role
 from brain.core.session_lifecycle import list_agents
 from brain.models import Agent, DevelopmentSession, Runtime
 from brain.runtime import RuntimeInstance
 from brain.tmux.manager import DEFAULT_SOCKET_NAME
 
-# Prompt base de Developer (01-documentacion/04-agentes.md, "Agentes
-# iniciales · Developer"): responsabilidad de implementar funcionalidades.
-# No valida su propio trabajo — esa es responsabilidad de Critic.
-#
-# T-FB005-US01-03: mismo hueco real detectado en Critic, corregido aquí
-# también — verificado explícitamente que existe `00-gobierno/developer.md`
-# (no asumido) antes de añadir esta instrucción. Misma justificación de
-# ruta relativa y condicional ("si existen") que `CRITIC_PROMPT` — ver su
-# comentario para el detalle completo (proyectos sin `00-gobierno/`, como
-# PROD-004-atlas-admin-portal, no deben recibir una instrucción de leer
-# ficheros que no existen).
 DEVELOPER_ROLE = "developer"
+MAX_SIMULTANEOUS_DEVELOPERS = 3
 DEVELOPER_PROMPT = (
     "Eres el agente Developer de Factory Brain. Tu responsabilidad es "
     "implementar funcionalidades: escribir código, modificar "
     "documentación, crear tests, refactorizar y generar propuestas. "
     "No validas tu propio trabajo — esa responsabilidad corresponde al "
-    "agente Critic. "
-    "Antes de actuar, si existen en la raíz de este proyecto los ficheros "
-    "00-gobierno/developer.md y 00-gobierno/METODOLOGIA.md, léelos "
-    "primero y sigue el rol y protocolo que definen."
+    "agente Critic.\n"
+    "\n"
+    "Cuando termines tu trabajo, comunica el resultado de forma "
+    "estructurada y sin ambigüedad, en texto plano, con estos tres campos "
+    "(cada uno en su propia línea, precedido por el nombre entre guiones):\n"
+    "- Resultado: 'éxito' o 'fallo'.\n"
+    "- Resumen: qué implementaste, de forma concisa.\n"
+    "- Siguiente paso sugerido: una única acción recomendada para quien "
+    "revise tu trabajo (normalmente el Critic).\n"
+    "\n"
+    "Este protocolo de reporte es genérico de Factory Brain y no asume "
+    "ningún formato de fichero, marcador ni carpeta propios de un proyecto "
+    "concreto: si el proyecto que te emplea define su propia convención de "
+    "entrega, te lo indicará explícitamente; en caso contrario, este es el "
+    "formato que debes usar para que otro agente o un humano pueda leer tu "
+    "reporte."
 )
+
+
+def build_developer_prompt(project_path: str) -> str:
+    """CAPA 2 — prompt en dos capas para Developer: rol base
+    (`DEVELOPER_PROMPT`) + gobierno específico del proyecto si aplica
+    (`project_governance_instruction`, solo si existen
+    `00-gobierno/developer.md` y `00-gobierno/METODOLOGIA.md` en
+    `project_path`). La decisión de incluir la capa de gobierno se toma
+    AQUÍ en Python, antes de construir el string final — el agente solo
+    recibe la instrucción ya decidida."""
+    return DEVELOPER_PROMPT + project_governance_instruction(
+        project_path, DEVELOPER_ROLE
+    )
 
 
 def _next_developer_name(session: DevelopmentSession) -> str:
@@ -71,14 +88,40 @@ def register_developer(
     nombre de la sesión tmux a partir de `runtime.id` + `agent.id` (UUID
     único por instancia) — no necesita ningún cambio para evitar
     colisiones entre Developers distintos, verificado con test explícito.
+
+    T-FB022-US06-02: rechaza explícitamente un intento de superar
+    `MAX_SIMULTANEOUS_DEVELOPERS` en `session` con feedback claro — no
+    falla en silencio.
     """
+    existing = sum(
+        1
+        for agent in list_agents(session)
+        if isinstance(agent, Agent) and agent.role == DEVELOPER_ROLE
+    )
+    if existing >= MAX_SIMULTANEOUS_DEVELOPERS:
+        raise RuntimeError(
+            f"No se puede lanzar otro Developer: ya hay "
+            f"{existing} Developer(s) activos en la sesión (máximo "
+            f"{MAX_SIMULTANEOUS_DEVELOPERS}). Detén alguno antes de "
+            f"lanzar uno nuevo."
+        )
+
     name = _next_developer_name(session)
     return register_agent(
         name=name,
         role=DEVELOPER_ROLE,
-        prompt=DEVELOPER_PROMPT,
+        prompt=build_developer_prompt(project_path),
         runtime=runtime,
         session=session,
         project_path=project_path,
         socket_name=socket_name,
     )
+
+
+register_role(RoleConfig(
+    role=DEVELOPER_ROLE,
+    governance_filename="developer.md",
+    prompt=DEVELOPER_PROMPT,
+    prompt_builder=build_developer_prompt,
+    register_fn=register_developer,
+))

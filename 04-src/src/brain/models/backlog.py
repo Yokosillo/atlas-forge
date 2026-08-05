@@ -18,6 +18,7 @@ from typing import Mapping
 
 ITEM_KIND_TASK = "T"
 ITEM_KIND_USER_STORY = "US"
+ITEM_KIND_EPIC = "E"
 
 STATE_DONE = "DONE"
 STATE_TODO = "TODO"
@@ -47,6 +48,7 @@ class BacklogItem:
     state: str
     dependencies: tuple[str, ...]
     priority: str | None
+    fase: str | None
     path: Path
 
 

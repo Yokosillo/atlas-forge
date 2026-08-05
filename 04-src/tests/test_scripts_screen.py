@@ -299,7 +299,7 @@ async def test_backlog_status_result_is_presented_readably_not_as_raw_json(
         content = str(result_widget.content)
         # Presentación legible, no JSON crudo.
         assert "Conteo por Epic" in content
-        assert "FB-999 · Epic de prueba" in content
+        assert "FB-999" in content
         assert "T-FB999-01" in content
         assert "US-FB999-02" in content
         assert "Cadena de mayor apalancamiento" in content

@@ -242,6 +242,37 @@
     return request("GET", "/agents/" + encodeURIComponent(agentId) + "/pane");
   }
 
+  /** `GET /agents/{agent_id}/model` — modelo activo actual del agente. */
+  async function getAgentModel(agentId) {
+    return request("GET", "/agents/" + encodeURIComponent(agentId) + "/model");
+  }
+
+  /** `PUT /agents/{agent_id}/model` — cambia el modelo activo del agente. */
+  async function setAgentModel(agentId, model) {
+    return request("PUT", "/agents/" + encodeURIComponent(agentId) + "/model", {
+      post: true, body: { model: model }
+    });
+  }
+
+  /** `GET /agents/{agent_id}/available-models` — modelos disponibles. */
+  async function getAgentAvailableModels(agentId) {
+    return request("GET", "/agents/" + encodeURIComponent(agentId) + "/available-models");
+  }
+
+  /* ------------------------------------------------------------------ */
+  /* Modelos — preferencias (T-FB022-US10-01)                           */
+  /* ------------------------------------------------------------------ */
+
+  /** `GET /models/preferences` — catálogo completo con habilitado y defaults. */
+  async function getModelsPreferences() {
+    return request("GET", "/models/preferences");
+  }
+
+  /** `PUT /models/preferences` — actualiza habilitados y/o defaults. */
+  async function updateModelsPreferences(payload) {
+    return request("PUT", "/models/preferences", { post: true, body: payload });
+  }
+
   /* ------------------------------------------------------------------ */
   /* Jobs                                                                 */
   /* ------------------------------------------------------------------ */
@@ -322,6 +353,59 @@
   }
 
   /* ------------------------------------------------------------------ */
+  /* Acciones transversales de proyecto (FB-025)                          */
+  /* ------------------------------------------------------------------ */
+
+  /** `POST /project/actions/{action_id}` — despacha una acción transversal
+   * de proyecto sin pasar por el Director. Bloqueante como `createAndDispatchJob`.
+   * Acciones disponibles: `documentar`, `analizar-arquitectura`, `sugerir-ideas`,
+   * `testear`, `auditar-ux`, `indexar`. */
+  async function runProjectAction(actionId) {
+    return request("POST", "/project/actions/" + encodeURIComponent(actionId), { post: true });
+  }
+
+  /* ------------------------------------------------------------------ */
+  /* Backlog (T-FB020-US01-01/T-FB020-US02-01, T-FB020-US04-01)          */
+  /* ------------------------------------------------------------------ */
+
+  /** `GET /backlog` — informe estructurado del backlog del proyecto activo
+   * (conteo por Epic/estado). A diferencia de `getAgents`/`getJobs`, un
+   * 404 (sin proyecto activo) SÍ se propaga como error — no es un estado
+   * "lista vacía" (un backlog vacío con proyecto activo es un 200 real,
+   * `empty: true`), mismo criterio ya aplicado en Android/TUI. */
+  async function getBacklog() {
+    return request("GET", "/backlog");
+  }
+
+  /** `GET /backlog/{item_id}` — detalle de una Epic (`item_id` con forma
+   * `FB-xxx`)/User Story/Task concreta. Un `item_id` inexistente propaga
+   * el 404 real del backend (motivo explícito, incluido el de un fallo de
+   * parseo) — siempre un error real de navegación, nunca un estado
+   * válido a silenciar. */
+  async function getBacklogItem(itemId) {
+    return request("GET", "/backlog/" + encodeURIComponent(itemId));
+  }
+
+  /** `POST /backlog/{story_id}/launch-development` — lanza el desarrollo
+   * de la User Story `story_id` con contexto ya resuelto por el backend
+   * (objetivo + Tasks `TODO`), despachado al agente `agentId`. Bloqueante
+   * como `createAndDispatchJob` (mismo motor de despacho). 400 (sin Tasks
+   * `TODO`)/404 (`story_id`/agente inválido) propagan el `detail` real. */
+  async function launchDevelopment(storyId, agentId) {
+    return request("POST", "/backlog/" + encodeURIComponent(storyId) + "/launch-development", {
+      post: true,
+      body: { agent_id: agentId },
+    });
+  }
+
+  /** `POST /backlog/epic/{epic_id}/analyze-threads` — ejecuta el análisis
+   * determinista de hilos de desarrollo para una Epic (FB-026).
+   * Bloqueante, sin despachar Job al Arquitecto. */
+  async function analyzeEpicThreads(epicId) {
+    return request("POST", "/backlog/epic/" + encodeURIComponent(epicId) + "/analyze-threads", { post: true });
+  }
+
+  /* ------------------------------------------------------------------ */
 
   window.BackendClient = Object.freeze({
     BackendUnavailableError: BackendUnavailableError,
@@ -338,6 +422,11 @@
     launchAgent: launchAgent,
     stopAgent: stopAgent,
     getAgentPane: getAgentPane,
+    getAgentModel: getAgentModel,
+    setAgentModel: setAgentModel,
+    getAgentAvailableModels: getAgentAvailableModels,
+    getModelsPreferences: getModelsPreferences,
+    updateModelsPreferences: updateModelsPreferences,
     getJobs: getJobs,
     getJob: getJob,
     createAndDispatchJob: createAndDispatchJob,
@@ -350,5 +439,10 @@
     cancelPlan: cancelPlan,
     getScripts: getScripts,
     runScript: runScript,
+    runProjectAction: runProjectAction,
+    getBacklog: getBacklog,
+    getBacklogItem: getBacklogItem,
+    launchDevelopment: launchDevelopment,
+    analyzeEpicThreads: analyzeEpicThreads,
   });
 })();

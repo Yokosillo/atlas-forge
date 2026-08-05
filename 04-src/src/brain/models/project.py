@@ -7,3 +7,4 @@ class Project:
     name: str
     path: str
     repository: str
+    workspace_id: str

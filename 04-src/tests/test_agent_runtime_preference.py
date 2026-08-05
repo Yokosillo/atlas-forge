@@ -156,16 +156,16 @@ def test_get_agents_reflects_the_model_associated_with_the_agent(
 
     response = client.post(
         "/agents",
-        json={"role": "developer", "runtime_type": "opencode", "model": "deepseek/deepseek-chat"},
+        json={"role": "developer", "runtime_type": "opencode", "model": "opencode-go/deepseek-v4-flash"},
     )
     assert response.status_code == 201
     assert response.json()["runtime_id"] == "opencode"
-    assert response.json()["model"] == "deepseek/deepseek-chat"
+    assert response.json()["model"] == "opencode-go/deepseek-v4-flash"
 
     agents = client.get("/agents").json()
     assert len(agents) == 1
     assert agents[0]["runtime_id"] == "opencode"
-    assert agents[0]["model"] == "deepseek/deepseek-chat"
+    assert agents[0]["model"] == "opencode-go/deepseek-v4-flash"
 
 
 def test_get_agents_shows_none_model_for_an_agent_without_a_model_preference(

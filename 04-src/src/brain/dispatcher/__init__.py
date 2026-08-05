@@ -1,3 +1,7 @@
+from brain.dispatcher.architect_verdict_queue import (
+    enqueue_architect_verdict,
+    get_verdict_queue_status,
+)
 from brain.dispatcher.job_cancellation import (
     JobCancellationRejectedError,
     request_cancellation,
@@ -34,6 +38,7 @@ from brain.dispatcher.job_plan_dispatch import (
     JobPlanDispatchError,
     dispatch_plan,
     get_plan_progress,
+    trigger_architect_verdict,
 )
 from brain.dispatcher.job_plan_flow import run_job_plan
 from brain.dispatcher.job_plan_lifecycle import InvalidJobPlanTransitionError
@@ -65,6 +70,8 @@ __all__ = [
     "create_and_record_job",
     "create_job",
     "dispatch_job",
+    "enqueue_architect_verdict",
+    "get_verdict_queue_status",
     "dispatch_plan",
     "extract_scribe_context",
     "get_consecutive_job_count",
@@ -85,4 +92,5 @@ __all__ = [
     "should_invoke_scribe",
     "should_invoke_scribe_by_job_count",
     "should_invoke_scribe_by_size",
+    "trigger_architect_verdict",
 ]

@@ -4,20 +4,21 @@ y siguiente foco, sin gastar tokens de agente cognitivo").
 
 ## Qué hace y qué no hace
 
-Lee todos los ficheros de `02-backlog/user-stories/*.md` y
-`02-backlog/tasks/*.md` de un proyecto, extrae estado y dependencias con
-parseo de texto (regex sobre la convención ya usada en todo el backlog —
-`## Estado` con el valor en la línea siguiente, `## Dependencias` con
-referencias en negrita `**T-FBxxx-...**`/`**US-FBxxx-...**`), y construye el
-grafo de dependencias entre US/Tasks. NO usa ningún modelo ni heurística
-de juicio: solo lectura del estado ya parseado de cada fichero.
+Lee todos los ficheros de `02-backlog/epics/*.md`,
+`02-backlog/user-stories/*.md` y `02-backlog/tasks/*.md` de un proyecto,
+extrae estado y dependencias con parseo de texto (regex sobre la convención
+ya usada en todo el backlog — `## Estado` con el valor en la línea
+siguiente, `## Dependencias` con referencias en negrita
+`**T-FBxxx-...**`/`**US-FBxxx-...**`), y construye el grafo de
+dependencias entre US/Tasks. Ningún modelo, ninguna heurística de juicio:
+solo lectura del estado ya parseado de cada fichero.
 
 ## Convención de `02-backlog/` que se parsea (verificada sobre el backlog
 ## real de este proyecto 006)
 
-- El identificador es el prefijo del nombre del fichero: `T-FB018-US02-01`
-  (Task) o `US-FB018-02` (User Story). No se re-deriva de ninguna línea del
-  contenido.
+- Los identificadores son: `FB-NNN` (Epic), `US-FBNNN-nn` (User Story),
+  `T-FBNNN-USnn-mm` (Task), tomados del prefijo del nombre del fichero.
+  No se re-derivan de ninguna línea del contenido.
 - `## Estado` va en su propia línea; el valor es la primera línea no vacía
   siguiente (`DONE`, `TODO`, `IN_PROGRESS`, ...). Puede haber valor en la
   misma línea (`## Estado: DONE`) — se acepta el valor inline y se ignora.
@@ -46,29 +47,39 @@ from brain.models.backlog import (
     BacklogGraph,
     BacklogItem,
     BacklogParseError,
+    ITEM_KIND_EPIC,
     ITEM_KIND_TASK,
     ITEM_KIND_USER_STORY,
 )
 
-_ITEM_ID_PATTERN = re.compile(r"^(T|US)-FB\d{3}(?:-US\d{2})?-\d{2}")
+_ITEM_ID_PATTERN = re.compile(r"^(T|US)-FB\d{3}(?:-US\d{2}[A-Z]?)?-\d{2}[A-Z]?")
+_EPIC_ID_PATTERN = re.compile(r"^(FB-\d{3,})")
 _BOLD_DEPENDENCY_PATTERN = re.compile(
-    r"\*\*((?:T|US)-FB\d{3}(?:-US\d{2})?-\d{2})\*\*"
+    r"\*\*((?:T|US)-FB\d{3}(?:-US\d{2}[A-Z]?)?-\d{2}[A-Z]?)\*\*"
 )
 
 _ESTADO_HEADER_PATTERN = re.compile(r"^##\s*Estado\s*(?::\s*(.+))?$")
 _DEPENDENCIAS_HEADER_PATTERN = re.compile(r"^##\s*Dependencias\s*$")
 _PRIORIDAD_HEADER_PATTERN = re.compile(r"^##\s*Prioridad\s*(?::\s*(.+))?$")
+_FASE_HEADER_PATTERN = re.compile(r"^##\s*Fase\s*(?::\s*(.+))?$")
 
 _NONE_DEPENDENCIES_KEYWORDS = ("ninguna", "ninguno")
 
 
 def _item_id_from_stem(stem: str) -> str | None:
     match = _ITEM_ID_PATTERN.match(stem)
-    return match.group(0) if match else None
+    if match:
+        return match.group(0)
+    match = _EPIC_ID_PATTERN.match(stem)
+    return match.group(1) if match else None
 
 
 def _item_kind(item_id: str) -> str:
-    return ITEM_KIND_USER_STORY if item_id.startswith("US-") else ITEM_KIND_TASK
+    if item_id.startswith("US-"):
+        return ITEM_KIND_USER_STORY
+    if item_id.startswith("FB-"):
+        return ITEM_KIND_EPIC
+    return ITEM_KIND_TASK
 
 
 def _read_epic(text: str) -> str | None:
@@ -82,6 +93,15 @@ def _read_epic(text: str) -> str | None:
     return None
 
 
+def _strip_state_note(value: str) -> str:
+    """Recorta la nota `  # ...` de un valor de `## Estado` (convención de
+    T-FB018-US02-05 para casos como `DONE  # DESCARTADA (en principio)...`)
+    — el valor comparado por igualdad exacta (`state == "DONE"`) debe quedar
+    limpio del conjunto cerrado `TODO`/`IN_PROGRESS`/`REVIEW`/`DONE`, la
+    nota es solo trazabilidad legible, nunca parte del valor real."""
+    return value.split("  #", 1)[0].strip()
+
+
 def _read_state(text: str, path: Path, item_id: str | None) -> str:
     lines = text.splitlines()
     for index, line in enumerate(lines):
@@ -89,14 +109,14 @@ def _read_state(text: str, path: Path, item_id: str | None) -> str:
         if match is None:
             continue
         if match.group(1) is not None and match.group(1).strip():
-            return match.group(1).strip()
+            return _strip_state_note(match.group(1).strip())
         for following in lines[index + 1 :]:
             stripped = following.strip()
             if not stripped:
                 continue
             if re.match(r"^##\s*", following):
                 break
-            return stripped
+            return _strip_state_note(stripped)
         break
     raise BacklogParseError(
         path=path,
@@ -158,6 +178,27 @@ def _read_priority(text: str) -> str | None:
     return None
 
 
+def _read_fase(text: str) -> str | None:
+    """Valor literal de la sección `## Fase` (opcional, mismo mecanismo
+    que `_read_priority`), o `None` si el fichero no la declara."""
+    lines = text.splitlines()
+    for index, line in enumerate(lines):
+        match = _FASE_HEADER_PATTERN.match(line.strip())
+        if match is None:
+            continue
+        if match.group(1) is not None and match.group(1).strip():
+            return match.group(1).strip()
+        for following in lines[index + 1 :]:
+            stripped = following.strip()
+            if not stripped:
+                continue
+            if re.match(r"^##\s*", following):
+                break
+            return stripped
+        break
+    return None
+
+
 def parse_backlog_item(path: Path) -> BacklogItem:
     """Lee un fichero `.md` de `02-backlog/` y lo convierte en un
     `BacklogItem`.
@@ -190,26 +231,27 @@ def parse_backlog_item(path: Path) -> BacklogItem:
         state=state,
         dependencies=dependencies,
         priority=_read_priority(text),
+        fase=_read_fase(text),
         path=path,
     )
 
 
 def load_backlog(backlog_path: Path) -> BacklogGraph:
-    """Lee todo un `02-backlog/`: los ficheros de `user-stories/` y
-    `tasks/`, parsea cada uno y construye el grafo (nodo por item, arista
+    """Lee todo un `02-backlog/`: los ficheros de `epics/`, `user-stories/`
+    y `tasks/`, parsea cada uno y construye el grafo (nodo por item, arista
     por dependencia declarada).
 
     Un fichero mal formado se reporta como `BacklogParseError` en
     `graph.errors` SIN interrumpir el parseo del resto (criterio de
     aceptación 6 de US-FB018-02) — el grafo se construye con los ficheros
     válidos y los errores se acumulan por separado. `backlog_path` debe ser
-    el directorio `02-backlog/` (con subdirectorios `user-stories/` y
-    `tasks/`)."""
+    el directorio `02-backlog/` (con subdirectorios `epics/`,
+    `user-stories/` y `tasks/`)."""
     backlog_path = Path(backlog_path)
     items: dict[str, BacklogItem] = {}
     errors: list[BacklogParseError] = []
 
-    for subdir in ("user-stories", "tasks"):
+    for subdir in ("epics", "user-stories", "tasks"):
         directory = backlog_path / subdir
         if not directory.is_dir():
             continue
@@ -252,7 +294,8 @@ def classify_todo_items(
     de modelo, según T-FB018-US02-01. El orden de ambas listas es
     determinista (por identificador, como aparecen en el backlog)."""
     todos = sorted(
-        (item for item in graph.items.values() if item.state == "TODO"),
+        (item for item in graph.items.values()
+         if item.state == "TODO" and item.kind != ITEM_KIND_EPIC),
         key=lambda item: item.id,
     )
     lista = [item for item in todos if not _dependency_state_blocks(graph, item)]
@@ -293,6 +336,64 @@ def _cascade_for_item(graph: BacklogGraph, root: BacklogItem) -> list[str]:
                 completed.add(item.id)
                 changed = True
     return sorted(unlocked - {root.id})
+
+
+def _epic_items(graph: "BacklogGraph", epic_prefix: str) -> list["BacklogItem"]:
+    """Items (US y Tasks) que pertenecen a la Epic identificada por
+    `epic_prefix` (p. ej. `FB-020`), resueltos contra el `BacklogGraph`."""
+    from brain.models.backlog import ITEM_KIND_EPIC
+    import re
+    prefix_pattern = re.compile(r"^" + re.escape(epic_prefix))
+    return sorted(
+        (
+            item
+            for item in graph.items.values()
+            if item.kind != ITEM_KIND_EPIC and item.epic is not None
+            and prefix_pattern.match(item.epic.strip())
+        ),
+        key=lambda item: item.id,
+    )
+
+
+def _all_transitive_deps(graph: "BacklogGraph", item_id: str, visited: set | None = None) -> set[str]:
+    """Recopila transitivamente todos los identificadores de dependencia
+    de `item_id` cuyo estado NO es `DONE`."""
+    if visited is None:
+        visited = set()
+    if item_id in visited:
+        return visited
+    visited.add(item_id)
+    item = graph.items.get(item_id)
+    if item is None:
+        return visited
+    for dep_id in item.dependencies:
+        dep = graph.items.get(dep_id)
+        if dep is not None and dep.state != "DONE":
+            _all_transitive_deps(graph, dep_id, visited)
+    return visited
+
+
+def calculate_unblock_degree(graph: "BacklogGraph", epic_prefix: str) -> float:
+    """Grado de desbloqueo de una Epic (porcentaje 0.0-1.0).
+
+    Para cada US/Task de la Epic que está en TODO, resuelve transitivamente
+    sus dependencias. El grado de desbloqueo es la proporción de items de
+    la Epic cuyas dependencias ya están todas resueltas (DONE). Una Epic
+    sin ningún item tiene grado 1.0.
+
+    Reutiliza el `BacklogGraph` ya existente — sin reimplementar la
+    resolución de grafo."""
+    items = _epic_items(graph, epic_prefix)
+    if not items:
+        return 1.0
+
+    unblocked = 0
+    for item in items:
+        blocking_deps = _dependency_state_blocks(graph, item)
+        if not blocking_deps:
+            unblocked += 1
+
+    return unblocked / len(items)
 
 
 def find_max_leverage_chain(graph: BacklogGraph) -> list[BacklogItem]:

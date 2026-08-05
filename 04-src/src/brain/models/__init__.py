@@ -8,6 +8,7 @@ from brain.models.project import Project
 from brain.models.runtime import Runtime
 from brain.models.script_entry import ScriptEntry
 from brain.models.script_run_result import ScriptRunResult
+from brain.models.workspace import Workspace
 
 __all__ = [
     "Agent",
@@ -23,4 +24,5 @@ __all__ = [
     "Runtime",
     "ScriptEntry",
     "ScriptRunResult",
+    "Workspace",
 ]

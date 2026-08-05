@@ -1,0 +1,74 @@
+site_name: Factory Brain
+site_description: Coordinación de desarrollo software asistido por IA desde una única plataforma.
+site_url: https://factoria-software.github.io/factory-brain/
+repo_url: https://github.com/factoria-software/factory-brain
+repo_name: factory-brain
+edit_uri: blob/main/docs/
+
+# Esta configuración se publica junto al contenido: mkdocs.yml y los .md
+# viven en el mismo directorio (docs/). Construir con:
+#   mkdocs build -f docs/mkdocs.yml
+docs_dir: .
+
+theme:
+  name: material
+  language: es
+  features:
+    - navigation.sections
+    - navigation.expand
+    - navigation.top
+    - toc.integrate
+  palette:
+    - scheme: default
+      primary: indigo
+      accent: cyan
+      toggle:
+        icon: material/weather-night
+        name: Cambiar a modo oscuro
+    - scheme: slate
+      primary: indigo
+      accent: cyan
+      toggle:
+        icon: material/weather-sunny
+        name: Cambiar a modo claro
+
+markdown_extensions:
+  - admonition
+  - tables
+  - toc:
+      permalink: true
+  - pymdownx.superfences:
+      custom_fences:
+        - name: mermaid
+          class: mermaid
+          format: !!python/name:pymdownx.superfences.fence_code_format
+  - pymdownx.details
+  - pymdownx.tasklist
+  - attr_list
+  - md_in_html
+
+extra_javascript:
+  - https://unpkg.com/mermaid@10/dist/mermaid.min.js
+
+plugins:
+  - search
+
+nav:
+  - Inicio: index.md
+  - Empezar: getting-started.md
+  - Arquitectura: architecture.md
+  - Conceptos: concepts.md
+  - Interfaz web: interfaces-web.md
+  - TUI: interfaces-tui.md
+  - App Android: interfaces-android.md
+  - API: api.md
+  - Agentes: agents.md
+  - Runtime y Scribe: runtime.md
+  - Jobs y planes: jobs.md
+  - Scripts: scripts.md
+  - Backlog y pipeline: backlog.md
+  - Configuración: configuration.md
+  - CLI: cli.md
+  - Roadmap: roadmap.md
+  - FAQ y troubleshooting: faq.md
+  - Desarrollo: development.md

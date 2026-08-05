@@ -87,11 +87,12 @@
     // Navegación entre secciones operativas (solo visible con contexto
     // resuelto). `sections` guarda el estado ya cargado de cada sección
     // para NO perderlo al navegar entre ellas sin recargar (punto 5).
-    section: "agents",
-    sections: { agents: null, jobs: null, plan: null, scripts: null },
+    section: "roles",
+    sections: { agents: null, jobs: null, plan: null, scripts: null, backlog: null, models: null, roles: null },
     showPicker: false,
     pickerReason: "initial", // "initial" (onboarding) | "change" (voluntario)
     pendingSelection: null,
+    pendingBacklogCount: 0, // T-FB024-US01-02: numero de Epics/US con TODO>0
   };
 
   var SECTION_LOADERS = {
@@ -104,6 +105,25 @@
     scripts: function () {
       return BackendClient.getScripts();
     },
+  };
+
+  // ------------------------------------------------------------------
+  // Sección ROLES (T-FB024-US08-01): los 4 roles con nombre, descripción
+  // y modelo asignado (default o "sin default"). Sustituye la pantalla
+  // Agentes anterior — no muestra instancias lanzadas ni botones
+  // Lanzar/Detener. El modelo es editable desde esta pantalla
+  // (T-FB024-US08-02), reutilizando PUT /models/preferences.
+  var rolesSection = {
+    bodyWrap: null,
+    state: null, // null=sin empezar | "loading" | "ready" | "unavailable"
+    error: null,
+    defaults: {}, // {role: model_id}
+    models: [], // [{id, name, runtime, enabled}]
+    // Edicion de modelo por rol (T-FB024-US08-02).
+    editingRole: null, // role siendo editado | null
+    modelIndex: 0,
+    saving: false,
+    saveError: null,
   };
 
   // ------------------------------------------------------------------
@@ -166,6 +186,13 @@
     paneAgentName: null,
     paneContent: null,
     paneMessage: null,
+    // Cambio de modelo (T-FB021-US07-01): confirmacion de segunda pulsacion
+    // y single-flight, mismo idioma que el resto de la web.
+    modelChangeAgentId: null, // agente cuyo cambio esta en curso | null
+    modelChangePending: null, // {agent_id, model} con confirmacion pendiente | null
+    modelChangeError: null, // mensaje de error tras intento de cambio | null
+    modelOptions: null, // catalogo de modelos disponibles, cacheado por agente
+    launchPending: false, // T-FB024-US04-01: confirmacion antes de lanzar
   };
 
   // ------------------------------------------------------------------
@@ -229,6 +256,11 @@
     currentPlan: null, // { plan_id, goal, status, steps } | null
     currentPlanId: null, // filtro de eventos WS (punto 3)
     goalInput: "",
+    goalSelectIndex: 0,
+    // T-FB024-US04-02: historias TODO del backlog como opciones del selector.
+    todoStories: null, // null = sin cargar | array = [{id, epic}]
+    todoStoriesLoading: false,
+    todoStoriesError: null,
     requesting: false, // single-flight POST /plans
     requestError: null,
     // Aprobar (punto 5): confirmación previa con el número de pasos en la
@@ -280,6 +312,95 @@
     // stderr, error_message, data, prose } | null.
     lastResult: null,
     runError: null,
+    _expandedCommandId: null,
+  };
+
+  // ------------------------------------------------------------- BACKLOG
+  // (T-FB020-US04-01). Mismo patrón de expandir-en-el-sitio ya usado en
+  // Jobs/Plan (histórico con detalle desplegable al clic, sin navegar a
+  // otra pantalla) — no un `Screen`/estado de navegación por pantallas
+  // como Android/TUI: lista de Epics -> clic expande sus User Stories
+  // (`GET /backlog/{epic_id}`) -> clic en una US expande su detalle
+  // completo (`GET /backlog/{item_id}`) + el formulario de "Lanzar
+  // desarrollo", todo dentro de la MISMA lista, sin recargar la página.
+  //
+  // `report` se recompone SIEMPRE desde `GET /backlog` al entrar en la
+  // pestaña (mismo criterio que Jobs/Plan/Scripts: nunca se pierde al
+  // navegar entre secciones, vive en `backlogSection`, no en la caché
+  // genérica `state.sections`) — resuelve la recontextualización por
+  // cambio de proyecto activo "gratis", igual que el resto de secciones
+  // (no hay filtro de proyecto en el cliente: el backend ya sirve el
+  // backlog del proyecto activo).
+  var backlogSection = {
+    bodyWrap: null,
+    // Listado raíz: null = sin cargar | array = última lista vista (`by_epic`).
+    report: null,
+    reportError: null,
+    stale: false,
+    // Epic actualmente expandida en el listado (id `FB-xxx` derivado del
+    // label libre) — su detalle se pide con `GET /backlog/{epic_id}` de
+    // forma perezosa (solo al expandir, mismo criterio que
+    // `togglePlanHistoryDetail`).
+    selectedEpicId: null,
+    epicDetail: null,
+    epicDetailError: null,
+    // User Story actualmente expandida DENTRO de la Epic expandida — su
+    // detalle se pide con `GET /backlog/{item_id}`.
+    selectedItemId: null,
+    itemDetail: null,
+    itemDetailError: null,
+    // Formulario "Lanzar desarrollo" (solo visible para el detalle de una
+    // User Story, T-FB020-US02-02): agentes Developer ya lanzados
+    // (mismo catálogo que Agentes/Jobs, filtrado a role === "developer"),
+    // single-flight de la propia llamada, y el resultado/`detail` real
+    // del backend ante un rechazo (400 sin Tasks TODO, 404 agente
+    // inválido) — nunca un mensaje genérico (criterio de aceptación
+    // explícito, mismo patrón que T-FB021-US04-01).
+    developerAgents: null,
+    developerAgentsError: null,
+    developerAgentIndex: 0,
+    launchingDevelopment: false,
+    launchError: null,
+    launchResult: null,
+    viewMode: "flat", // "flat" | "by_fase"
+    // T-FB024-US09-02: historial de jobs para la US abierta en detalle.
+    usJobs: null,
+    usJobsError: null,
+    // T-FB024-US09-03: formulario manual de Job en detalle de US.
+    manualJobAgents: null,
+    manualJobAgentsError: null,
+    manualJobAgentIndex: 0,
+    manualJobDescription: "",
+    creatingManualJob: false,
+    manualJobError: null,
+    manualJobResult: null,
+    // T-FB026-US04-02: análisis de hilos de desarrollo.
+    threadsInFlight: false,
+    threadsResult: null,
+    threadsError: null,
+  };
+
+  // Sección MODELOS (T-FB022-US10-02): catálogo con habilitado/deshabilitado
+  // y defaults por rol, consumiendo GET/PUT /models/preferences.
+  var modelsSection = {
+    bodyWrap: null,
+    // Estado de carga: null=sin empezar | "loading" | "ready" | "unavailable".
+    state: null,
+    error: null,
+    // Catálogo completo del backend: [{id, name, runtime, enabled}, ...].
+    models: null,
+    defaults: {}, // {role: model_id}
+    dirty: false, // cambios locales no guardados
+    saving: false, // single-flight PUT
+    saveError: null,
+  };
+
+  // --------------------------------------------------------- FB-025 Hilo 3
+  var accionesSection = {
+    bodyWrap: null,
+    inFlight: null, // action_id en vuelo o null
+    result: null,   // {action, status, result} o {action, success, stdout, ...}
+    error: null,
   };
 
 
@@ -422,8 +543,11 @@
     // enlaces/botones que cambian qué sección del DOM se muestra, sin
     // recargar la página.
     var nav = h("nav", "section-nav");
-    ["agents", "jobs", "plan", "scripts"].forEach(function (key) {
+    ["roles", "plan", "scripts", "backlog", "models", "acciones"].forEach(function (key) {
       var tab = button(SECTION_LABEL(key), "section-tab");
+      if (key === "backlog" && state.pendingBacklogCount > 0) {
+        tab.appendChild(h("span", "backlog-pending-badge", String(state.pendingBacklogCount)));
+      }
       if (key === state.section) tab.className += " active";
       tab.addEventListener("click", function () {
         switchSection(key);
@@ -437,14 +561,27 @@
   }
 
   function SECTION_LABEL(key) {
-    return { agents: "Agentes", jobs: "Jobs", plan: "Plan", scripts: "Scripts" }[key];
+    return { agents: "Agentes", jobs: "Jobs", plan: "Plan", scripts: "Scripts", backlog: "Backlog", models: "Modelos", acciones: "Acciones" }[key];
   }
 
   function switchSection(key) {
     if (key !== state.section && state.section === "agents") {
       // Al salir de la pestaña Agentes se para el polling (no se hacen
       // llamadas de fondo sin pantalla visible); al volver se reanuda.
+      // El estado de cambio de modelo se limpia al salir (mismo criterio
+      // que el pane de actividad, que persiste mientras se esta en la
+      // seccion pero se cierra al cambiar).
       stopAgentsPolling();
+      agentsSection.modelChangePending = null;
+      agentsSection.modelChangeError = null;
+      agentsSection.modelChangeAgentId = null;
+      agentsSection.modelOptions = null;
+      agentsSection.launchPending = false;
+    }
+    if (key !== state.section && state.section === "roles") {
+      rolesSection.editingRole = null;
+      rolesSection.modelIndex = 0;
+      rolesSection.saveError = null;
     }
     if (key !== state.section && state.section === "jobs") {
       // Al salir de la pestaña Jobs se cierra el WebSocket (no se mantiene
@@ -454,8 +591,10 @@
     }
     if (key !== state.section && state.section === "plan") {
       // Mismo criterio que Jobs: al salir de la pestaña Plan se cierra el
-      // canal `WS /ws/plans`; el estado vive en `plansSection`.
+      // canal `WS /ws/plans` y se resetea la carga del backlog; el estado
+      // vive en `plansSection`.
       stopPlansWebSocket();
+      plansSection.todoStories = null;
     }
     state.section = key;
     renderOperational();
@@ -466,6 +605,13 @@
     var content = h("div", "section-content");
     content.appendChild(h("h3", null, SECTION_LABEL(state.section)));
 
+    // Roles tiene su propio renderizado con estado (catálogo de 4 roles
+    // con modelo y descripción, T-FB024-US08-01): no pasa por la caché.
+    if (state.section === "roles") {
+      ROOT.appendChild(content);
+      renderRolesInto(content);
+      return;
+    }
     // Agentes tiene su propio renderizado con estado (polling + catálogo +
     // formulario): no pasa por la carga/caché única de Jobs/Plan/Scripts.
     if (state.section === "agents") {
@@ -495,6 +641,24 @@
     if (state.section === "scripts") {
       ROOT.appendChild(content);
       renderScriptsInto(content);
+      return;
+    }
+    // Backlog también tiene su propio renderizado con estado (listado de
+    // Epics + detalle expandido en el sitio + formulario de "Lanzar
+    // desarrollo", T-FB020-US04-01): no pasa por la caché única.
+    if (state.section === "backlog") {
+      ROOT.appendChild(content);
+      renderBacklogInto(content);
+      return;
+    }
+    if (state.section === "models") {
+      ROOT.appendChild(content);
+      renderModelsInto(content);
+      return;
+    }
+    if (state.section === "acciones") {
+      ROOT.appendChild(content);
+      renderAccionesInto(content);
       return;
     }
 
@@ -674,6 +838,10 @@
       wrap.appendChild(h("p", "agent-message", agentsSection.actionMessage));
     }
 
+    if (agentsSection.modelChangeError) {
+      wrap.appendChild(h("p", "agent-error", agentsSection.modelChangeError));
+    }
+
     renderAgentsPanePanel(wrap);
     renderAgentsList(wrap);
     renderAgentsLaunchForm(wrap);
@@ -747,6 +915,8 @@
       card.appendChild(statusRow);
       if (agent.model) {
         card.appendChild(h("div", "agent-model", "Modelo: " + agent.model));
+      } else {
+        card.appendChild(h("div", "agent-model", "Modelo: " + runtimeDisplayName(agent.runtime_id)));
       }
       card.appendChild(renderAgentActions(agent));
       wrap.appendChild(card);
@@ -766,12 +936,9 @@
   }
 
   // --------------------------------------------------------- acciones por
-  // agente (T-FB021-US03-02): "Ver actividad" (pane) y "Detener"
-  // (confirmación de segunda pulsación). La fila de acciones está alineada
-  // a la derecha y el botón "Detener" es el ÚLTIMO elemento: al crecer su
-  // etiqueta con el aviso combinado se expande hacia la izquierda, sin
-  // desplazar su borde derecho ni mover el botón entre el primer y el
-  // segundo clic (bug real corregido en la TUI, ver `agents.py`).
+  // agente (T-FB021-US03-02): "Ver actividad" (pane), "Cambiar modelo"
+  // (T-FB021-US07-01, solo para OpenCode) y "Detener" (confirmacion de
+  // segunda pulsacion).
   function renderAgentActions(agent) {
     var actions = h("div", "agent-actions");
 
@@ -780,6 +947,29 @@
       viewAgentPane(agent);
     });
     actions.appendChild(paneBtn);
+
+    // Cambiar modelo (T-FB021-US07-01): solo para agentes OpenCode en
+    // ejecucion (no stopped). Mismo patron de confirmacion de segunda
+    // pulsacion y single-flight que el resto de la seccion.
+    if (agent.runtime_id === "opencode" && agent.status !== "stopped") {
+      var isChanging = agentsSection.modelChangeAgentId === agent.id;
+      var isPending = agentsSection.modelChangePending && agentsSection.modelChangePending.agent_id === agent.id;
+      var changeLabel;
+
+      if (isChanging) {
+        changeLabel = "Cambiando modelo…";
+      } else if (isPending) {
+        changeLabel = "¿Seguro? Cambiar a " + agentsSection.modelChangePending.model;
+      } else {
+        changeLabel = "Cambiar modelo";
+      }
+      var changeBtn = button(changeLabel, "agent-model-change");
+      if (isChanging) changeBtn.disabled = true;
+      changeBtn.addEventListener("click", function () {
+        requestModelChange(agent);
+      });
+      actions.appendChild(changeBtn);
+    }
 
     // Un agente `stopped` no se puede volver a detener: sin botón
     // (mismo criterio que Android/TUI).
@@ -883,6 +1073,115 @@
       });
   }
 
+  // ------------------------------------------------- cambio de modelo
+  // (T-FB021-US07-01): confirmacion de segunda pulsacion + single-flight,
+  // mismo idioma que el resto de la web. El agente debe ser OpenCode y no
+  // estar stopped.
+  function requestModelChange(agent) {
+    if (agentsSection.modelChangeAgentId) return; // single-flight
+    if (!agentsSection.modelChangePending || agentsSection.modelChangePending.agent_id !== agent.id) {
+      // Primer clic: mostrar selector de modelos.
+      agentsSection.modelChangePending = null;
+      agentsSection.modelChangeError = null;
+      renderModelSelector(agent);
+      return;
+    }
+    // Segundo clic: ejecutar el cambio.
+    var model = agentsSection.modelChangePending.model;
+    executeModelChange(agent, model);
+  }
+
+  function renderModelSelector(agent) {
+    // Si ya tenemos las opciones cacheadas, las mostramos directamente.
+    if (agentsSection.modelOptions) {
+      showModelPicker(agent, agentsSection.modelOptions);
+      return;
+    }
+    // Cargar opciones via API.
+    agentsSection.modelChangeAgentId = agent.id; // bloquea el boton mientras carga
+    renderAgentsBody();
+    BackendClient.getAgentAvailableModels(agent.id)
+      .then(function (result) {
+        agentsSection.modelChangeAgentId = null;
+        if (!result.supports_model) {
+          agentsSection.modelChangeError = "Este agente no admite cambio de modelo.";
+          renderAgentsBody();
+          return;
+        }
+        agentsSection.modelOptions = result.models;
+        showModelPicker(agent, result.models);
+      })
+      .catch(function (error) {
+        agentsSection.modelChangeAgentId = null;
+        agentsSection.modelChangeError = buildErrorMessage(error);
+        renderAgentsBody();
+      });
+  }
+
+  function showModelPicker(agent, models) {
+    if (!models || models.length === 0) {
+      agentsSection.modelChangeError = "No hay modelos disponibles para este agente.";
+      renderAgentsBody();
+      return;
+    }
+    // Usar confirmacion nativa como selector (mismo patron que la seccion
+    // Scripts para seleccionar script). Si hay un solo modelo, se usa
+    // directamente sin preguntar.
+    var chosen;
+    if (models.length === 1) {
+      chosen = models[0];
+    } else {
+      chosen = prompt(
+        "Elige un modelo para " + agent.name + ":\n\n" +
+        models.map(function (m, i) { return (i + 1) + ". " + m; }).join("\n") +
+        "\n\nEscribe el nombre exacto del modelo:"
+      );
+    }
+    if (!chosen) {
+      agentsSection.modelChangePending = null;
+      renderAgentsBody();
+      return;
+    }
+    // Verificar que el valor esta en la lista.
+    var found = models.filter(function (m) { return m === chosen.trim(); });
+    if (found.length === 0) {
+      agentsSection.modelChangeError = "El modelo '" + chosen + "' no esta en la lista de opciones.";
+      agentsSection.modelChangePending = null;
+      renderAgentsBody();
+      return;
+    }
+    // Fijar pendiente de confirmacion.
+    agentsSection.modelChangePending = { agent_id: agent.id, model: chosen.trim() };
+    agentsSection.modelChangeError = null;
+    renderAgentsBody();
+  }
+
+  function executeModelChange(agent, model) {
+    if (agentsSection.modelChangeAgentId) return;
+    agentsSection.modelChangePending = null;
+    agentsSection.modelChangeAgentId = agent.id;
+    agentsSection.modelChangeError = null;
+    renderAgentsBody();
+    BackendClient.setAgentModel(agent.id, model)
+      .then(function (result) {
+        agentsSection.modelChangeAgentId = null;
+        agentsSection.modelOptions = null; // invalidar cache para siguiente cambio
+        if (result.changed) {
+          agentsSection.actionMessage = "Modelo cambiado a " + model + ".";
+        } else {
+          agentsSection.modelChangeError = "No se pudo cambiar el modelo. El agente puede no estar respondiendo a las teclas.";
+        }
+        renderAgentsBody();
+        return pollAgents();
+      })
+      .catch(function (error) {
+        agentsSection.modelChangeAgentId = null;
+        agentsSection.modelOptions = null;
+        agentsSection.modelChangeError = buildErrorMessage(error);
+        renderAgentsBody();
+      });
+  }
+
   // ------------------------------------------------- pane de actividad
   // (punto 4): vista de SOLO lectura del contenido crudo del pane de tmux
   // (`GET /agents/{id}/pane`), con scroll si es largo. Un agente `stopped`
@@ -979,40 +1278,31 @@
 
     var form = h("div", "launch-form");
 
+    // Dropdown de combinaciones rol x modelo (T-FB022-US11-02):
+    // el runtime no se muestra ni se pide — esta resuelto internamente.
     var select = document.createElement("select");
     select.className = "clickable launch-select";
     catalog.forEach(function (opt, idx) {
       var o = document.createElement("option");
       o.setAttribute("value", String(idx));
-      o.textContent =
-        roleLabel(opt.agent_role) +
-        " sobre " +
-        opt.runtime_name +
-        (opt.supports_model ? " (admite modelo)" : " (no admite modelo)");
+      var label = roleLabel(opt.agent_role) + " sobre " + opt.model_name;
+      if (!opt.supports_model) label += " (no admite modelo)";
+      o.textContent = label;
       select.appendChild(o);
     });
     select.selectedIndex = agentsSection.optionIndex;
     select.addEventListener("change", function () {
       agentsSection.optionIndex = parseInt(select.value, 10) || 0;
+      // Limpiar modelInput al cambiar de opcion — el modelo ya viene fijado.
+      agentsSection.modelInput = "";
+      agentsSection.launchPending = false;
       renderAgentsBody();
     });
     form.appendChild(select);
 
-    var modelInput = document.createElement("input");
-    modelInput.type = "text";
-    modelInput.className = "clickable";
-    if (option.supports_model) {
-      modelInput.value = agentsSection.modelInput;
-      modelInput.placeholder = "Modelo (opcional, solo si el runtime lo admite)";
-      modelInput.addEventListener("input", function () {
-        agentsSection.modelInput = modelInput.value;
-      });
-    } else {
-      modelInput.disabled = true;
-      modelInput.value = "";
-      modelInput.placeholder = "Este runtime no admite modelo";
-    }
-    form.appendChild(modelInput);
+    // El modelo ya esta implicito en la opcion elegida (rol x modelo).
+    // No se muestra campo de modelo separado — el runtime se resuelve
+    // internamente desde el catalogo.
 
     var taskArea = document.createElement("textarea");
     taskArea.className = "clickable";
@@ -1026,10 +1316,18 @@
     // Single-flight (criterio 8): `launching` descarta una segunda
     // invocación mientras la primera sigue en vuelo (mismo criterio que
     // `SingleFlightAction`, Android); el botón además queda deshabilitado.
-    var launchBtn = button("Lanzar");
+    // T-FB024-US04-01: confirmación de segunda pulsación antes de lanzar.
+    var launchLabel;
+    if (agentsSection.launching) {
+      launchLabel = "Lanzando…";
+    } else if (agentsSection.launchPending) {
+      launchLabel = "¿Seguro? Confirmar lanzamiento";
+    } else {
+      launchLabel = "Lanzar";
+    }
+    var launchBtn = button(launchLabel);
     if (agentsSection.launching) {
       launchBtn.disabled = true;
-      launchBtn.textContent = "Lanzando…";
     }
     launchBtn.addEventListener("click", launchAgents);
     form.appendChild(launchBtn);
@@ -1045,25 +1343,36 @@
     return role.charAt(0).toUpperCase() + role.slice(1);
   }
 
+  // Nombre visible del runtime a partir de su id (T-FB024-US04-03).
+  function runtimeDisplayName(runtimeId) {
+    if (runtimeId === "claude-code") return "Claude Code";
+    if (runtimeId === "opencode") return "OpenCode";
+    return runtimeId || "(no disponible)";
+  }
+
   // Lanzar (`POST /agents`). Single-flight: si ya hay una petición en
   // vuelo, la segunda invocación se descarta de inmediato (no se encola,
-  // no se despacha un segundo agente).
+  // no se despacha un segundo agente). T-FB024-US04-01: confirmación de
+  // segunda pulsación antes de ejecutar.
   function launchAgents() {
     if (agentsSection.launching) return;
+    if (!agentsSection.launchPending) {
+      agentsSection.launchPending = true;
+      renderAgentsBody();
+      return;
+    }
     var option = agentsSection.catalog[agentsSection.optionIndex];
     if (!option) return;
 
     agentsSection.launching = true;
+    agentsSection.launchPending = false;
     agentsSection.actionMessage = null;
     // Re-render inmediato: el botón queda deshabilitado ("Lanzando…")
     // mientras la petición está en vuelo, además del descarte del segundo
     // clic por el single-flight.
     renderAgentsBody();
 
-    var payload = { role: option.agent_role, runtime_type: option.runtime_type };
-    if (option.supports_model && agentsSection.modelInput.trim()) {
-      payload.model = agentsSection.modelInput.trim();
-    }
+    var payload = { role: option.agent_role, model_id: option.model_id };
     if (agentsSection.taskInput.trim()) {
       payload.initial_job_description = agentsSection.taskInput.trim();
     }
@@ -1071,6 +1380,7 @@
     BackendClient.launchAgent(payload)
       .then(function (result) {
         agentsSection.launching = false;
+        agentsSection.launchPending = false;
         agentsSection.actionMessage = launchFeedbackMessageFor(result);
         renderAgentsBody();
         // Refleja el nuevo agente sin esperar al siguiente ciclo de polling.
@@ -1078,6 +1388,7 @@
       })
       .catch(function (error) {
         agentsSection.launching = false;
+        agentsSection.launchPending = false;
         agentsSection.actionMessage = buildErrorMessage(error);
         renderAgentsBody();
       });
@@ -1660,6 +1971,7 @@
     content.appendChild(plansSection.bodyWrap);
     connectPlansWebSocket();
     refreshPlansHistory();
+    loadTodoStories();
     renderPlansBody();
   }
 
@@ -1770,21 +2082,103 @@
     if (statusText) wrap.appendChild(h("p", "ws-status-note", statusText));
   }
 
+  // T-FB024-US04-02: carga las User Stories en TODO desde el backlog para
+  // poblar el selector del formulario de Plan.
+  function loadTodoStories() {
+    if (plansSection.todoStories !== null && !plansSection.todoStoriesError) return;
+    plansSection.todoStoriesLoading = true;
+    BackendClient.getBacklog()
+      .then(function (report) {
+        var epicsWithTodo = (report.by_epic || []).filter(function (epic) {
+          return epic.user_stories && epic.user_stories.TODO > 0;
+        });
+        if (epicsWithTodo.length === 0) {
+          plansSection.todoStories = [];
+          plansSection.todoStoriesLoading = false;
+          renderPlansBody();
+          return;
+        }
+        var fetched = 0;
+        var stories = [];
+        epicsWithTodo.forEach(function (epic) {
+          var epicId = epicIdFromLabel(epic.epic);
+          if (!epicId) {
+            fetched++;
+            if (fetched === epicsWithTodo.length) finish();
+            return;
+          }
+          BackendClient.getBacklogItem(epicId)
+            .then(function (detail) {
+              (detail.user_stories || []).forEach(function (us) {
+                if (us.state === "TODO") {
+                  stories.push({ id: us.id, epic: epicId, state: us.state });
+                }
+              });
+            })
+            .catch(function () {
+              // fallo puntual al cargar una epic concreta: se ignora
+            })
+            .finally(function () {
+              fetched++;
+              if (fetched === epicsWithTodo.length) finish();
+            });
+        });
+        function finish() {
+          plansSection.todoStories = stories;
+          plansSection.todoStoriesLoading = false;
+          if (state.section === "plan") renderPlansBody();
+        }
+      })
+      .catch(function (error) {
+        plansSection.todoStoriesLoading = false;
+        plansSection.todoStoriesError = buildErrorMessage(error);
+        if (state.section === "plan") renderPlansBody();
+      });
+  }
+
   // Punto 1: formulario para pedir un plan (`POST /plans`, campo `goal`
   // con el identificador de la User Story). Single-flight en el envío
   // (mismo criterio que enviar Job/lanzar agente).
+  // T-FB024-US04-02: `goal` es un selector poblado con las Stories TODO
+  // del backlog (no texto libre sin validar).
   function renderPlansForm(wrap) {
     var form = h("div", "plans-form");
     form.appendChild(h("div", "field-label", "Pedir un plan al Critic"));
-    var goalInput = document.createElement("input");
-    goalInput.type = "text";
-    goalInput.className = "clickable";
-    goalInput.placeholder = "Identificador de la User Story (p. ej. US-FB008-04)";
-    goalInput.value = plansSection.goalInput;
-    goalInput.addEventListener("input", function () {
-      plansSection.goalInput = goalInput.value;
-    });
-    form.appendChild(goalInput);
+
+    // T-FB024-US04-02: selector de User Stories TODO en vez de texto libre.
+    if (plansSection.todoStories === null || plansSection.todoStoriesLoading) {
+      form.appendChild(h("p", "section-note", "Cargando User Stories del backlog…"));
+    } else if (plansSection.todoStoriesError) {
+      form.appendChild(h("p", "agent-error", "No se pudo cargar el catálogo de User Stories."));
+      // Fallback: entrada de texto libre si la carga falló.
+      var fallbackInput = document.createElement("input");
+      fallbackInput.type = "text";
+      fallbackInput.className = "clickable";
+      fallbackInput.placeholder = "Identificador de User Story (p. ej. US-FB008-04)";
+      fallbackInput.value = plansSection.goalInput;
+      fallbackInput.addEventListener("input", function () {
+        plansSection.goalInput = fallbackInput.value;
+      });
+      form.appendChild(fallbackInput);
+    } else if (plansSection.todoStories.length === 0) {
+      form.appendChild(h("p", "section-note", "No hay User Stories en TODO en el backlog."));
+    } else {
+      var select = document.createElement("select");
+      select.className = "clickable launch-select";
+      if (plansSection.goalSelectIndex >= plansSection.todoStories.length) plansSection.goalSelectIndex = 0;
+      plansSection.todoStories.forEach(function (story, idx) {
+        var o = document.createElement("option");
+        o.setAttribute("value", String(idx));
+        o.textContent = story.id + " (" + (story.epic || "") + ") — TODO";
+        select.appendChild(o);
+      });
+      select.selectedIndex = plansSection.goalSelectIndex;
+      select.addEventListener("change", function () {
+        plansSection.goalSelectIndex = parseInt(select.value, 10) || 0;
+        renderPlansBody();
+      });
+      form.appendChild(select);
+    }
 
     var submit = button("Solicitar plan", "plan-submit");
     if (plansSection.requesting) {
@@ -1887,11 +2281,24 @@
 
   function requestPlan() {
     if (plansSection.requesting) return; // single-flight
-    var goal = plansSection.goalInput.trim();
-    if (!goal) {
-      plansSection.requestError = "Escribe un identificador de User Story antes de pedir el plan.";
-      renderPlansBody();
-      return;
+    // T-FB024-US04-02: el goal se toma del selector de TODO stories (si
+    // está disponible), o del input de texto libre como fallback.
+    var goal;
+    if (plansSection.todoStories && plansSection.todoStories.length > 0) {
+      var selected = plansSection.todoStories[plansSection.goalSelectIndex];
+      if (!selected) {
+        plansSection.requestError = "Elige una User Story antes de pedir el plan.";
+        renderPlansBody();
+        return;
+      }
+      goal = selected.id;
+    } else {
+      goal = plansSection.goalInput.trim();
+      if (!goal) {
+        plansSection.requestError = "Escribe un identificador de User Story antes de pedir el plan.";
+        renderPlansBody();
+        return;
+      }
     }
     plansSection.requesting = true;
     plansSection.requestError = null;
@@ -2244,7 +2651,6 @@
     renderScriptResult(wrap);
   }
 
-  // Catálogo en DOS grupos con cabecera (punto 1): "Genéricos (Factory
   // Brain)" y "Proyecto" — el origen no se mezcla en una lista
   // indistinguible (mismo criterio de Android `ScriptsScreen`).
   function renderScriptsCatalog(wrap) {
@@ -2283,12 +2689,14 @@
 
     if (generic.length > 0) {
       wrap.appendChild(h("div", "scripts-group-title", "Genéricos (Factory Brain)"));
+      wrap.appendChild(h("p", "section-note", "Scripts disponibles en cualquier proyecto del workspace."));
       generic.forEach(function (script) {
         wrap.appendChild(renderScriptCard(script));
       });
     }
     if (particular.length > 0) {
       wrap.appendChild(h("div", "scripts-group-title", "Proyecto"));
+      wrap.appendChild(h("p", "section-note", "Scripts específicos de este proyecto."));
       particular.forEach(function (script) {
         wrap.appendChild(renderScriptCard(script));
       });
@@ -2314,8 +2722,20 @@
     if (script.description) {
       card.appendChild(h("div", "script-description", String(script.description)));
     }
+
+    // Comando expandible: visible solo al pulsar "Ver comando".
     if (script.command) {
-      card.appendChild(h("div", "script-command", String(script.command)));
+      var expanded = scriptsSection._expandedCommandId === script.id;
+      var toggleLabel = expanded ? "▼ Ocultar comando" : "▶ Ver comando";
+      var toggleBtn = button(toggleLabel, "script-expand-toggle");
+      toggleBtn.addEventListener("click", function () {
+        scriptsSection._expandedCommandId = expanded ? null : script.id;
+        renderScriptsBody();
+      });
+      card.appendChild(toggleBtn);
+      if (expanded) {
+        card.appendChild(h("div", "script-command", String(script.command)));
+      }
     }
 
     if (needsMessage) {
@@ -2508,6 +2928,1273 @@
     return lines.join("\n");
   }
 
+  // ------------------------------------------------------------- BACKLOG
+  // (T-FB020-US04-01). Consume `GET /backlog`/`GET /backlog/{item_id}`/
+  // `POST /backlog/{story_id}/launch-development` (T-FB020-US01-01/
+  // US02-01, ambos `DONE`) — SIN cambios de backend. Patrón de
+  // expandir-en-el-sitio (mismo criterio que Jobs/Plan: nunca navega a
+  // otra pantalla), lista de Epics -> expandir muestra sus User Stories
+  // -> expandir una US muestra su detalle completo + "Lanzar desarrollo".
+  // Ver `backlogSection` (declarado arriba) para el shape completo del
+  // estado.
+
+  // Identificador de Epic (`FB-xxx`) a partir de la etiqueta libre
+  // `**Epic:**` de una US/Task (p. ej. "FB-020 · Gestión de Backlog
+  // (alcance v1)" -> "FB-020") — mismo criterio que `epicIdFromLabel`
+  // (Android)/`_epic_id_from_label` (TUI): el PREFIJO, no el string
+  // completo (distintas Tasks/US de la MISMA Epic real traen sufijos
+  // distintos, verificado sobre el backlog real de este proyecto:
+  // `FB-008` con 8 variantes). `null` si el label no sigue la
+  // convención (p. ej. el caso real "(ninguna — infraestructura de
+  // proyecto)").
+  function epicIdFromLabel(epicLabel) {
+    var match = /^(FB-\d{3,})/.exec(String(epicLabel || "").trim());
+    return match ? match[1] : null;
+  }
+
+  // Entrada de la sección: contenedor propio, recompone SIEMPRE desde
+  // `GET /backlog` al entrar (mismo criterio que Jobs/Plan/Scripts —
+  // nunca se pierde el estado de navegación entre pestañas porque vive
+  // en `backlogSection`, pero los DATOS se refrescan cada vez, punto 6:
+  // recontextualización por cambio de proyecto activo "gratis").
+  function renderBacklogInto(content) {
+    backlogSection.bodyWrap = h("div", "backlog-body");
+    content.appendChild(backlogSection.bodyWrap);
+    refreshBacklogReport();
+    renderBacklogBody();
+  }
+
+  // Recomposición del listado raíz desde `GET /backlog`. A diferencia de
+  // Jobs/Agentes (donde un 404 es "sin sesión" -> lista vacía), aquí un
+  // 404 real (sin proyecto activo) SÍ es un error a mostrar — mismo
+  // criterio ya fijado en Android/TUI y en el propio backend
+  // (T-FB020-US01-01). Un fallo puntual con lista previa ya vista
+  // conserva esa lista marcada `stale` (mismo criterio que Jobs/Plan).
+  function refreshBacklogReport() {
+    return BackendClient.getBacklog()
+      .then(function (report) {
+        backlogSection.report = report;
+        backlogSection.stale = false;
+        backlogSection.reportError = null;
+        if (state.section === "backlog") renderBacklogBody();
+      })
+      .catch(function (error) {
+        if (backlogSection.report !== null) {
+          backlogSection.stale = true;
+        } else {
+          backlogSection.reportError = buildErrorMessage(error);
+        }
+        if (state.section === "backlog") renderBacklogBody();
+      });
+  }
+
+  function renderBacklogBody() {
+    var wrap = backlogSection.bodyWrap;
+    if (!wrap || state.section !== "backlog") return;
+    wrap.textContent = "";
+    renderBacklogViewToggle(wrap);
+    if (backlogSection.viewMode === "by_fase") {
+      renderBacklogByFase(wrap);
+    } else {
+      renderBacklogEpicList(wrap);
+    }
+  }
+
+  function renderBacklogViewToggle(wrap) {
+    if (backlogSection.report === null || backlogSection.report.empty) return;
+    var header = h("div", "context-bar");
+    var flatBtn = button("Lista", "backlog-view-toggle");
+    if (backlogSection.viewMode === "flat") flatBtn.className += " active";
+    flatBtn.addEventListener("click", function () {
+      backlogSection.viewMode = "flat";
+      renderBacklogBody();
+    });
+    header.appendChild(flatBtn);
+    var faseBtn = button("Por Fase", "backlog-view-toggle");
+    if (backlogSection.viewMode === "by_fase") faseBtn.className += " active";
+    faseBtn.addEventListener("click", function () {
+      backlogSection.viewMode = "by_fase";
+      renderBacklogBody();
+    });
+    header.appendChild(faseBtn);
+    wrap.appendChild(header);
+  }
+
+  function renderBacklogByFase(wrap) {
+    var byEpic = backlogSection.report.by_epic || [];
+    var groups = {};
+    byEpic.forEach(function (epic) {
+      var fase = epic.fase || "SIN_ASIGNAR";
+      if (!groups[fase]) groups[fase] = [];
+      groups[fase].push(epic);
+    });
+    var ordered = Object.keys(groups).sort();
+    ordered.forEach(function (fase) {
+      var groupWrap = h("div", "backlog-fase-group");
+      groupWrap.appendChild(h("div", "backlog-fase-title", fase));
+      groups[fase].forEach(function (epic) {
+        renderBacklogEpicCard(groupWrap, epic);
+      });
+      wrap.appendChild(groupWrap);
+    });
+  }
+
+  // Listado raíz de Epics (criterio de aceptación 1/2): conteo por
+  // estado, igual que Android/TUI (T-FB020-US01-02). Cada fila expande/
+  // colapsa su detalle de User Stories in-place (criterio de aceptación
+  // 2), sin navegar a otra pantalla.
+  function renderBacklogEpicList(wrap) {
+    if (backlogSection.report === null) {
+      if (backlogSection.reportError) {
+        wrap.appendChild(h("p", "agent-error", backlogSection.reportError));
+      } else {
+        wrap.appendChild(h("p", "section-note", "Cargando backlog…"));
+      }
+      return;
+    }
+    if (backlogSection.stale) {
+      wrap.appendChild(
+        h("p", "stale-note", "Puede que este backlog esté desactualizado (sin conexión con el backend).")
+      );
+    }
+    var byEpic = backlogSection.report.by_epic || [];
+    if (backlogSection.report.empty || byEpic.length === 0) {
+      wrap.appendChild(h("p", "section-note", "El backlog está vacío (aún no hay Epics/User Stories)."));
+      return;
+    }
+    var realEpics = byEpic.filter(function (e) { return epicIdFromLabel(e.epic) !== null; });
+    var orphanItems = byEpic.filter(function (e) { return epicIdFromLabel(e.epic) === null; });
+    realEpics.forEach(function (epic) {
+      renderBacklogEpicCard(wrap, epic);
+    });
+    if (orphanItems.length > 0) {
+      var orphanHeader = h("div", "job-detail-label", "(sin epic)");
+      orphanHeader.style.opacity = "0.55";
+      wrap.appendChild(orphanHeader);
+      orphanItems.forEach(function (epic) {
+        renderBacklogEpicCard(wrap, epic);
+      });
+    }
+  }
+
+  function renderBacklogEpicCard(wrap, epic) {
+      var epicId = epicIdFromLabel(epic.epic);
+      var selected = epicId !== null && backlogSection.selectedEpicId === epicId;
+      var todoCount = (epic.user_stories && epic.user_stories.TODO || 0) + (epic.tasks && epic.tasks.TODO || 0);
+      var doneClass = todoCount === 0 ? " backlog-epic-done" : " backlog-epic-active";
+      var card = h("div", "job-card" + doneClass + (selected ? " job-card-selected" : ""));
+      var summaryParts = [epic.epic];
+      var usSummary = stateCountsSummary(epic.user_stories);
+      if (usSummary) summaryParts.push("US: " + usSummary);
+      var taskSummary = stateCountsSummary(epic.tasks);
+      if (taskSummary) summaryParts.push("Task: " + taskSummary);
+      var line = h("div", "job-line" + (selected ? " job-line-selected" : ""), summaryParts.join(" · "));
+      line.tabIndex = 0;
+      line.setAttribute("role", "button");
+      line.setAttribute("aria-expanded", selected ? "true" : "false");
+      if (epicId === null) {
+        // Caso real verificado sobre el backlog de este proyecto: el
+        // label libre "(ninguna — infraestructura de proyecto)" no
+        // sigue la convención `FB-xxx` — no hay ningún `item_id` de Epic
+        // que pedir, no hay nada que expandir para esta fila (mismo
+        // criterio que Android/TUI: se ignora el tap, no es un error).
+        card.appendChild(line);
+        wrap.appendChild(card);
+        return;
+      }
+      line.addEventListener("click", function () {
+        toggleEpicDetail(epicId);
+      });
+      card.appendChild(line);
+      renderHeatmapBar(card, epic);
+      card.appendChild(h("div", "job-hint", selected ? "▲ Plegar detalle" : "▼ Ver detalle"));
+      if (selected) {
+        card.appendChild(renderEpicDetail());
+      }
+      wrap.appendChild(card);
+  }
+
+  // Texto "estado=count, estado=count" ordenado por estado — mismo
+  // formato ya usado en Android/TUI para el resumen agregado por Epic.
+  function stateCountsSummary(counts) {
+    if (!counts) return "";
+    var keys = Object.keys(counts).sort();
+    if (keys.length === 0) return "";
+    return keys.map(function (k) { return k + "=" + counts[k]; }).join(", ");
+  }
+
+  // Despliegue del detalle de una Epic (criterio de aceptación 2): 1ª
+  // pulsación -> se consulta `GET /backlog/{epic_id}` y se muestra
+  // completo; 2ª pulsación -> se pliega. Mismo patrón que
+  // `togglePlanHistoryDetail` (lazy fetch + guard de respuesta obsoleta:
+  // si el usuario ya cambió de selección antes de que la petición
+  // resuelva, la respuesta se descarta).
+  function toggleEpicDetail(epicId) {
+    if (backlogSection.selectedEpicId === epicId) {
+      backlogSection.selectedEpicId = null;
+      backlogSection.epicDetail = null;
+      backlogSection.epicDetailError = null;
+      backlogSection.threadsResult = null;
+      backlogSection.threadsError = null;
+      closeItemDetail();
+      renderBacklogBody();
+      return;
+    }
+    backlogSection.selectedEpicId = epicId;
+    backlogSection.epicDetail = null;
+    backlogSection.epicDetailError = null;
+    backlogSection.threadsResult = null;
+    backlogSection.threadsError = null;
+    closeItemDetail();
+    renderBacklogBody();
+
+    BackendClient.getBacklogItem(epicId)
+      .then(function (detail) {
+        if (backlogSection.selectedEpicId !== epicId) return;
+        backlogSection.epicDetail = detail;
+        renderBacklogBody();
+      })
+      .catch(function (error) {
+        if (backlogSection.selectedEpicId !== epicId) return;
+        backlogSection.epicDetailError = buildErrorMessage(error);
+        renderBacklogBody();
+      });
+  }
+
+  function closeItemDetail() {
+    backlogSection.selectedItemId = null;
+    backlogSection.itemDetail = null;
+    backlogSection.itemDetailError = null;
+    backlogSection.launchError = null;
+    backlogSection.launchResult = null;
+    backlogSection.usJobs = null;
+    backlogSection.usJobsError = null;
+    backlogSection.manualJobAgents = null;
+    backlogSection.manualJobError = null;
+    backlogSection.manualJobResult = null;
+  }
+
+  // Aviso explícito de sección mal formada (criterio de aceptación 5,
+  // mismo patrón que `ParseWarningBanner`/Android y las líneas `⚠ ...`
+  // de la TUI): el resto del detalle disponible se muestra igual, esto
+  // solo añade el aviso visible encima.
+  function renderParseWarning(wrap, detail) {
+    if (!detail || !detail.parse_warning) return;
+    wrap.appendChild(h("p", "stale-note", "⚠ " + detail.parse_warning));
+  }
+
+  // Detalle de la Epic expandida (criterio de aceptación 2): objetivo +
+  // desglose de sus User Stories con estado — tocar una US expande su
+  // detalle completo (criterio de aceptación 3), sin navegar.
+  function renderEpicDetail() {
+    var box = h("div", "job-detail");
+    if (backlogSection.epicDetailError) {
+      box.appendChild(h("p", "agent-error", backlogSection.epicDetailError));
+      return box;
+    }
+    if (backlogSection.epicDetail === null) {
+      box.appendChild(h("p", "section-note", "Cargando…"));
+      return box;
+    }
+    var detail = backlogSection.epicDetail;
+    renderParseWarning(box, detail);
+    box.appendChild(h("div", "job-detail-field", "Objetivo: " + (detail.objetivo || "(sin objetivo declarado)")));
+
+    var userStories = detail.user_stories || [];
+    box.appendChild(h("div", "job-detail-label", "User Stories:"));
+    if (userStories.length === 0) {
+      box.appendChild(h("div", "job-detail-field", "(ninguna)"));
+      return box;
+    }
+    userStories.forEach(function (userStory) {
+      var selected = backlogSection.selectedItemId === userStory.id;
+      var todoClass = userStory.state === "DONE" ? " backlog-epic-done" : " backlog-epic-active";
+      var itemCard = h("div", "job-card" + todoClass + (selected ? " job-card-selected" : ""));
+      var itemLine = h(
+        "div",
+        "job-line" + (selected ? " job-line-selected" : ""),
+        userStory.id + " (" + userStory.state + ")"
+      );
+      itemLine.tabIndex = 0;
+      itemLine.setAttribute("role", "button");
+      itemLine.setAttribute("aria-expanded", selected ? "true" : "false");
+      itemLine.addEventListener("click", function () {
+        toggleItemDetail(userStory.id);
+      });
+      itemCard.appendChild(itemLine);
+      itemCard.appendChild(h("div", "job-hint", selected ? "▲ Plegar detalle" : "▼ Ver detalle"));
+      if (selected) {
+        itemCard.appendChild(renderItemDetail());
+      }
+      box.appendChild(itemCard);
+    });
+
+    // FB-026: botón "Generar hilos de desarrollo" en la Epic.
+    var threadBtn = button(
+      backlogSection.threadsInFlight ? "Analizando hilos…" : "Generar hilos de desarrollo",
+      "accion-run"
+    );
+    if (backlogSection.threadsInFlight) threadBtn.disabled = true;
+    threadBtn.addEventListener("click", function () {
+      if (backlogSection.threadsInFlight) return;
+      analyzeEpicThreads(detail.id);
+    });
+    box.appendChild(threadBtn);
+
+    if (backlogSection.threadsError) {
+      box.appendChild(h("p", "agent-error", backlogSection.threadsError));
+    }
+
+    if (backlogSection.threadsResult) {
+      renderThreadsResult(box);
+    }
+
+    return box;
+  }
+
+  function analyzeEpicThreads(epicId) {
+    backlogSection.threadsInFlight = true;
+    backlogSection.threadsError = null;
+    backlogSection.threadsResult = null;
+    renderBacklogBody();
+
+    BackendClient.analyzeEpicThreads(epicId)
+      .then(function (result) {
+        backlogSection.threadsInFlight = false;
+        backlogSection.threadsResult = result;
+        renderBacklogBody();
+      })
+      .catch(function (error) {
+        backlogSection.threadsInFlight = false;
+        backlogSection.threadsError = buildErrorMessage(error);
+        renderBacklogBody();
+      });
+  }
+
+  function renderThreadsResult(box) {
+    var r = backlogSection.threadsResult;
+    if (!r) return;
+
+    var resultBox = h("div", "accion-result");
+    resultBox.appendChild(h("h4", "accion-result-title", "Hilos de desarrollo · " + r.epic));
+    resultBox.appendChild(h("p", null,
+      r.num_tasks + " tareas en " + r.num_threads + " hilos" +
+      (r.num_crosses > 0 ? ", " + r.num_crosses + " cruces" : "")
+    ));
+
+    var threads = r.threads || [];
+    threads.forEach(function (thread) {
+      var threadBox = h("div", "job-detail-field");
+      threadBox.appendChild(h("strong", null, thread.id + " (nivel " + thread.start_level + ", " + thread.task_count + " tareas):"));
+      var taskList = h("div", null);
+      taskList.style.marginLeft = "1em";
+      (thread.tasks || []).forEach(function (tid) {
+        taskList.appendChild(h("div", null, tid));
+      });
+      threadBox.appendChild(taskList);
+      resultBox.appendChild(threadBox);
+    });
+
+    var crosses = r.crosses || [];
+    if (crosses.length > 0) {
+      var crossBox = h("div", "job-detail-label", "Cruces:");
+      crosses.forEach(function (c) {
+        crossBox.appendChild(h("div", "job-detail-field",
+          c.from_task + " (" + c.from_thread + ") → " + c.to_task + " (" + c.to_thread + ")"
+        ));
+      });
+      resultBox.appendChild(crossBox);
+    }
+
+    if (r.report_path) {
+      resultBox.appendChild(h("div", "job-hint", "Informe persistido: " + r.report_path));
+    }
+
+    box.appendChild(resultBox);
+  }
+
+  // Despliegue del detalle completo de una User Story/Task (criterio de
+  // aceptación 3): mismo patrón lazy-fetch + guard de respuesta obsoleta
+  // que `toggleEpicDetail`. Al abrir el detalle de una User Story, se
+  // carga también el catálogo de agentes Developer para el formulario
+  // "Lanzar desarrollo" (criterio de aceptación 4).
+  function toggleItemDetail(itemId) {
+    if (backlogSection.selectedItemId === itemId) {
+      closeItemDetail();
+      renderBacklogBody();
+      return;
+    }
+    backlogSection.selectedItemId = itemId;
+    backlogSection.itemDetail = null;
+    backlogSection.itemDetailError = null;
+    backlogSection.launchError = null;
+    backlogSection.launchResult = null;
+    renderBacklogBody();
+
+    BackendClient.getBacklogItem(itemId)
+      .then(function (detail) {
+        if (backlogSection.selectedItemId !== itemId) return;
+        backlogSection.itemDetail = detail;
+        renderBacklogBody();
+        if (detail.kind === "US") {
+          refreshDeveloperAgents();
+          loadJobsForUS(itemId);
+        }
+      })
+      .catch(function (error) {
+        if (backlogSection.selectedItemId !== itemId) return;
+        backlogSection.itemDetailError = buildErrorMessage(error);
+        renderBacklogBody();
+      });
+  }
+
+  // Detalle completo de una User Story/Task (criterio de aceptación 3):
+  // objetivo, criterios de aceptación, y — solo para una User Story — la
+  // lista de sus Tasks con estado + el formulario "Lanzar desarrollo"
+  // (criterio de aceptación 4).
+  function renderItemDetail() {
+    var box = h("div", "job-detail");
+    if (backlogSection.itemDetailError) {
+      box.appendChild(h("p", "agent-error", backlogSection.itemDetailError));
+      return box;
+    }
+    if (backlogSection.itemDetail === null) {
+      box.appendChild(h("p", "section-note", "Cargando…"));
+      return box;
+    }
+    var detail = backlogSection.itemDetail;
+    renderParseWarning(box, detail);
+    box.appendChild(h("div", "job-detail-field", "Estado: " + (detail.state || "desconocido")));
+    if (detail.epic) {
+      box.appendChild(h("div", "job-detail-field", "Epic: " + detail.epic));
+    }
+    box.appendChild(h("div", "job-detail-field", "Objetivo: " + (detail.objetivo || "(sin objetivo declarado)")));
+    box.appendChild(
+      h(
+        "div",
+        "job-detail-field",
+        "Criterios de aceptación: " + (detail.criterios_aceptacion || "(sin criterios declarados)")
+      )
+    );
+
+    // Solo presente para una User Story (`kind === "US"`) — una Task no
+    // trae este campo (backend: `build_item_detail`,
+    // `brain/backlog/detail.py`). "Lanzar desarrollo" es también
+    // exclusivo de una User Story, mismo criterio: el endpoint
+    // `POST /backlog/{story_id}/launch-development` solo acepta ids de
+    // User Story.
+    if (detail.kind === "US") {
+      var dependencies = detail.dependencies || [];
+      if (dependencies.length > 0) {
+        box.appendChild(h("div", "job-detail-label", "Dependencias:"));
+        dependencies.forEach(function (dep) {
+          var depState = dep.state || "desconocido";
+          var depClass = depState === "DONE" ? "job-status-ok" : "job-status-run";
+          box.appendChild(h("div", "job-detail-field " + depClass, dep.id + " — " + depState));
+        });
+      }
+      var tasks = detail.tasks || [];
+      box.appendChild(h("div", "job-detail-label", "Tasks:"));
+      if (tasks.length === 0) {
+        if (detail.state === "DONE") {
+          box.appendChild(h("div", "job-detail-field", "Todas las tareas completadas"));
+        } else {
+          box.appendChild(h("div", "job-detail-field", "El Arquitecto no ha desgranado esta Story todavía"));
+        }
+      } else {
+        tasks.forEach(function (task) {
+          box.appendChild(h("div", "job-detail-field", task.id + " — " + task.state));
+        });
+      }
+      box.appendChild(renderLaunchDevelopmentForm(detail.id));
+
+      // T-FB024-US09-02: historial de ejecuciones de esta US.
+      box.appendChild(renderUSJobHistory());
+
+      // T-FB024-US09-03: formulario manual de creacion de Job.
+      box.appendChild(renderManualJobForm(detail.id));
+    }
+    return box;
+  }
+
+  // Catálogo de agentes Developer ya lanzados (criterio de aceptación 4:
+  // "mismo catálogo que la sección Agentes/Jobs") — recompuesto cada vez
+  // que se abre el detalle de una User Story, mismo criterio que
+  // `refreshJobsAgents`, filtrado a `role === "developer"` (mismo
+  // criterio que `BacklogViewModel.refreshDeveloperAgents`, Android).
+  function refreshDeveloperAgents() {
+    backlogSection.developerAgentsError = null;
+    BackendClient.getAgents()
+      .then(function (agents) {
+        backlogSection.developerAgents = (agents || []).filter(function (agent) {
+          return agent.role === "developer";
+        });
+        if (backlogSection.developerAgentIndex >= backlogSection.developerAgents.length) {
+          backlogSection.developerAgentIndex = 0;
+        }
+        if (state.section === "backlog") renderBacklogBody();
+      })
+      .catch(function (error) {
+        backlogSection.developerAgents = [];
+        backlogSection.developerAgentsError = buildErrorMessage(error);
+        if (state.section === "backlog") renderBacklogBody();
+      });
+  }
+
+  function renderHeatmapBar(card, epic) {
+    var degree = typeof epic.unblock_degree === "number" ? epic.unblock_degree : 0;
+    var pct = Math.round(degree * 100);
+    var color;
+    if (degree >= 0.8) color = "#2e7d32";
+    else if (degree >= 0.5) color = "#ef6c00";
+    else color = "#d32f2f";
+    var bar = h("div", "backlog-heat-bar");
+    var fill = h("div", "backlog-heat-fill");
+    fill.style.width = pct + "%";
+    fill.style.background = color;
+    bar.appendChild(fill);
+    card.appendChild(bar);
+  }
+
+  function findBlockingDependencies() {
+    var detail = backlogSection.itemDetail;
+    if (!detail || !detail.dependencies) return [];
+    return detail.dependencies.filter(function (dep) {
+      return dep.state !== "DONE";
+    });
+  }
+
+  // T-FB024-US09-02: carga los Jobs del histórico de la sesión y filtra
+  // los que conciernen a esta US (la descripción contiene el US id).
+  function loadJobsForUS(usId) {
+    backlogSection.usJobs = null;
+    backlogSection.usJobsError = null;
+    BackendClient.getJobs()
+      .then(function (jobs) {
+        backlogSection.usJobs = (jobs || []).filter(function (job) {
+          return String(job.description || "").indexOf(usId) >= 0;
+        });
+        if (state.section === "backlog") renderBacklogBody();
+      })
+      .catch(function (error) {
+        backlogSection.usJobsError = buildErrorMessage(error);
+        if (state.section === "backlog") renderBacklogBody();
+      });
+  }
+
+  // T-FB024-US09-03: carga los agentes activos (sin stopped) de la sesion
+  // para el formulario manual de Job.
+  function loadManualJobAgents() {
+    backlogSection.manualJobAgents = null;
+    backlogSection.manualJobAgentsError = null;
+    BackendClient.getAgents()
+      .then(function (agents) {
+        backlogSection.manualJobAgents = (agents || []).filter(function (agent) {
+          return agent.status !== "stopped";
+        });
+        if (backlogSection.manualJobAgentIndex >= backlogSection.manualJobAgents.length) {
+          backlogSection.manualJobAgentIndex = 0;
+        }
+        if (state.section === "backlog") renderBacklogBody();
+      })
+      .catch(function (error) {
+        backlogSection.manualJobAgents = [];
+        backlogSection.manualJobAgentsError = buildErrorMessage(error);
+        if (state.section === "backlog") renderBacklogBody();
+      });
+  }
+
+  // Formulario "Lanzar desarrollo" (criterio de aceptación 4, consume
+  // `POST /backlog/{story_id}/launch-development`, T-FB020-US02-01): el
+  // backend resuelve el contexto completo (objetivo + Tasks TODO), aquí
+  // solo se elige el agente Developer destinatario y se despacha — sin
+  // escribir ninguna descripción a mano.
+  function renderLaunchDevelopmentForm(storyId) {
+    var form = h("div", "jobs-form");
+    form.appendChild(h("div", "jobs-form-title", "Lanzar desarrollo"));
+
+    if (backlogSection.developerAgents === null) {
+      form.appendChild(h("p", "section-note", "Cargando agentes…"));
+      return form;
+    }
+    if (backlogSection.developerAgentsError) {
+      form.appendChild(h("p", "agent-error", backlogSection.developerAgentsError));
+      return form;
+    }
+    if (backlogSection.developerAgents.length === 0) {
+      form.appendChild(
+        h(
+          "p",
+          "agent-error",
+          "No hay ningún agente Developer lanzado en la sesión activa. Lanza uno desde la pestaña Agentes antes de lanzar el desarrollo."
+        )
+      );
+      return form;
+    }
+
+    form.appendChild(h("div", "field-label", "Agente Developer destinatario"));
+    var select = document.createElement("select");
+    select.className = "clickable launch-select";
+    backlogSection.developerAgents.forEach(function (agent, idx) {
+      var o = document.createElement("option");
+      o.setAttribute("value", String(idx));
+      o.textContent = agent.name + " (" + agent.role + ")";
+      select.appendChild(o);
+    });
+    select.selectedIndex = backlogSection.developerAgentIndex;
+    select.addEventListener("change", function () {
+      backlogSection.developerAgentIndex = parseInt(select.value, 10) || 0;
+      renderBacklogBody();
+    });
+    form.appendChild(select);
+
+    var blockingDeps = findBlockingDependencies();
+    var isBlocked = blockingDeps.length > 0;
+
+    var launchBtn = button("Lanzar desarrollo", "backlog-launch");
+    if (isBlocked || backlogSection.launchingDevelopment) {
+      launchBtn.disabled = true;
+      launchBtn.textContent = backlogSection.launchingDevelopment ? "Lanzando…" : "Lanzar desarrollo";
+    }
+    if (!isBlocked) {
+      launchBtn.addEventListener("click", function () {
+        dispatchLaunchDevelopment(storyId);
+      });
+    }
+    form.appendChild(launchBtn);
+
+    if (isBlocked) {
+      var blockerNames = blockingDeps.map(function (dep) {
+        return dep.id + " (" + dep.state + ")";
+      }).join(", ");
+      form.appendChild(h("p", "agent-error", "Bloqueada por: " + blockerNames));
+    }
+
+    if (backlogSection.launchError) {
+      // Criterio de aceptación explícito: el motivo REAL del backend
+      // (400 sin Tasks TODO, 404 agente inválido) — `buildErrorMessage`
+      // ya surge del `detail` verbatim de `BackendRequestError`, nunca
+      // un mensaje genérico (mismo patrón que T-FB021-US04-01).
+      form.appendChild(h("p", "agent-error", backlogSection.launchError));
+    }
+    if (backlogSection.launchResult) {
+      form.appendChild(
+        h(
+          "p",
+          "section-note",
+          "Job despachado (" + backlogSection.launchResult.status + ") — visible en la pestaña Jobs."
+        )
+      );
+    }
+    return form;
+  }
+
+  // T-FB024-US09-02: historial de ejecuciones de la US expandida.
+  function renderUSJobHistory() {
+    var box = h("div", "job-detail");
+    box.appendChild(h("div", "job-detail-label", "Historial de ejecuciones"));
+
+    if (backlogSection.usJobsError) {
+      box.appendChild(h("p", "agent-error", backlogSection.usJobsError));
+      return box;
+    }
+    var jobs = backlogSection.usJobs;
+    if (jobs === null) {
+      box.appendChild(h("p", "section-note", "Cargando…"));
+      return box;
+    }
+    if (jobs.length === 0) {
+      box.appendChild(h("p", "section-note", "Sin ejecuciones registradas."));
+      return box;
+    }
+
+    jobs.forEach(function (job) {
+      var statusColor = job.status === "completed" ? "ok" : job.status === "failed" || job.status === "cancelled" ? "ko" : "run";
+      var line = h("div", "job-line job-status-" + statusColor, "[" + job.status + "] " + (job.agent_id || "") + " — " + String(job.description || "").split("\n")[0].slice(0, 80));
+      box.appendChild(line);
+      if (job.result) {
+        box.appendChild(h("div", "job-result", String(job.result).slice(0, 500)));
+      }
+    });
+    return box;
+  }
+
+  // T-FB024-US09-03: formulario manual de creacion de Job como accion
+  // secundaria en el detalle de la US.
+  function renderManualJobForm(usId) {
+    var form = h("div", "jobs-form");
+    form.appendChild(h("div", "jobs-form-title", "Crear Job manual"));
+
+    // Si el usuario no ha pulsado aun para cargar los agentes, mostrar solo
+    // el boton de "Mostrar formulario".
+    if (backlogSection.manualJobAgents === null) {
+      var showBtn = button("Mostrar formulario de creación manual");
+      showBtn.addEventListener("click", function () {
+        loadManualJobAgents();
+      });
+      form.appendChild(showBtn);
+      return form;
+    }
+
+    if (backlogSection.manualJobAgentsError) {
+      form.appendChild(h("p", "agent-error", "No se pudieron cargar los agentes: " + backlogSection.manualJobAgentsError));
+      return form;
+    }
+    if (backlogSection.manualJobAgents.length === 0) {
+      form.appendChild(h("p", "section-note", "No hay ningún agente activo en la sesión. Lanza un agente y vuelve a intentarlo."));
+      return form;
+    }
+
+    form.appendChild(h("div", "field-label", "Agente destinatario"));
+    var select = document.createElement("select");
+    select.className = "clickable launch-select";
+    backlogSection.manualJobAgents.forEach(function (agent, idx) {
+      var o = document.createElement("option");
+      o.setAttribute("value", String(idx));
+      o.textContent = agent.name + " (" + agent.role + ")";
+      select.appendChild(o);
+    });
+    select.selectedIndex = backlogSection.manualJobAgentIndex;
+    select.addEventListener("change", function () {
+      backlogSection.manualJobAgentIndex = parseInt(select.value, 10) || 0;
+      renderBacklogBody();
+    });
+    form.appendChild(select);
+
+    form.appendChild(h("div", "field-label", "Describe la tarea"));
+    var descArea = document.createElement("textarea");
+    descArea.className = "clickable";
+    descArea.value = backlogSection.manualJobDescription;
+    descArea.placeholder = "Describe la tarea que debe realizar el agente.";
+    descArea.addEventListener("input", function () {
+      backlogSection.manualJobDescription = descArea.value;
+    });
+    form.appendChild(descArea);
+
+    var submit = button(backlogSection.creatingManualJob ? "Enviando…" : "Crear Job");
+    if (backlogSection.creatingManualJob) submit.disabled = true;
+    submit.addEventListener("click", function () {
+      submitManualJob();
+    });
+    form.appendChild(submit);
+
+    if (backlogSection.manualJobError) {
+      form.appendChild(h("p", "agent-error", backlogSection.manualJobError));
+    }
+    if (backlogSection.manualJobResult) {
+      form.appendChild(
+        h("p", "section-note", "Job " + backlogSection.manualJobResult.id + " despachado (" + backlogSection.manualJobResult.status + ").")
+      );
+    }
+    return form;
+  }
+
+  function submitManualJob() {
+    if (backlogSection.creatingManualJob) return;
+    var agent = backlogSection.manualJobAgents[backlogSection.manualJobAgentIndex];
+    if (!agent) {
+      backlogSection.manualJobError = "Elige un agente destinatario.";
+      renderBacklogBody();
+      return;
+    }
+    var description = backlogSection.manualJobDescription.trim();
+    if (!description) {
+      backlogSection.manualJobError = "Escribe una descripción antes de enviar.";
+      renderBacklogBody();
+      return;
+    }
+    backlogSection.creatingManualJob = true;
+    backlogSection.manualJobError = null;
+    backlogSection.manualJobResult = null;
+    renderBacklogBody();
+
+    BackendClient.createAndDispatchJob({ agent_id: agent.id, description: description })
+      .then(function (job) {
+        backlogSection.creatingManualJob = false;
+        backlogSection.manualJobResult = job;
+        backlogSection.manualJobDescription = "";
+        renderBacklogBody();
+        // Recargar el historial de jobs para la US.
+        var usId = backlogSection.selectedItemId;
+        if (usId) loadJobsForUS(usId);
+      })
+      .catch(function (error) {
+        backlogSection.creatingManualJob = false;
+        backlogSection.manualJobError = buildErrorMessage(error);
+        renderBacklogBody();
+      });
+  }
+
+  // Despacho single-flight (criterio de aceptación explícito de
+  // T-FB020-US02-02, reutilizado aquí: "un segundo clic mientras la
+  // petición anterior sigue en vuelo no despacha un segundo Job") —
+  // mismo guard hand-rolled que el resto de acciones de esta web
+  // (`launching`/`createInFlight`/`runningScriptId`): primera línea
+  // descarta la reentrada, el guard se fija ANTES de la llamada real y
+  // se limpia en `.then()`/`.catch()`. Tras el éxito, el Job despachado
+  // ya es consultable en la pestaña Jobs (`GET /jobs`) sin ningún cambio
+  // adicional aquí — mismo mecanismo que un Job normal.
+  function dispatchLaunchDevelopment(storyId) {
+    if (backlogSection.launchingDevelopment) return;
+    var agent = backlogSection.developerAgents[backlogSection.developerAgentIndex];
+    if (!agent) return;
+    backlogSection.launchingDevelopment = true;
+    backlogSection.launchError = null;
+    backlogSection.launchResult = null;
+    renderBacklogBody();
+    BackendClient.launchDevelopment(storyId, agent.id)
+      .then(function (job) {
+        backlogSection.launchingDevelopment = false;
+        backlogSection.launchResult = job;
+        renderBacklogBody();
+      })
+      .catch(function (error) {
+        backlogSection.launchingDevelopment = false;
+        backlogSection.launchError = buildErrorMessage(error);
+        renderBacklogBody();
+      });
+  }
+
+  // ----------------------------------------------- seccion ROLES (US08-01)
+  function renderRolesInto(content) {
+    rolesSection.bodyWrap = content;
+    if (rolesSection.state === null) {
+      loadRolesPreferences();
+      content.appendChild(h("p", "section-note", "Cargando catálogo de modelos…"));
+      return;
+    }
+    if (rolesSection.state === "loading") {
+      content.appendChild(h("p", "section-note", "Cargando catálogo de modelos…"));
+      return;
+    }
+    if (rolesSection.state === "unavailable") {
+      content.appendChild(h("p", "agent-error", rolesSection.error));
+      return;
+    }
+    renderRolesBody();
+  }
+
+  function loadRolesPreferences() {
+    rolesSection.state = "loading";
+    BackendClient.getModelsPreferences()
+      .then(function (result) {
+        rolesSection.state = "ready";
+        rolesSection.models = result.models || [];
+        rolesSection.defaults = result.defaults || {};
+        renderRolesBody();
+      })
+      .catch(function (error) {
+        rolesSection.state = "unavailable";
+        rolesSection.error = buildErrorMessage(error);
+        renderRolesBody();
+      });
+  }
+
+  function renderRolesBody() {
+    var wrap = rolesSection.bodyWrap;
+    if (!wrap) return;
+
+    if (rolesSection.state !== "ready") return;
+
+    // 4 roles fijos con su descripción y modelo.
+    var roleDefs = [
+      { role: "director", name: "Director", description: "Define la visión del producto y decide qué User Stories entran en cada fase." },
+      { role: "arquitecto", name: "Arquitecto", description: "Revisa la consistencia técnica y arquitectura, valida planes y veredictos." },
+      { role: "developer", name: "Developer", description: "Implementa las User Stories del backlog siguiendo sus Tasks." },
+      { role: "tester", name: "Tester", description: "Genera y ejecuta tests para verificar los criterios de aceptación." },
+    ];
+
+    var enabledModels = rolesSection.models.filter(function (m) { return m.enabled; });
+
+    roleDefs.forEach(function (def) {
+      var card = h("div", "agent-card");
+      card.appendChild(h("div", "agent-name", def.name));
+      card.appendChild(h("div", "script-description", def.description));
+
+      var defaultModel = rolesSection.defaults[def.role];
+      var modelLabel = defaultModel || "sin default";
+      card.appendChild(h("div", "agent-model", "Modelo: " + modelLabel));
+
+      // Boton "Cambiar modelo" (T-FB024-US08-02).
+      var editing = rolesSection.editingRole === def.role;
+      if (editing) {
+        var select = document.createElement("select");
+        select.className = "clickable launch-select";
+        select.style.margin = "6px 0";
+        var noneOpt = document.createElement("option");
+        noneOpt.value = "";
+        noneOpt.textContent = "— sin default —";
+        select.appendChild(noneOpt);
+        enabledModels.forEach(function (model, idx) {
+          var o = document.createElement("option");
+          o.value = String(idx);
+          o.textContent = model.name + " (" + model.runtime + ")";
+          if (defaultModel === model.id) o.selected = true;
+          select.appendChild(o);
+        });
+        select.addEventListener("change", function () {
+          rolesSection.modelIndex = parseInt(select.value, 10) || 0;
+        });
+        card.appendChild(select);
+
+        var saveBtn = button(rolesSection.saving ? "Guardando…" : "Guardar modelo");
+        if (rolesSection.saving) saveBtn.disabled = true;
+        saveBtn.addEventListener("click", function () {
+          saveRoleModel(def.role);
+        });
+        card.appendChild(saveBtn);
+
+        var cancelBtn = button("Cancelar", "agent-model-change");
+        cancelBtn.addEventListener("click", function () {
+          rolesSection.editingRole = null;
+          rolesSection.modelIndex = 0;
+          rolesSection.saveError = null;
+          renderRolesBody();
+        });
+        card.appendChild(cancelBtn);
+
+        if (rolesSection.saveError) {
+          card.appendChild(h("p", "agent-error", rolesSection.saveError));
+        }
+      } else {
+        var changeBtn = button("Cambiar modelo");
+        changeBtn.addEventListener("click", function () {
+          rolesSection.editingRole = def.role;
+          rolesSection.modelIndex = 0;
+          rolesSection.saveError = null;
+          renderRolesBody();
+        });
+        card.appendChild(changeBtn);
+      }
+
+      wrap.appendChild(card);
+    });
+  }
+
+  function saveRoleModel(role) {
+    if (rolesSection.saving) return;
+    var enabledModels = rolesSection.models.filter(function (m) { return m.enabled; });
+    var modelId;
+    if (rolesSection.modelIndex >= 0 && rolesSection.modelIndex < enabledModels.length) {
+      modelId = enabledModels[rolesSection.modelIndex].id;
+    } else {
+      modelId = undefined;
+    }
+
+    var newDefaults = {};
+    Object.keys(rolesSection.defaults).forEach(function (r) {
+      newDefaults[r] = rolesSection.defaults[r];
+    });
+    if (modelId) {
+      newDefaults[role] = modelId;
+    } else {
+      delete newDefaults[role];
+    }
+
+    rolesSection.saving = true;
+    rolesSection.saveError = null;
+    renderRolesBody();
+
+    BackendClient.updateModelsPreferences({ default_model_by_role: newDefaults })
+      .then(function (result) {
+        rolesSection.saving = false;
+        rolesSection.editingRole = null;
+        rolesSection.defaults = result.default_model_by_role || {};
+        renderRolesBody();
+      })
+      .catch(function (error) {
+        rolesSection.saving = false;
+        rolesSection.saveError = buildErrorMessage(error);
+        renderRolesBody();
+      });
+  }
+
+  // ----------------------------------------------- seccion MODELOS (US10-02)
+  function renderModelsInto(content) {
+    modelsSection.bodyWrap = content;
+    if (modelsSection.state === null) {
+      loadModelsPreferences();
+      content.appendChild(h("p", "section-note", "Cargando catálogo de modelos…"));
+      return;
+    }
+    if (modelsSection.state === "loading") {
+      content.appendChild(h("p", "section-note", "Cargando catálogo de modelos…"));
+      return;
+    }
+    if (modelsSection.state === "unavailable") {
+      content.appendChild(h("p", "agent-error", modelsSection.error));
+      return;
+    }
+    renderModelsBody();
+  }
+
+  function loadModelsPreferences() {
+    modelsSection.state = "loading";
+    BackendClient.getModelsPreferences()
+      .then(function (result) {
+        modelsSection.state = "ready";
+        modelsSection.models = result.models || [];
+        modelsSection.defaults = result.defaults || {};
+        modelsSection.dirty = false;
+        renderModelsBody();
+      })
+      .catch(function (error) {
+        modelsSection.state = "unavailable";
+        modelsSection.error = buildErrorMessage(error);
+        renderModelsBody();
+      });
+  }
+
+  function renderModelsBody() {
+    var wrap = modelsSection.bodyWrap;
+    if (!wrap) return;
+    wrap.textContent = "";
+
+    if (modelsSection.state !== "ready") return;
+
+    var form = h("div", "jobs-form");
+
+    // Tabla de modelos con checkbox de habilitado.
+    form.appendChild(h("div", "jobs-form-title", "Modelos disponibles"));
+    if (modelsSection.models.length === 0) {
+      form.appendChild(h("p", "section-note", "El catálogo de modelos está vacío."));
+    } else {
+      modelsSection.models.forEach(function (model, idx) {
+        var row = h("div", "model-row");
+        var label = document.createElement("label");
+        label.className = "model-checkbox-label";
+        var cb = document.createElement("input");
+        cb.type = "checkbox";
+        cb.checked = model.enabled;
+        cb.addEventListener("change", function () {
+          modelsSection.models[idx].enabled = cb.checked;
+          modelsSection.dirty = true;
+          renderModelsBody();
+        });
+        label.appendChild(cb);
+        label.appendChild(document.createTextNode(" " + model.name + " (" + model.runtime + ")"));
+        row.appendChild(label);
+        form.appendChild(row);
+      });
+    }
+
+    // Defaults por rol.
+    form.appendChild(h("div", "jobs-form-title", "Modelo por defecto (opcional)"));
+    var roles = ["developer", "critic", "arquitecto", "tester"];
+    var enabledModels = modelsSection.models.filter(function (m) { return m.enabled; });
+    roles.forEach(function (role) {
+      var row = h("div", "model-row");
+      var label = h("span", "model-role-label", roleCaption(role) + ": ");
+      var select = document.createElement("select");
+      select.className = "clickable";
+      var opt = document.createElement("option");
+      opt.value = "";
+      opt.textContent = "— sin default —";
+      select.appendChild(opt);
+      enabledModels.forEach(function (model) {
+        var o = document.createElement("option");
+        o.value = model.id;
+        o.textContent = model.name;
+        if (modelsSection.defaults[role] === model.id) {
+          o.selected = true;
+        }
+        select.appendChild(o);
+      });
+      select.addEventListener("change", function () {
+        modelsSection.defaults[role] = select.value || undefined;
+        if (!select.value) delete modelsSection.defaults[role];
+        modelsSection.dirty = true;
+        renderModelsBody();
+      });
+      row.appendChild(label);
+      row.appendChild(select);
+      form.appendChild(row);
+    });
+
+    // Botón de guardar.
+    var saveBtn = button("Guardar preferencias");
+    if (modelsSection.saving) {
+      saveBtn.disabled = true;
+      saveBtn.textContent = "Guardando…";
+    }
+    saveBtn.addEventListener("click", saveModelsPreferences);
+    form.appendChild(saveBtn);
+
+    if (modelsSection.saveError) {
+      form.appendChild(h("p", "agent-error", modelsSection.saveError));
+    }
+
+    if (!modelsSection.dirty && !modelsSection.saving) {
+      form.appendChild(h("p", "section-note", "Sin cambios pendientes."));
+    }
+
+    wrap.appendChild(form);
+  }
+
+  function roleCaption(role) {
+    return role.charAt(0).toUpperCase() + role.slice(1);
+  }
+
+  function saveModelsPreferences() {
+    if (modelsSection.saving) return;
+    modelsSection.saving = true;
+    modelsSection.saveError = null;
+    renderModelsBody();
+
+    var payload = {
+      enabled_model_ids: modelsSection.models
+        .filter(function (m) { return !m.enabled; })
+        .length === 0
+        ? []
+        : modelsSection.models
+            .filter(function (m) { return m.enabled; })
+            .map(function (m) { return m.id; }),
+      default_model_by_role: modelsSection.defaults,
+    };
+
+    BackendClient.updateModelsPreferences(payload)
+      .then(function (result) {
+        modelsSection.saving = false;
+        modelsSection.dirty = false;
+        modelsSection.defaults = result.default_model_by_role || {};
+        renderModelsBody();
+      })
+      .catch(function (error) {
+        modelsSection.saving = false;
+        modelsSection.saveError = buildErrorMessage(error);
+        renderModelsBody();
+      });
+  }
+
+  // ------------------------------------------------------------- FB-025
+  // Acciones transversales de proyecto (US-FB025-01 a US-FB025-07):
+  // botones directos que despachan Jobs al Arquitecto o ejecutan scripts
+  // deterministas, sin pasar por conversación con el Director.
+
+  var ACCIONES = [
+    { id: "documentar", label: "Documentar todo", desc: "Revisa que la documentación en 01-documentacion/ esté al día con el código real. Propone cambios, no escribe directamente." },
+    { id: "analizar-arquitectura", label: "Analizar arquitectura", desc: "Análisis de arquitectura con evidencia de código real. Informe para decisión humana." },
+    { id: "sugerir-ideas", label: "Sugerir ideas para el backlog", desc: "Propone ideas candidatas de Epics/User Stories a partir del estado actual del proyecto. No escribe a 02-backlog/." },
+    { id: "testear", label: "Testear todo", desc: "Ejecuta la suite completa de tests del proyecto. Resultado determinista (pasa/falla), sin corrección automática." },
+    { id: "auditar-ux", label: "Auditar UX de la web", desc: "Lanza una auditoría UX headless de la interfaz web con opencode run --auto (sin tmux). Sigue el protocolo de 00-gobierno/UX.md." },
+    { id: "indexar", label: "Indexar proyecto (Scribe)", desc: "Genera un índice temático del proyecto usando el modelo local de Ollama. Sin gastar tokens de los agentes principales." },
+  ];
+
+  function renderAccionesInto(content) {
+    accionesSection.bodyWrap = content;
+    content.appendChild(h("p", "section-note", "Cada botón despacha la acción directamente, sin pasar por conversación con el Director."));
+
+    ACCIONES.forEach(function (accion) {
+      var card = h("div", "accion-card");
+      var header = h("div", "accion-card-header");
+      header.appendChild(h("span", "accion-label", accion.label));
+      card.appendChild(header);
+      card.appendChild(h("div", "accion-desc", accion.desc));
+
+      var isRunning = accionesSection.inFlight === accion.id;
+      var runBtn = button(isRunning ? "Ejecutando…" : "Ejecutar", "accion-run");
+      if (accionesSection.inFlight !== null) runBtn.disabled = true;
+      runBtn.addEventListener("click", function () {
+        dispatchAccion(accion.id);
+      });
+      card.appendChild(runBtn);
+      content.appendChild(card);
+    });
+
+    if (accionesSection.result && accionesSection.inFlight === null) {
+      renderAccionResult(content);
+    }
+    if (accionesSection.error) {
+      var errBox = h("div", "accion-result");
+      errBox.appendChild(h("p", "agent-error", accionesSection.error));
+      content.appendChild(errBox);
+    }
+  }
+
+  function dispatchAccion(actionId) {
+    if (accionesSection.inFlight) return;
+    accionesSection.inFlight = actionId;
+    accionesSection.error = null;
+    accionesSection.result = null;
+    renderAccionesBody();
+
+    BackendClient.runProjectAction(actionId)
+      .then(function (result) {
+        accionesSection.inFlight = null;
+        accionesSection.result = result;
+        renderAccionesBody();
+      })
+      .catch(function (error) {
+        accionesSection.inFlight = null;
+        accionesSection.error = buildErrorMessage(error);
+        renderAccionesBody();
+      });
+  }
+
+  function renderAccionesBody() {
+    var wrap = accionesSection.bodyWrap;
+    if (!wrap || state.section !== "acciones") return;
+    wrap.textContent = "";
+    ACCIONES.forEach(function (accion) {
+      var card = h("div", "accion-card");
+      var header = h("div", "accion-card-header");
+      header.appendChild(h("span", "accion-label", accion.label));
+      card.appendChild(header);
+      card.appendChild(h("div", "accion-desc", accion.desc));
+
+      var isRunning = accionesSection.inFlight === accion.id;
+      var runBtn = button(isRunning ? "Ejecutando…" : "Ejecutar", "accion-run");
+      if (accionesSection.inFlight !== null) runBtn.disabled = true;
+      runBtn.addEventListener("click", function () {
+        dispatchAccion(accion.id);
+      });
+      card.appendChild(runBtn);
+      wrap.appendChild(card);
+    });
+    if (accionesSection.error) {
+      var errBox = h("div", "accion-result");
+      errBox.appendChild(h("p", "agent-error", accionesSection.error));
+      wrap.appendChild(errBox);
+    }
+    if (accionesSection.result) {
+      renderAccionResult(wrap);
+    }
+  }
+
+  function renderAccionResult(wrap) {
+    var r = accionesSection.result;
+    if (!r) return;
+    var box = h("div", "accion-result");
+    if (r.action === "testear") {
+      box.appendChild(h("h4", "accion-result-title", "Resultado de testear todo"));
+      var exitBadge = r.success ? h("span", "accion-exit-success", "PASA") : h("span", "accion-exit-fail", "FALLA");
+      box.appendChild(h("p", null, exitBadge));
+      if (r.exit_code !== null && r.exit_code !== undefined) {
+        box.appendChild(h("p", null, "Exit code: " + r.exit_code));
+      }
+      if (r.stdout) {
+        var pre = h("pre", "accion-stdout", r.stdout);
+        box.appendChild(pre);
+      }
+      if (r.stderr) {
+        var preErr = h("pre", "accion-stderr", r.stderr);
+        box.appendChild(h("p", "accion-stderr-label", "Stderr:"));
+        box.appendChild(preErr);
+      }
+      if (r.error_message) {
+        box.appendChild(h("p", "agent-error", r.error_message));
+      }
+    } else {
+      var labelMap = { documentar: "Documentar todo", "analizar-arquitectura": "Analizar arquitectura", "sugerir-ideas": "Sugerir ideas para el backlog", "auditar-ux": "Auditar UX de la web", "indexar": "Indexar proyecto (Scribe)" };
+      box.appendChild(h("h4", "accion-result-title", "Resultado de " + (labelMap[r.action] || r.action)));
+      box.appendChild(h("p", null, "Job: " + (r.job_id || "—") + " | Estado: " + (r.status || "—")));
+      if (r.result) {
+        var pre = h("pre", "accion-stdout", r.result);
+        box.appendChild(pre);
+      }
+    }
+    wrap.appendChild(box);
+  }
 
   async function checkConnectivity() {
     clearRoot();
@@ -2530,11 +4217,28 @@
       state.projects = projects;
       state.active = active;
       state.contextError = null;
+      loadPendingBacklogCount();
       render();
     } catch (error) {
       state.contextError = buildErrorMessage(error);
       render();
     }
+  }
+
+  function loadPendingBacklogCount() {
+    BackendClient.getBacklog()
+      .then(function (report) {
+        var count = 0;
+        (report.by_epic || []).forEach(function (epic) {
+          count += (epic.user_stories && epic.user_stories.TODO || 0)
+                 + (epic.tasks && epic.tasks.TODO || 0);
+        });
+        state.pendingBacklogCount = count;
+        render();
+      })
+      .catch(function () {
+        state.pendingBacklogCount = 0;
+      });
   }
 
   function buildErrorMessage(error) {
@@ -2621,7 +4325,7 @@
         // Al cambiar de proyecto se resetea el contexto; las secciones
         // operativas se vuelven a cargar para la nueva sesión (sus datos
         // dependen del proyecto activo).
-        state.sections = { agents: null, jobs: null, plan: null, scripts: null };
+        state.sections = { agents: null, jobs: null, plan: null, scripts: null, backlog: null, roles: null };
         return loadContext();
       })
       .catch(function (error) {
