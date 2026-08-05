@@ -3,7 +3,7 @@ import uuid
 import libtmux
 import pytest
 
-from brain.agents import CRITIC_ROLE, DEVELOPER_ROLE
+from brain.agents import ARQUITECTO_ROLE, DEVELOPER_ROLE
 from brain.core.session_lifecycle import activate, list_agents
 from brain.agents.launch import AgentLaunchError, launch_agent
 from brain.models import DevelopmentSession
@@ -46,13 +46,13 @@ def _active_session() -> DevelopmentSession:
     return session
 
 
-def test_launch_critic_on_claude_code_and_developer_on_opencode_with_model(
+def test_launch_arquitecto_on_claude_code_and_developer_on_opencode_with_model(
     isolated_socket: str, tmp_path
 ) -> None:
     session = _active_session()
 
-    critic_agent, critic_instance = launch_agent(
-        CRITIC_ROLE,
+    arquitecto_agent, arquitecto_instance = launch_agent(
+        ARQUITECTO_ROLE,
         "claude-code",
         None,
         session,
@@ -68,28 +68,27 @@ def test_launch_critic_on_claude_code_and_developer_on_opencode_with_model(
         socket_name=isolated_socket,
     )
 
-    assert critic_agent.role == CRITIC_ROLE
+    assert arquitecto_agent.role == ARQUITECTO_ROLE
     assert developer_agent.role == DEVELOPER_ROLE
-    assert critic_agent in list_agents(session)
+    assert arquitecto_agent in list_agents(session)
     assert developer_agent in list_agents(session)
-    assert is_runtime_alive(critic_instance, socket_name=isolated_socket) is True
+    assert is_runtime_alive(arquitecto_instance, socket_name=isolated_socket) is True
     assert is_runtime_alive(developer_instance, socket_name=isolated_socket) is True
 
-    stop_runtime(critic_instance, socket_name=isolated_socket)
+    stop_runtime(arquitecto_instance, socket_name=isolated_socket)
     stop_runtime(developer_instance, socket_name=isolated_socket)
 
 
-def test_launching_critic_on_opencode_is_still_supported_directly(
+def test_launching_arquitecto_on_opencode_is_still_supported_directly(
     isolated_socket: str, tmp_path
 ) -> None:
-    """Criterio de aceptación (T-FB016-US01-19): el filtro es solo de
-    presentación. El dominio `launch_agent` sigue admitiendo la combinación
-    Critic + OpenCode cuando se invoca directamente (no aparece como opción
-    en `GET /agents/options`, pero técnicamente es válida y reversible)."""
+    """El dominio `launch_agent` admite cualquier combinación rol/runtime
+    reconocida cuando se invoca directamente, incluida Arquitecto +
+    OpenCode, sin ningún filtro de presentación aplicado en este nivel."""
     session = _active_session()
 
-    critic_agent, critic_instance = launch_agent(
-        CRITIC_ROLE,
+    arquitecto_agent, arquitecto_instance = launch_agent(
+        ARQUITECTO_ROLE,
         "opencode",
         None,
         session,
@@ -97,11 +96,11 @@ def test_launching_critic_on_opencode_is_still_supported_directly(
         socket_name=isolated_socket,
     )
 
-    assert critic_agent.role == CRITIC_ROLE
-    assert critic_agent in list_agents(session)
-    assert is_runtime_alive(critic_instance, socket_name=isolated_socket) is True
+    assert arquitecto_agent.role == ARQUITECTO_ROLE
+    assert arquitecto_agent in list_agents(session)
+    assert is_runtime_alive(arquitecto_instance, socket_name=isolated_socket) is True
 
-    stop_runtime(critic_instance, socket_name=isolated_socket)
+    stop_runtime(arquitecto_instance, socket_name=isolated_socket)
 
 
 def test_indicating_model_for_claude_code_is_rejected_without_launching_anything(
@@ -165,17 +164,16 @@ def test_launching_developer_twice_creates_two_distinct_instances(
     stop_runtime(second_instance, socket_name=isolated_socket)
 
 
-def test_launching_critic_twice_still_reuses_the_existing_agent(
+def test_launching_arquitecto_twice_still_reuses_the_existing_agent(
     isolated_socket: str, tmp_path
 ) -> None:
-    """Test de regresión explícito (mismo criterio que
-    `test_registering_critic_twice_still_returns_the_same_instance`,
-    `test_critic_agent.py`, pero a través de `launch_agent`/dashboard en
-    vez de `register_critic` directo): Critic sigue reutilizándose."""
+    """Test de regresión explícito (a través de `launch_agent`/dashboard,
+    no `register_arquitecto` directo): Arquitecto sigue reutilizándose,
+    igual que Critic lo hacía antes de eliminarse (FB-022)."""
     session = _active_session()
 
     first_agent, first_instance = launch_agent(
-        CRITIC_ROLE,
+        ARQUITECTO_ROLE,
         "claude-code",
         None,
         session,
@@ -183,7 +181,7 @@ def test_launching_critic_twice_still_reuses_the_existing_agent(
         socket_name=isolated_socket,
     )
     second_agent, second_instance = launch_agent(
-        CRITIC_ROLE,
+        ARQUITECTO_ROLE,
         "claude-code",
         None,
         session,
@@ -193,8 +191,8 @@ def test_launching_critic_twice_still_reuses_the_existing_agent(
 
     assert second_agent is first_agent
     assert second_instance.session_name == first_instance.session_name
-    critics = [a for a in list_agents(session) if a.role == CRITIC_ROLE]
-    assert len(critics) == 1
+    arquitectos = [a for a in list_agents(session) if a.role == ARQUITECTO_ROLE]
+    assert len(arquitectos) == 1
 
     stop_runtime(first_instance, socket_name=isolated_socket)
 

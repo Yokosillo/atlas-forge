@@ -1,39 +1,39 @@
 # Factory Brain
 
-**Coordinación de desarrollo software asistido por IA desde una única plataforma.**
+**AI-assisted software development coordination from a single platform.**
 
-Factory Brain orquesta proyectos, agentes, runtimes, Jobs y pipelines de desarrollo sin sustituir la capacidad de decisión del desarrollador. No es un IDE, no es un framework de agentes: es la capa de coordinación que mantiene vivo el contexto entre agentes, evita el trabajo manual repetitivo y minimiza el consumo de tokens de los modelos remotos.
+Factory Brain orchestrates projects, agents, runtimes, Jobs and development pipelines without replacing the developer's decision-making ability. It is not an IDE, not an agent framework: it is the coordination layer that keeps context alive between agents, avoids repetitive manual work and minimizes token consumption from remote models.
 
-## Qué resuelve
+## What it solves
 
-Desarrollar con IA hoy exige mantener varias sesiones de Claude Code, lanzar procesos en tmux, usar OpenCode para otros modelos, cambiar entre proyectos y perder tiempo reconstruyendo contexto en cada tarea. Cada herramienta mantiene su propio estado y el conocimiento queda disperso.
+Developing with AI today requires maintaining several Claude Code sessions, launching processes in tmux, using OpenCode for other models, switching between projects and losing time rebuilding context on every task. Each tool keeps its own state and knowledge ends up scattered.
 
-Factory Brain centraliza ese flujo:
+Factory Brain centralizes that flow:
 
-- **Descubre** automáticamente los repositorios Git de tu workspace.
-- **Coordina** agentes especializados (Developer, Critic, Director, Arquitecto) sobre runtimes reales (Claude Code, OpenCode) en sesiones tmux persistentes.
-- **Envía Jobs** a los agentes y **encadena** resultados (Developer → Critic/Arquitecto).
-- **Propone y ejecuta planes** de trabajo con una única aprobación humana.
-- **Automatiza lo repetitivo** con scripts deterministas antes de gastar tokens en un modelo.
-- **Delega lecturas/resúmenes en un modelo local** (Scribe + Ollama) para reducir el consumo de tokens remotos.
-- **Expone todo** a través de una API HTTP/WebSocket única consumida por la interfaz web, la TUI y la app Android.
+- **Discovers** the Git repositories in your workspace automatically.
+- **Coordinates** specialized agents (Developer, Critic, Director, Architect) on real runtimes (Claude Code, OpenCode) in persistent tmux sessions.
+- **Sends Jobs** to agents and **chains** results (Developer → Critic/Architect).
+- **Proposes and executes** work plans with a single human approval.
+- **Automates the repetitive** with deterministic scripts before spending tokens on a model.
+- **Delegates reads/summaries to a local model** (Scribe + Ollama) to reduce remote token consumption.
+- **Exposes everything** through a single HTTP/WebSocket API consumed by the web interface, the TUI and the Android app.
 
-## Qué la diferencia
+## What sets it apart
 
-- **Coordinación frente a ejecución**: Factory Brain decide *quién hace qué y cuándo*; los agentes ejecutan con sus propios runtimes y modelos.
-- **Automatización determinista primero**: scripts → automatizaciones → modelo local → modelo remoto, en ese orden de prioridad.
-- **Contexto persistente**: los agentes no se destruyen al terminar un Job; la sesión y su historial permanecen vivos.
-- **Un solo proceso de verdad** (`brain-api`) con tres clientes paralelos (web, TUI, Android).
+- **Coordination over execution**: Factory Brain decides *who does what and when*; agents execute with their own runtimes and models.
+- **Deterministic automation first**: scripts → automations → local model → remote model, in that priority order.
+- **Persistent context**: agents are not destroyed when a Job finishes; the session and its history stay alive.
+- **A single process of truth** (`brain-api`) with three parallel clients (web, TUI, Android).
 
-## Estado actual
+## Current status
 
-Factory Brain ha completado las Fases 0.1–0.4 y el grueso de la Fase 1.0 del roadmap: Workspace, Sesión, Runtime, Agentes, Dispatcher (Jobs/planes/cancelación), Scribe, API backend, app Android, scripts genéricos, TUI, gestión de backlog, interfaz web, pipeline backlog-céntrico (roles Director/Arquitecto, generadores Epic→US→Task, veredictos) y mejoras de UX web. Context Engine, Knowledge Engine, Capability Engine, Plugin System y Automation Engine siguen en backlog sin implementar.
+Factory Brain has completed Phases 0.1–0.4 and the bulk of Phase 1.0 of the roadmap: Workspace, Session, Runtime, Agents, Dispatcher (Jobs/plans/cancellation), Scribe, backend API, Android app, generic scripts, TUI, backlog management, web interface, backlog-centric pipeline (Director/Architect roles, Epic→US→Task generators, verdicts) and web UX improvements. Context Engine, Knowledge Engine, Capability Engine, Plugin System and Automation Engine remain in the backlog unimplemented.
 
-Consulta el [roadmap completo](docs/roadmap.md) y el [estado por Epic](docs/roadmap.md#estado-por-epic) para el detalle.
+See the [full roadmap](docs/roadmap.md) and the [status by Epic](docs/roadmap.md#estado-por-epic) for details.
 
-## Instalación rápida
+## Quick start
 
-Requisitos: Python ≥ 3.10, `tmux`, un runtime de IA (Claude Code o OpenCode), y opcionalmente Ollama para Scribe.
+Requirements: Python ≥ 3.10, `tmux`, an AI runtime (Claude Code or OpenCode), and optionally Ollama for Scribe.
 
 ```bash
 cd 04-src
@@ -42,21 +42,21 @@ python3 -m venv .venv
 pip install -e ".[dev]"
 ```
 
-## Ejecución
+## Running
 
-El backend (proceso único de verdad, expone API + interfaz web):
+The backend (single process of truth, exposes API + web interface):
 
 ```bash
 brain-api
 ```
 
-La TUI (cliente de la API):
+The TUI (API client):
 
 ```bash
 brain
 ```
 
-La interfaz web se sirve desde el propio backend en `http://<tailscale-ip>:8000/ui/`. Con un sistema con `systemd`, se instala como servicio:
+The web interface is served from the backend itself at `http://<tailscale-ip>:8000/ui/`. On a `systemd` system it is installed as a service:
 
 ```bash
 sudo cp deploy/systemd/factory-brain-api.service /etc/systemd/system/
@@ -64,33 +64,33 @@ sudo systemctl daemon-reload
 sudo systemctl enable --now factory-brain-api.service
 ```
 
-## Probar
+## Testing
 
 ```bash
 cd 04-src
 pytest
 ```
 
-## Documentación
+## Documentation
 
-La documentación pública vive en [`/docs`](docs/index.md) y está preparada para publicarse con [MkDocs](https://www.mkdocs.org/) o GitHub Pages:
+Public documentation lives in [`/docs`](docs/index.md) and is ready to be published with [MkDocs](https://www.mkdocs.org/) or GitHub Pages:
 
-- [Empezar](docs/getting-started.md)
-- [Arquitectura](docs/architecture.md)
-- [Conceptos](docs/concepts.md)
+- [Getting started](docs/getting-started.md)
+- [Architecture](docs/architecture.md)
+- [Concepts](docs/concepts.md)
 - [CLI](docs/cli.md)
-- [Configuración](docs/configuration.md)
+- [Configuration](docs/configuration.md)
 - [API](docs/api.md)
 - [Interfaces: web · TUI · Android](docs/interfaces-web.md)
-- [Agentes](docs/agents.md)
-- [Runtime y Scribe](docs/runtime.md)
-- [Jobs y planes](docs/jobs.md)
+- [Agents](docs/agents.md)
+- [Runtime and Scribe](docs/runtime.md)
+- [Jobs and plans](docs/jobs.md)
 - [Scripts](docs/scripts.md)
-- [Backlog y pipeline backlog-céntrico](docs/backlog.md)
+- [Backlog and backlog-centric pipeline](docs/backlog.md)
 - [Roadmap](docs/roadmap.md)
-- [FAQ y troubleshooting](docs/faq.md)
-- [Desarrollo](docs/development.md)
+- [FAQ and troubleshooting](docs/faq.md)
+- [Development](docs/development.md)
 
-## Licencia
+## License
 
-Pendiente de decisión — ver [roadmap](docs/roadmap.md) y el backlog del proyecto.
+Pending decision — see [roadmap](docs/roadmap.md) and the project backlog.

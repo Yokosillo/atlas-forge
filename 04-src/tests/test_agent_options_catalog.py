@@ -2,7 +2,7 @@
 
 from unittest.mock import patch
 
-from brain.agents import ARQUITECTO_ROLE, CRITIC_ROLE, DEVELOPER_ROLE, DIRECTOR_ROLE
+from brain.agents import ARQUITECTO_ROLE, DEVELOPER_ROLE, DIRECTOR_ROLE
 from brain.agents.agent_options import AgentLaunchOption, list_available_agent_options
 
 
@@ -26,8 +26,8 @@ class TestCatalogRolModelo:
                   return_value=_mock_preferences_all_enabled()),
         ):
             options = list_available_agent_options()
-            # 4 roles x 2 modelos = 8 opciones.
-            assert len(options) == 8
+            # 3 roles x 2 modelos = 6 opciones.
+            assert len(options) == 6
 
             # Cada opcion tiene model_id y model_name.
             for opt in options:
@@ -59,7 +59,7 @@ class TestCatalogRolModelo:
         ):
             options = list_available_agent_options()
             roles = {opt.agent_role for opt in options}
-            assert {DEVELOPER_ROLE, CRITIC_ROLE, DIRECTOR_ROLE, ARQUITECTO_ROLE}.issubset(roles)
+            assert {DEVELOPER_ROLE, DIRECTOR_ROLE, ARQUITECTO_ROLE}.issubset(roles)
 
     def test_disabled_models_not_included(self) -> None:
         with (
@@ -69,8 +69,8 @@ class TestCatalogRolModelo:
                   return_value={"enabled_model_ids": ["deepseek-pro"], "default_model_by_role": {}}),
         ):
             options = list_available_agent_options()
-            # Solo 4 opciones (4 roles x 1 modelo habilitado).
-            assert len(options) == 4
+            # Solo 3 opciones (3 roles x 1 modelo habilitado).
+            assert len(options) == 3
             for opt in options:
                 assert opt.model_id == "deepseek-pro"
 
@@ -82,7 +82,7 @@ class TestCatalogRolModelo:
                   return_value=_mock_preferences_all_enabled()),
         ):
             options = list_available_agent_options()
-            assert len(options) == 8
+            assert len(options) == 6
 
     def test_option_is_plain_data(self) -> None:
         option = AgentLaunchOption(
