@@ -78,6 +78,28 @@
     ROOT.appendChild(wrapper);
   }
 
+  // ------------------------------------------------------- routing (T-FB024)
+  // Cada sección operativa tiene una URL propia bajo /ui/ (`/ui/roles`,
+  // `/ui/arquitecto`...) en vez de vivir solo en `state.section` en memoria
+  // — así recargar la página o compartir el enlace mantiene la sección
+  // activa, y los botones atrás/adelante del navegador funcionan. El
+  // backend sirve `index.html` para cualquier subruta de /ui/ que no sea
+  // un asset real (ver `app.py::_SPAStaticFiles`), así que esto es
+  // puramente de enrutado en el cliente: no hay servidor de rutas nuevo.
+  var DEFAULT_SECTION = "backlog";
+  var ROUTE_SECTIONS = ["backlog", "roles", "arquitecto", "plan", "scripts", "acciones", "agents", "jobs", "models"];
+
+  function sectionFromPath(pathname) {
+    // "/ui/roles" -> "roles"; "/ui/" o "/ui" -> sección por defecto.
+    var trimmed = (pathname || "").replace(/^\/ui\/?/, "").replace(/\/$/, "");
+    if (trimmed && ROUTE_SECTIONS.indexOf(trimmed) !== -1) return trimmed;
+    return DEFAULT_SECTION;
+  }
+
+  function pathForSection(key) {
+    return "/ui/" + key;
+  }
+
   // --------------------------------------------------------------- state
   var state = {
     connected: false, // getHealth respondió OK
@@ -87,7 +109,9 @@
     // Navegación entre secciones operativas (solo visible con contexto
     // resuelto). `sections` guarda el estado ya cargado de cada sección
     // para NO perderlo al navegar entre ellas sin recargar (punto 5).
-    section: "roles",
+    // Valor inicial resuelto desde la URL real (T-FB024), no un literal
+    // fijo — así recargar la página respeta la sección en la que estabas.
+    section: sectionFromPath(window.location.pathname),
     sections: { agents: null, jobs: null, plan: null, scripts: null, backlog: null, models: null, roles: null },
     showPicker: false,
     pickerReason: "initial", // "initial" (onboarding) | "change" (voluntario)
@@ -109,21 +133,41 @@
 
   // ------------------------------------------------------------------
   // Sección ROLES (T-FB024-US08-01): los 4 roles con nombre, descripción
-  // y modelo asignado (default o "sin default"). Sustituye la pantalla
-  // Agentes anterior — no muestra instancias lanzadas ni botones
-  // Lanzar/Detener. El modelo es editable desde esta pantalla
-  // (T-FB024-US08-02), reutilizando PUT /models/preferences.
+  // Pantalla AGENTES unificada (US-FB024-11, reescritura completa).
+  // Una fila por instancia de cada rol de gobierno: Arquitecto, Developer×N,
+  // Auditor-OSS, UX, Tester (Documentador queda fuera). Mismos 4 campos
+  // (nombre, estado, tiempo desde última orden, modelo) y mismas acciones
+  // para todos, sin excepción por rol. El polling de GET /agents mantiene
+  // las filas actualizadas sin recargar la página.
   var rolesSection = {
     bodyWrap: null,
-    state: null, // null=sin empezar | "loading" | "ready" | "unavailable"
+    state: null, // null | "loading" | "ready" | "unavailable"
     error: null,
-    defaults: {}, // {role: model_id}
+    defaults: {}, // {role: model_id} desde GET /models/preferences
     models: [], // [{id, name, runtime, enabled}]
-    // Edicion de modelo por rol (T-FB024-US08-02).
-    editingRole: null, // role siendo editado | null
+    agentsList: null, // última lista de GET /agents
+    stale: false,
+    listError: null,
+    pollTimer: null,
+    actionMessage: null,
+    // Edición del modelo por defecto (inline, solo para Arquitecto sintético).
+    editingRole: null,
     modelIndex: 0,
     saving: false,
     saveError: null,
+    // Cambio de modelo por instancia lanzada (prompt + GET/PUT agents/{id}/model).
+    modelChangeAgentId: null,
+    modelChangePending: null,
+    modelChangeError: null,
+    modelOptions: null,
+    // Selector de modelo para agentes lanzados (modal inline con <select>).
+    modelSelectAgentId: null,
+    // Modal fallback de "Copiar comando de conexión" si clipboard.writeText falla.
+    detalleAgent: null,
+    detalleCopied: false,
+    // "Revisar si está bloqueado": single-flight del POST /jobs al Arquitecto.
+    reviewingBlockedAgentId: null,
+    reviewBlockedError: null,
   };
 
   // ------------------------------------------------------------------
@@ -403,6 +447,47 @@
     error: null,
   };
 
+  // --------------------------------------------------------- FB-028
+  // Barra de estado persistente del Arquitecto (US-FB028-01): polling 3s
+  // del agente Arquitecto, modelo y botón lanzar/detener visibles en todas
+  // las pestañas. El estado solo se refresca si hay proyecto activo.
+  var ARQUITECTO_POLL_MILLIS = 3000;
+
+  var arquitectoState = {
+    agent: null,    // agente Arquitecto lanzado (de GET /agents) o null
+    stale: false,
+    error: null,
+    pollTimer: null,
+    launchPending: false,
+    stopPending: false,
+    defaultModel: null, // modelo default para arquitecto desde GET /models/preferences
+    modelPreferencesReady: false,
+  };
+
+  // Pestaña Arquitecto (US-FB028-02): órdenes deterministas, prompt libre
+  // e historial de últimas 10 respuestas.
+  var ORDENES_ARQUITECTO = [
+    { id: "generar-us", label: "Generar User Stories", desc: "Toma una Epic y la desglosa en User Stories.", needsSelect: "epic", promptPrefix: "Desglosa la siguiente Epic en User Stories:" },
+    { id: "desgranar-tasks", label: "Desgranar en Tasks", desc: "Toma una User Story y genera sus Tasks.", needsSelect: "us", promptPrefix: "Genera las Tasks para la siguiente User Story:" },
+    { id: "emitir-veredicto", label: "Emitir veredicto", desc: "Revisa el trabajo del Developer sobre una US en progreso y emite veredicto estructurado.", needsSelect: "us_in_progress", promptPrefix: "Revisa el trabajo del Developer sobre esta User Story y emite tu veredicto:" },
+    { id: "auditar-consistencia", label: "Auditar consistencia", desc: "Revisa todo el backlog buscando US sin Epic, Tasks sin US, formatos rotos y dependencias circulares.", needsSelect: null, promptPrefix: "Audita la consistencia del backlog completo del proyecto. Busca: User Stories sin Epic, Tasks sin User Story, formatos rotos en cualquier fichero del backlog, y dependencias circulares. Genera un informe con los hallazgos." },
+    { id: "informe-progreso", label: "Informe de progreso", desc: "Genera un resumen del pipeline: US en cada estado, bloqueos y cuellos de botella.", needsSelect: null, promptPrefix: "Genera un informe completo del estado del pipeline de desarrollo. Incluye: cuántas User Stories hay en cada estado (TODO, in_progress, DONE), qué bloqueos existen (dependencias sin resolver), y qué cuellos de botella detectas. Resume también el estado de cada Epic." },
+  ];
+
+  var arquitectoTabState = {
+    bodyWrap: null,
+    activeJobId: null,
+    activeOrderId: null,
+    jobResult: null,
+    selectedEpicId: null,
+    selectedUSId: null,
+    promptText: "",
+    promptConfirmPending: false,
+    history: null,       // últimas 10 Jobs del Arquitecto
+    historyError: null,
+    backoffDelay: 1000,  // polling backoff para Job en curso
+  };
+
 
   // ------------------------------------------------------------- render
   // Decisión central: qué renderizar según el contexto.
@@ -414,6 +499,10 @@
   // también cuando ya hay un proyecto activo (cambio voluntario desde la
   // barra de contexto): por eso va primero, antes de `renderOperational`.
   function render() {
+    if (state.showPicker || !state.connected || !state.active) {
+      stopArquitectoPolling();
+      stopRolesPolling();
+    }
     if (state.showPicker) {
       renderProjectPicker();
     } else if (!state.connected) {
@@ -539,11 +628,19 @@
     toolbar.appendChild(changeBtn);
     ROOT.appendChild(toolbar);
 
+    // Barra de estado del Arquitecto (US-FB028-01): segunda linea bajo
+    // proyecto activo, visible en todas las pestañas.
+    var arqBar = h("div", "arquitecto-bar");
+    arquitectoState._barEl = arqBar;
+    ROOT.appendChild(arqBar);
+    startArquitectoPolling();
+    renderArquitectoBar();
+
     // Menú/pestañas simples entre las 4 secciones operativas (punto 1):
     // enlaces/botones que cambian qué sección del DOM se muestra, sin
     // recargar la página.
     var nav = h("nav", "section-nav");
-    ["roles", "plan", "scripts", "backlog", "models", "acciones"].forEach(function (key) {
+    ["backlog", "roles", "arquitecto", "plan", "scripts", "acciones"].forEach(function (key) {
       var tab = button(SECTION_LABEL(key), "section-tab");
       if (key === "backlog" && state.pendingBacklogCount > 0) {
         tab.appendChild(h("span", "backlog-pending-badge", String(state.pendingBacklogCount)));
@@ -561,10 +658,63 @@
   }
 
   function SECTION_LABEL(key) {
-    return { agents: "Agentes", jobs: "Jobs", plan: "Plan", scripts: "Scripts", backlog: "Backlog", models: "Modelos", acciones: "Acciones" }[key];
+    return { roles: "Agentes", agents: "Agentes", jobs: "Jobs", plan: "Plan", scripts: "Scripts", backlog: "Backlog", models: "Modelos", acciones: "Acciones", arquitecto: "Arquitecto" }[key];
   }
 
-  function switchSection(key) {
+  // Barra de estado del Arquitecto (US-FB028-01): segunda linea bajo
+  // proyecto activo con indicador de estado, rol y modelo. Sin boton de
+  // accion: Lanzar/Detener del Arquitecto se gestiona en la pantalla Agentes.
+  function renderArquitectoBar() {
+    var bar = arquitectoState._barEl;
+    if (!bar) return;
+    bar.textContent = "";
+
+    var arq = arquitectoState.agent;
+    var isActive = arq && arq.status !== "stopped";
+    var isWorking = arq && arq.status === "working";
+
+    // Indicador de estado
+    var dot = h("span", "arq-status-dot");
+    if (isWorking) {
+      dot.className += " arq-status-dot-working";
+    } else if (isActive) {
+      dot.className += " arq-status-dot-active";
+    }
+    bar.appendChild(dot);
+
+    // Nombre del rol
+    bar.appendChild(h("span", "arq-role-name", "Arquitecto"));
+
+    // Modelo
+    if (isActive && arq.model) {
+      bar.appendChild(h("span", "arq-model", arq.model));
+    } else if (arquitectoState.defaultModel) {
+      bar.appendChild(h("span", "arq-model", arquitectoState.defaultModel));
+    } else {
+      bar.appendChild(h("span", "arq-model arq-model-none", "sin modelo"));
+    }
+
+    // Estado
+    var statusText = "";
+    if (arquitectoState.error) {
+      statusText = arquitectoState.error;
+    } else if (arquitectoState.launchPending) {
+      statusText = "lanzando…";
+    } else if (isWorking) {
+      statusText = "trabajando";
+    } else if (isActive) {
+      statusText = "activo";
+    } else {
+      statusText = "inactivo";
+    }
+    bar.appendChild(h("span", "arq-status-text", statusText));
+  }
+
+  // `fromHistory`: true cuando la llamada viene del listener `popstate`
+  // (el usuario pulsó atrás/adelante) — en ese caso la URL YA es la
+  // correcta y no debe volver a empujarse al historial (evitaría poder
+  // navegar hacia atrás nunca, cada "atrás" generaría una entrada nueva).
+  function switchSection(key, fromHistory) {
     if (key !== state.section && state.section === "agents") {
       // Al salir de la pestaña Agentes se para el polling (no se hacen
       // llamadas de fondo sin pantalla visible); al volver se reanuda.
@@ -579,9 +729,18 @@
       agentsSection.launchPending = false;
     }
     if (key !== state.section && state.section === "roles") {
+      stopRolesPolling();
       rolesSection.editingRole = null;
       rolesSection.modelIndex = 0;
       rolesSection.saveError = null;
+      rolesSection.modelChangeAgentId = null;
+      rolesSection.modelChangePending = null;
+      rolesSection.modelChangeError = null;
+      rolesSection.modelOptions = null;
+      rolesSection.detalleAgent = null;
+      rolesSection.detalleCopied = false;
+      rolesSection.reviewingBlockedAgentId = null;
+      rolesSection.reviewBlockedError = null;
     }
     if (key !== state.section && state.section === "jobs") {
       // Al salir de la pestaña Jobs se cierra el WebSocket (no se mantiene
@@ -596,9 +755,28 @@
       stopPlansWebSocket();
       plansSection.todoStories = null;
     }
+    if (key !== state.section && state.section === "arquitecto") {
+      arquitectoTabState.activeJobId = null;
+      arquitectoTabState.activeOrderId = null;
+      arquitectoTabState.jobResult = null;
+      arquitectoTabState.promptText = "";
+      arquitectoTabState.promptConfirmPending = false;
+    }
     state.section = key;
+    if (!fromHistory) {
+      history.pushState({ section: key }, "", pathForSection(key));
+    }
     renderOperational();
   }
+
+  // Botones atrás/adelante del navegador: `popstate` dispara con el
+  // `state` que se pasó a `pushState` (o `null` en la entrada inicial de
+  // carga de página, de ahí el fallback a `sectionFromPath`).
+  window.addEventListener("popstate", function (event) {
+    if (!state.connected || !state.active) return; // aún no hay vista operativa que navegar
+    var key = (event.state && event.state.section) || sectionFromPath(window.location.pathname);
+    switchSection(key, true);
+  });
 
   // ----------------------------------------------------- contenido sección
   function renderSectionContent() {
@@ -654,6 +832,11 @@
     if (state.section === "models") {
       ROOT.appendChild(content);
       renderModelsInto(content);
+      return;
+    }
+    if (state.section === "arquitecto") {
+      ROOT.appendChild(content);
+      renderArquitectoInto(content);
       return;
     }
     if (state.section === "acciones") {
@@ -812,6 +995,132 @@
         agentsSection.catalogState = "unavailable";
         agentsSection.catalogError = buildErrorMessage(error);
         renderAgentsBody();
+      });
+  }
+
+  // --------------------------------------------------- FB-028 Arquitecto
+  // Polling 3s del estado del Arquitecto (US-FB028-01): busca el agente
+  // con role=arquitecto en GET /agents y actualiza la barra de estado.
+  // Arranca al activar proyecto y se para al cambiarlo.
+
+  function ensureArquitectoModelPreferences() {
+    if (arquitectoState.modelPreferencesReady) return;
+    BackendClient.getModelsPreferences()
+      .then(function (result) {
+        arquitectoState.defaultModel = (result.defaults && result.defaults.arquitecto) || null;
+        arquitectoState.modelPreferencesReady = true;
+        renderArquitectoBar();
+      })
+      .catch(function () {
+        arquitectoState.modelPreferencesReady = true;
+      });
+  }
+
+  function startArquitectoPolling() {
+    if (arquitectoState.pollTimer) return;
+    ensureArquitectoModelPreferences();
+    arquitectoState.pollTimer = setInterval(pollArquitecto, ARQUITECTO_POLL_MILLIS);
+    pollArquitecto();
+  }
+
+  function stopArquitectoPolling() {
+    if (arquitectoState.pollTimer) {
+      clearInterval(arquitectoState.pollTimer);
+      arquitectoState.pollTimer = null;
+    }
+    arquitectoState.agent = null;
+    arquitectoState.stale = false;
+    arquitectoState.error = null;
+    arquitectoState.launchPending = false;
+    arquitectoState.stopPending = false;
+    arquitectoState.modelPreferencesReady = false;
+    arquitectoState.defaultModel = null;
+  }
+
+  async function pollArquitecto() {
+    if (!state.active) return;
+    try {
+      var agents = await BackendClient.getAgents();
+      var arq = null;
+      if (Array.isArray(agents)) {
+        for (var i = 0; i < agents.length; i++) {
+          if (agents[i].role === "arquitecto" && agents[i].status !== "stopped") {
+            arq = agents[i];
+            break;
+          }
+        }
+      }
+      arquitectoState.agent = arq;
+      arquitectoState.stale = false;
+      arquitectoState.error = null;
+    } catch (error) {
+      if (arquitectoState.agent !== null || arquitectoState.stale) {
+        arquitectoState.stale = true;
+      } else {
+        arquitectoState.error = buildErrorMessage(error);
+      }
+    }
+    renderArquitectoBar();
+    if (state.section === "arquitecto") renderArquitectoBody();
+  }
+
+  function launchArquitecto() {
+    if (arquitectoState.launchPending || arquitectoState.stopPending) return;
+    if (!arquitectoState.defaultModel) return;
+    arquitectoState.launchPending = true;
+    renderArquitectoBar();
+    // Claude Code no admite el campo `model` en POST /agents: cuando el
+    // modelo por defecto es claude-code, se manda `runtime_type` sin modelo.
+    // Para el resto de modelos se usa `model_id` (mismo criterio que el
+    // formulario de lanzamiento legacy).
+    var arqPayload = { role: "arquitecto" };
+    if (arquitectoState.defaultModel === "claude-code") {
+      arqPayload.runtime_type = "claude-code";
+    } else {
+      arqPayload.model_id = arquitectoState.defaultModel;
+    }
+    BackendClient.launchAgent(arqPayload)
+      .then(function (agent) {
+        arquitectoState.launchPending = false;
+        arquitectoState.agent = agent;
+        arquitectoState.error = null;
+        renderArquitectoBar();
+        renderArquitectoBody();
+        if (state.section === "roles") renderRolesBody();
+      })
+      .catch(function (error) {
+        arquitectoState.launchPending = false;
+        arquitectoState.error = buildErrorMessage(error);
+        renderArquitectoBar();
+        if (state.section === "roles") renderRolesBody();
+      });
+  }
+
+  function stopArquitecto() {
+    if (!arquitectoState.agent || arquitectoState.launchPending) return;
+    if (!arquitectoState.stopPending) {
+      arquitectoState.stopPending = true;
+      renderArquitectoBar();
+      return;
+    }
+    arquitectoState.stopPending = false;
+    var agentId = arquitectoState.agent.id;
+    arquitectoState.launchPending = true;
+    renderArquitectoBar();
+    BackendClient.stopAgent(agentId)
+      .then(function () {
+        arquitectoState.launchPending = false;
+        arquitectoState.agent = null;
+        arquitectoState.error = null;
+        renderArquitectoBar();
+        renderArquitectoBody();
+        if (state.section === "roles") renderRolesBody();
+      })
+      .catch(function (error) {
+        arquitectoState.launchPending = false;
+        arquitectoState.error = buildErrorMessage(error);
+        renderArquitectoBar();
+        if (state.section === "roles") renderRolesBody();
       });
   }
 
@@ -2748,7 +3057,8 @@
       commitInput.placeholder = "Mensaje del commit (obligatorio)";
       commitInput.addEventListener("input", function () {
         scriptsSection.commitMessage = commitInput.value;
-        if (state.section === "scripts") renderScriptsBody();
+        var btn = card.querySelector(".script-run");
+        if (btn) btn.disabled = !commitInput.value.trim() || scriptsSection.runningScriptId !== null;
       });
       card.appendChild(commitInput);
     }
@@ -3229,7 +3539,22 @@
       box.appendChild(itemCard);
     });
 
-    // FB-026: botón "Generar hilos de desarrollo" en la Epic.
+    // FB-026: botón "Generar hilos de desarrollo" en la Epic, con N
+    // (agentes disponibles) configurable — corrección 2026-08-06,
+    // auditoría de cierre de Fase 1.0 (antes fijo a 2 sin override).
+    var threadControls = h("div", "accion-controls");
+    var numAgentsInput = document.createElement("input");
+    numAgentsInput.type = "number";
+    numAgentsInput.min = "1";
+    numAgentsInput.value = String(backlogSection.threadsNumAgents || 2);
+    numAgentsInput.className = "accion-num-agents";
+    numAgentsInput.title = "Número de agentes disponibles";
+    numAgentsInput.addEventListener("change", function () {
+      var parsed = parseInt(numAgentsInput.value, 10);
+      backlogSection.threadsNumAgents = parsed >= 1 ? parsed : 1;
+    });
+    threadControls.appendChild(numAgentsInput);
+
     var threadBtn = button(
       backlogSection.threadsInFlight ? "Analizando hilos…" : "Generar hilos de desarrollo",
       "accion-run"
@@ -3237,9 +3562,10 @@
     if (backlogSection.threadsInFlight) threadBtn.disabled = true;
     threadBtn.addEventListener("click", function () {
       if (backlogSection.threadsInFlight) return;
-      analyzeEpicThreads(detail.id);
+      analyzeEpicThreads(detail.id, backlogSection.threadsNumAgents || 2);
     });
-    box.appendChild(threadBtn);
+    threadControls.appendChild(threadBtn);
+    box.appendChild(threadControls);
 
     if (backlogSection.threadsError) {
       box.appendChild(h("p", "agent-error", backlogSection.threadsError));
@@ -3252,13 +3578,13 @@
     return box;
   }
 
-  function analyzeEpicThreads(epicId) {
+  function analyzeEpicThreads(epicId, numAgents) {
     backlogSection.threadsInFlight = true;
     backlogSection.threadsError = null;
     backlogSection.threadsResult = null;
     renderBacklogBody();
 
-    BackendClient.analyzeEpicThreads(epicId)
+    BackendClient.analyzeEpicThreads(epicId, numAgents)
       .then(function (result) {
         backlogSection.threadsInFlight = false;
         backlogSection.threadsResult = result;
@@ -3755,24 +4081,33 @@
       });
   }
 
-  // ----------------------------------------------- seccion ROLES (US08-01)
+  // --------------------------------------------------------------- AGENTES
+  // US-FB024-11 (reescritura completa): pantalla unificada — una fila por
+  // instancia de cada rol de gobierno (Arquitecto, Developer×N,
+  // Auditor-OSS, UX, Tester). Mismos 4 campos (nombre, estado, tiempo desde
+  // última orden, modelo) y mismas acciones para todos los roles, sin
+  // excepción. Se refresca por polling 3s de GET /agents sin recargar la
+  // página. El modelo por defecto de cada rol se carga desde
+  // GET /models/preferences (mismo endpoint que la pestaña Modelos).
+
+  // ── entrada de la sección ──────────────────────────────────────────────
+
   function renderRolesInto(content) {
     rolesSection.bodyWrap = content;
     if (rolesSection.state === null) {
       loadRolesPreferences();
       content.appendChild(h("p", "section-note", "Cargando catálogo de modelos…"));
-      return;
-    }
-    if (rolesSection.state === "loading") {
+    } else if (rolesSection.state === "loading") {
       content.appendChild(h("p", "section-note", "Cargando catálogo de modelos…"));
-      return;
-    }
-    if (rolesSection.state === "unavailable") {
+    } else if (rolesSection.state === "unavailable") {
       content.appendChild(h("p", "agent-error", rolesSection.error));
-      return;
+    } else {
+      renderRolesBody();
     }
-    renderRolesBody();
+    startRolesPolling();
   }
+
+  // ── carga de modelos por defecto ───────────────────────────────────────
 
   function loadRolesPreferences() {
     rolesSection.state = "loading";
@@ -3790,85 +4125,644 @@
       });
   }
 
+  // ── polling de agentes (3s) ────────────────────────────────────────────
+
+  function startRolesPolling() {
+    if (rolesSection.pollTimer) return;
+    rolesSection.pollTimer = setInterval(function () {
+      if (state.section !== "roles") { stopRolesPolling(); return; }
+      pollRolesAgents();
+    }, POLL_INTERVAL_MILLIS);
+    pollRolesAgents();
+  }
+
+  function stopRolesPolling() {
+    if (rolesSection.pollTimer) { clearInterval(rolesSection.pollTimer); rolesSection.pollTimer = null; }
+  }
+
+  async function pollRolesAgents() {
+    try {
+      var agents = await BackendClient.getAgents();
+      rolesSection.agentsList = agents;
+      rolesSection.stale = false;
+      rolesSection.listError = null;
+    } catch (error) {
+      if (rolesSection.agentsList !== null) {
+        rolesSection.stale = true;
+      } else {
+        rolesSection.listError = buildErrorMessage(error);
+        rolesSection.stale = false;
+      }
+    }
+    if (state.section === "roles") renderRolesBody();
+  }
+
+  // ── renderizado principal ──────────────────────────────────────────────
+
   function renderRolesBody() {
     var wrap = rolesSection.bodyWrap;
     if (!wrap) return;
-
+    wrap.textContent = "";
     if (rolesSection.state !== "ready") return;
 
-    // 4 roles fijos con su descripción y modelo.
-    var roleDefs = [
-      { role: "director", name: "Director", description: "Define la visión del producto y decide qué User Stories entran en cada fase." },
-      { role: "arquitecto", name: "Arquitecto", description: "Revisa la consistencia técnica y arquitectura, valida planes y veredictos." },
-      { role: "developer", name: "Developer", description: "Implementa las User Stories del backlog siguiendo sus Tasks." },
-      { role: "tester", name: "Tester", description: "Genera y ejecuta tests para verificar los criterios de aceptación." },
-    ];
+    if (rolesSection.actionMessage) {
+      wrap.appendChild(h("p", "agent-message", rolesSection.actionMessage));
+    }
+    if (rolesSection.modelChangeError) {
+      wrap.appendChild(h("p", "agent-error", rolesSection.modelChangeError));
+    }
+    if (rolesSection.reviewBlockedError) {
+      wrap.appendChild(h("p", "agent-error", rolesSection.reviewBlockedError));
+    }
+    if (rolesSection.stale) {
+      wrap.appendChild(h("p", "stale-note", "Puede que esta lista esté desactualizada (sin conexión con el backend)."));
+    }
+    if (rolesSection.listError && rolesSection.agentsList === null) {
+      wrap.appendChild(h("p", "agent-error", rolesSection.listError));
+    }
 
-    var enabledModels = rolesSection.models.filter(function (m) { return m.enabled; });
+    // Barra de acciones global (fuera de las tarjetas de agente): mensajes
+    // de error de revisión de bloqueo y cambio de modelo.
+    if (rolesSection.reviewBlockedError) {
+      wrap.appendChild(h("p", "agent-error", rolesSection.reviewBlockedError));
+    }
 
-    roleDefs.forEach(function (def) {
-      var card = h("div", "agent-card");
-      card.appendChild(h("div", "agent-name", def.name));
-      card.appendChild(h("div", "script-description", def.description));
+    var rows = buildUnifiedRows();
+    rows.forEach(function (row) { renderUnifiedRow(wrap, row); });
 
-      var defaultModel = rolesSection.defaults[def.role];
-      var modelLabel = defaultModel || "sin default";
-      card.appendChild(h("div", "agent-model", "Modelo: " + modelLabel));
+    if (rolesSection.detalleAgent) { renderDetalleFallbackModal(wrap); }
+  }
 
-      // Boton "Cambiar modelo" (T-FB024-US08-02).
-      var editing = rolesSection.editingRole === def.role;
-      if (editing) {
-        var select = document.createElement("select");
-        select.className = "clickable launch-select";
-        select.style.margin = "6px 0";
-        var noneOpt = document.createElement("option");
-        noneOpt.value = "";
-        noneOpt.textContent = "— sin default —";
-        select.appendChild(noneOpt);
-        enabledModels.forEach(function (model, idx) {
-          var o = document.createElement("option");
-          o.value = String(idx);
-          o.textContent = model.name + " (" + model.runtime + ")";
-          if (defaultModel === model.id) o.selected = true;
-          select.appendChild(o);
-        });
-        select.addEventListener("change", function () {
-          rolesSection.modelIndex = parseInt(select.value, 10) || 0;
-        });
-        card.appendChild(select);
+  // ── construcción de filas unificadas ────────────────────────────────────
 
-        var saveBtn = button(rolesSection.saving ? "Guardando…" : "Guardar modelo");
-        if (rolesSection.saving) saveBtn.disabled = true;
-        saveBtn.addEventListener("click", function () {
-          saveRoleModel(def.role);
-        });
-        card.appendChild(saveBtn);
+  function buildUnifiedRows() {
+    var agents = rolesSection.agentsList || [];
+    var rows = [];
 
-        var cancelBtn = button("Cancelar", "agent-model-change");
-        cancelBtn.addEventListener("click", function () {
-          rolesSection.editingRole = null;
-          rolesSection.modelIndex = 0;
-          rolesSection.saveError = null;
+    // Arquitecto: la barra superior (pollArquitecto) es la única fuente de verdad.
+    // Se reutiliza su estado para que la barra y esta pantalla muestren siempre
+    // exactamente lo mismo, sin desincronización.
+    var arqAgent = arquitectoState.agent;
+    if (arqAgent) {
+      rows.push(arqAgent);
+    } else {
+      // Sintético "detenido" (no "unregistered"): el rol arquitecto SÍ está
+      // registrado en el backend, solo no tiene instancia lanzada todavía.
+      // Así su botón Lanzar queda habilitado y la pantalla Agentes es el
+      // único punto para lanzar/detener al Arquitecto (la barra superior ya
+      // no tiene botón de acción).
+      rows.push(syntheticRow("arquitecto", "stopped"));
+    }
+
+    // Developer: todas las instancias (vivas y detenidas) desde GET /agents.
+    var devAgents = agents.filter(function (a) { return a.role === "developer"; });
+    if (devAgents.length === 0) {
+      // Sin ninguna instancia (proyecto nuevo o backend reiniciado): fila
+      // sintética "detenida" para poder lanzar la primera instancia. El rol
+      // developer sí está registrado en el backend, a diferencia de
+      // auditor_oss/ux/tester, así que su botón Lanzar queda habilitado.
+      rows.push(syntheticRow("developer", "stopped"));
+    } else {
+      devAgents.forEach(function (a) { rows.push(a); });
+    }
+
+    // Roles aún no registrados en el backend: una fila sintética cada uno.
+    rows.push(syntheticRow("auditor_oss"));
+    rows.push(syntheticRow("ux"));
+    rows.push(syntheticRow("tester"));
+
+    return rows;
+  }
+
+  function syntheticRow(role, status) {
+    var nameMap = { arquitecto: "Arquitecto", developer: "Developer", auditor_oss: "Auditor-OSS", ux: "UX", tester: "Tester" };
+    return {
+      _synthetic: true,
+      id: null,
+      name: nameMap[role] || role,
+      role: role,
+      status: status || "unregistered",
+      runtime_id: null,
+      model: null,
+      last_command_at: null,
+    };
+  }
+
+  // ── renderizado de UNA fila unificada ───────────────────────────────────
+
+  function renderUnifiedRow(wrap, agent) {
+    var isWorking = agent.status === "working";
+    var isStopped = agent.status === "stopped";
+    var isUnregistered = agent.status === "unregistered";
+    var isLive = agent.id && !isStopped && !isUnregistered;
+    var isArquitecto = agent.role === "arquitecto";
+    var isSyntheticArquitecto = agent._synthetic && isArquitecto;
+
+    var card = h("div", "agent-card");
+
+    // Bloque de texto: nombre, estado, tiempo desde ultima orden, modelo
+    var info = h("div", "agent-info");
+
+    // 1. Nombre
+    info.appendChild(h("div", "agent-name", agent.name));
+
+    // 2. Estado (texto claro, no crudo)
+    var statusLabel;
+    if (isUnregistered) {
+      statusLabel = "no disponible";
+    } else if (isStopped) {
+      statusLabel = "detenido";
+    } else if (isWorking) {
+      statusLabel = "trabajando";
+    } else if (agent.status === "idle") {
+      statusLabel = "activo";
+    } else {
+      statusLabel = agent.status;
+    }
+    var statusRow = h("div", "agent-status-row");
+    var dot = h("span", "status-dot");
+    dot.style.backgroundColor = agentStatusColor(agent.status);
+    statusRow.appendChild(dot);
+    statusRow.appendChild(h("span", "status-text", "Estado: " + statusLabel));
+    info.appendChild(statusRow);
+
+    // 3. Tiempo desde la última orden
+    info.appendChild(h("div", "agent-model", formatLastCommand(agent.last_command_at)));
+
+    // 4. Modelo actual
+    var modelLabel;
+    if (agent.model) {
+      modelLabel = agent.model;
+    } else if (isLive) {
+      modelLabel = runtimeDisplayName(agent.runtime_id);
+    } else if (isSyntheticArquitecto) {
+      modelLabel = rolesSection.defaults.arquitecto || "sin modelo";
+    } else {
+      modelLabel = "sin modelo";
+    }
+    info.appendChild(h("div", "agent-model", "Modelo: " + modelLabel));
+
+    card.appendChild(info);
+
+    // --- ACCIONES (bloque derecho, en la misma fila que agent-info) ---
+    var actions = h("div", "agent-actions");
+
+    // (a) Cambiar modelo
+    actions.appendChild(renderCambiarModeloBtn(agent));
+
+    // (b) Lanzar / Detener (un único botón que alterna)
+    actions.appendChild(renderLanzarDetenerBtn(agent));
+
+    // (c) Copiar comando de conexión
+    actions.appendChild(renderCopiarComandoBtn(agent));
+
+    // (d) Revisar si está bloqueado (solo si está trabajando)
+    if (isWorking) {
+      actions.appendChild(renderRevisarBloqueadoBtn(agent));
+    }
+
+    card.appendChild(actions);
+
+    // Selector de modelo inline para agentes lanzados (fila completa debajo)
+    if (rolesSection.modelSelectAgentId === agent.id && rolesSection.modelOptions) {
+      var selectWrap = h("div", "agent-model-select-row");
+      card.appendChild(selectWrap);
+      renderModelSelectInline(selectWrap, agent);
+    }
+
+    // Editor inline de modelo por defecto (fila completa debajo)
+    if (rolesSection.editingRole === agent.role) {
+      var editorWrap = h("div", "agent-editor-row");
+      card.appendChild(editorWrap);
+      renderDefaultModelEditorInline(editorWrap, agent.role);
+    }
+
+    wrap.appendChild(card);
+  }
+
+  // ── función auxiliar: tiempo desde la última orden ─────────────────────
+
+  function formatLastCommand(lastCommandAt) {
+    if (!lastCommandAt) return "Tiempo desde última orden: sin dato";
+    try {
+      var then = new Date(lastCommandAt).getTime();
+      var now = Date.now();
+      var diffSec = Math.floor((now - then) / 1000);
+      if (diffSec < 0) return "Tiempo desde última orden: sin dato";
+      if (diffSec < 60) return "Tiempo desde última orden: ahora";
+      var mins = Math.floor(diffSec / 60);
+      if (mins === 1) return "Tiempo desde última orden: hace 1 min";
+      if (mins < 60) return "Tiempo desde última orden: hace " + mins + " min";
+      var hours = Math.floor(mins / 60);
+      if (hours === 1) return "Tiempo desde última orden: hace 1 h";
+      return "Tiempo desde última orden: hace " + hours + " h";
+    } catch (_e) {
+      return "Tiempo desde última orden: sin dato";
+    }
+  }
+
+  // ── botón Cambiar modelo ────────────────────────────────────────────────
+
+  function renderCambiarModeloBtn(agent) {
+    var isLive = agent.id && agent.status !== "stopped" && agent.status !== "unregistered";
+
+    var isChanging = agent.id && rolesSection.modelChangeAgentId === agent.id;
+    var isPending = agent.id && rolesSection.modelChangePending && rolesSection.modelChangePending.agent_id === agent.id;
+    var label;
+    if (isChanging) {
+      label = "Cambiando modelo…";
+    } else if (isPending) {
+      label = "Confirmar: " + rolesSection.modelChangePending.model;
+    } else {
+      label = "Cambiar modelo";
+    }
+    var b = button(label, "agent-model-change");
+    if (isChanging) b.disabled = true;
+    if (isLive) {
+      b.addEventListener("click", function () { requestModelChangeLive(agent); });
+    } else {
+      b.addEventListener("click", function () {
+        rolesSection.editingRole = agent.role;
+        rolesSection.modelIndex = 0;
+        rolesSection.saveError = null;
+        renderRolesBody();
+      });
+    }
+    return b;
+  }
+
+  function requestModelChangeLive(agent) {
+    if (rolesSection.modelChangeAgentId) return;
+    if (!rolesSection.modelChangePending || rolesSection.modelChangePending.agent_id !== agent.id) {
+      rolesSection.modelChangePending = null;
+      rolesSection.modelChangeError = null;
+      rolesSection.modelChangeAgentId = agent.id;
+      renderRolesBody();
+      BackendClient.getAgentAvailableModels(agent.id)
+        .then(function (result) {
+          rolesSection.modelChangeAgentId = null;
+          if (!result.supports_model) {
+            rolesSection.modelChangeError = "Este agente no admite cambio de modelo.";
+            renderRolesBody();
+            return;
+          }
+          var models = result.models;
+          if (!models || models.length === 0) {
+            rolesSection.modelChangeError = "No hay modelos disponibles para este agente.";
+            renderRolesBody();
+            return;
+          }
+          var chosen;
+          if (models.length === 1) {
+            chosen = models[0].id;
+          } else {
+            rolesSection.modelOptions = models;
+            rolesSection.modelSelectAgentId = agent.id;
+            renderRolesBody();
+            return;
+          }
+          rolesSection.modelChangePending = { agent_id: agent.id, model: chosen };
+          rolesSection.modelChangeError = null;
+          renderRolesBody();
+        })
+        .catch(function (error) {
+          rolesSection.modelChangeAgentId = null;
+          rolesSection.modelChangeError = buildErrorMessage(error);
           renderRolesBody();
         });
-        card.appendChild(cancelBtn);
+      return;
+    }
+    executeModelChangeLive(agent, rolesSection.modelChangePending.model);
+  }
 
-        if (rolesSection.saveError) {
-          card.appendChild(h("p", "agent-error", rolesSection.saveError));
+  function executeModelChangeLive(agent, model) {
+    if (rolesSection.modelChangeAgentId) return;
+    rolesSection.modelChangePending = null;
+    rolesSection.modelChangeAgentId = agent.id;
+    rolesSection.modelChangeError = null;
+    renderRolesBody();
+    BackendClient.setAgentModel(agent.id, model)
+      .then(function (result) {
+        rolesSection.modelChangeAgentId = null;
+        rolesSection.modelOptions = null;
+        if (result.changed) {
+          rolesSection.actionMessage = "Modelo de " + agent.name + " cambiado a " + model + ".";
+        } else {
+          rolesSection.modelChangeError = "No se pudo cambiar el modelo. El agente puede no estar respondiendo.";
         }
+        renderRolesBody();
+        return pollRolesAgents();
+      })
+      .catch(function (error) {
+        rolesSection.modelChangeAgentId = null;
+        rolesSection.modelOptions = null;
+        rolesSection.modelChangeError = buildErrorMessage(error);
+        renderRolesBody();
+      });
+  }
+
+  // ── botón Lanzar / Detener ──────────────────────────────────────────────
+
+  function renderLanzarDetenerBtn(agent) {
+    var isLive = agent.id && agent.status !== "stopped" && agent.status !== "unregistered";
+    var isUnregistered = agent.status === "unregistered";
+    var isStopped = agent.status === "stopped";
+    var showDetener = isLive;
+    var showLanzar = !isLive;
+
+    // Arquitecto: si está activo (idle/working), mostrar "Detener" usando
+    // stopArquitecto con confirmación (mismo flujo que antes usaba la barra
+    // superior, ahora único punto de control desde la pestaña Agentes).
+    if (agent.role === "arquitecto") {
+      if (showDetener) {
+        if (arquitectoState.stopPending) {
+          var stopConfirm = button("Confirmar detener", "arq-btn-stop-confirm");
+          stopConfirm.addEventListener("click", stopArquitecto);
+          return stopConfirm;
+        }
+        var stopBtn = button("Detener", "arq-btn-stop");
+        stopBtn.addEventListener("click", stopArquitecto);
+        return stopBtn;
+      }
+      if (arquitectoState.launchPending) {
+        var lp = button("Lanzando…"); lp.disabled = true; return lp;
+      }
+      // ¿es sintético (no está lanzado) o stopped?
+      var launchBtn = button(isUnregistered ? "Lanzar" : "Lanzar");
+      if (isUnregistered || !arquitectoState.defaultModel) {
+        launchBtn.disabled = true;
+        if (isUnregistered) launchBtn.title = "rol no disponible todavía: pendiente de registrar en el backend";
+        else launchBtn.title = "Asigna un modelo para Arquitecto en la pestaña Modelos";
       } else {
-        var changeBtn = button("Cambiar modelo");
-        changeBtn.addEventListener("click", function () {
-          rolesSection.editingRole = def.role;
-          rolesSection.modelIndex = 0;
-          rolesSection.saveError = null;
+        launchBtn.addEventListener("click", launchArquitecto);
+      }
+      return launchBtn;
+    }
+
+    // Developer: Detener directo (con confirmación inline si activo) o Lanzar.
+    if (showDetener) {
+      var devStop = button("Detener", "agent-stop");
+      devStop.addEventListener("click", function () { stopDevAgent(agent); });
+      return devStop;
+    }
+
+    // Stopped o unregistered
+    var devLaunch = button("Lanzar");
+    if (isUnregistered) {
+      devLaunch.disabled = true;
+      devLaunch.title = "rol no disponible todavía: pendiente de registrar en el backend";
+    } else if (isStopped) {
+      devLaunch.addEventListener("click", function () { launchStoppedDev(agent); });
+    }
+    return devLaunch;
+  }
+
+  function stopDevAgent(agent) {
+    if (!agent.id) return;
+    BackendClient.stopAgent(agent.id)
+      .then(function () {
+        rolesSection.actionMessage = agent.name + " detenido.";
+        return pollRolesAgents();
+      })
+      .catch(function (error) {
+        rolesSection.actionMessage = buildErrorMessage(error);
+        renderRolesBody();
+      });
+  }
+
+  function launchStoppedDev(agent) {
+    var payload = { role: "developer" };
+    if (agent.model && agent.model !== "claude-code") {
+      payload.model_id = agent.model;
+    } else if (agent.runtime_id) {
+      payload.runtime_type = agent.runtime_id;
+    } else {
+      payload.runtime_type = "opencode";
+    }
+    BackendClient.launchAgent(payload)
+      .then(function (result) {
+        rolesSection.actionMessage = launchFeedbackMessageFor(result);
+        return pollRolesAgents();
+      })
+      .catch(function (error) {
+        rolesSection.actionMessage = buildErrorMessage(error);
+        renderRolesBody();
+      });
+  }
+
+  // ── botón Copiar comando de conexión ────────────────────────────────────
+
+  function renderCopiarComandoBtn(agent) {
+    var isLive = agent.id && agent.status !== "stopped" && agent.status !== "unregistered";
+    var canCopy = isLive && agent.runtime_id;
+
+    var btn = button(rolesSection.detalleCopied && rolesSection.detalleAgent === agent ? "Copiado ✓" : "Copiar comando de conexión");
+    btn.disabled = !canCopy;
+    if (!canCopy) {
+      btn.title = "no disponible: el agente no tiene sesión activa";
+      return btn;
+    }
+    var comando = "tmux -L factory-brain attach -t " + agent.runtime_id + "-" + agent.id;
+    btn.addEventListener("click", function () {
+      if (rolesSection.detalleCopied) return;
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(comando).then(function () {
+          rolesSection.detalleAgent = agent;
+          rolesSection.detalleCopied = true;
+          renderRolesBody();
+          setTimeout(function () {
+            if (rolesSection.detalleAgent === agent) { rolesSection.detalleAgent = null; rolesSection.detalleCopied = false; }
+            if (state.section === "roles") renderRolesBody();
+          }, 2500);
+        }).catch(function () {
+          // Fallback: modal con texto ya seleccionado para copiar a mano.
+          rolesSection.detalleAgent = agent;
+          rolesSection.detalleCopied = false;
           renderRolesBody();
         });
-        card.appendChild(changeBtn);
+      } else {
+        rolesSection.detalleAgent = agent;
+        rolesSection.detalleCopied = false;
+        renderRolesBody();
       }
-
-      wrap.appendChild(card);
     });
+    return btn;
+  }
+
+  // Modal fallback de copia manual cuando clipboard.writeText falla.
+  function renderDetalleFallbackModal(wrap) {
+    var agent = rolesSection.detalleAgent;
+    if (!agent) return;
+    var comando = "tmux -L factory-brain attach -t " + agent.runtime_id + "-" + agent.id;
+
+    var overlay = h("div", "modal-overlay");
+    var box = h("div", "modal");
+    box.appendChild(h("h3", null, "Copiar comando de conexión — " + agent.name));
+
+    var inst = h("p", "section-note", "No se pudo copiar automáticamente al portapapeles. El comando está seleccionado: pulsa Ctrl+C o Cmd+C para copiarlo manualmente.");
+    box.appendChild(inst);
+
+    var ta = document.createElement("textarea");
+    ta.readOnly = true;
+    ta.className = "clickable";
+    ta.value = comando;
+    ta.style.width = "100%";
+    ta.style.minHeight = "60px";
+    ta.style.resize = "vertical";
+    box.appendChild(ta);
+
+    var closeBtn = button("Cerrar");
+    closeBtn.addEventListener("click", function () {
+      rolesSection.detalleAgent = null;
+      rolesSection.detalleCopied = false;
+      renderRolesBody();
+    });
+    box.appendChild(closeBtn);
+
+    overlay.appendChild(box);
+    wrap.appendChild(overlay);
+    // Autoseleccionar el textarea una vez montado el DOM.
+    setTimeout(function () { ta.select(); ta.focus(); }, 10);
+  }
+
+  // ── botón Revisar si está bloqueado ─────────────────────────────────────
+
+  function renderRevisarBloqueadoBtn(agent) {
+    var arqLive = arquitectoState.agent && arquitectoState.agent.status !== "stopped";
+    var isReviewing = rolesSection.reviewingBlockedAgentId === agent.id;
+    var label = isReviewing ? "Revisando…" : "Revisar si está bloqueado";
+    var btn = button(label, "agent-model-change");
+    btn.disabled = !arqLive || isReviewing;
+    if (isReviewing) btn.disabled = true;
+    if (!arqLive && !isReviewing) {
+      btn.title = "Lanza el Arquitecto primero para poder pedirle una revisión";
+    }
+    btn.addEventListener("click", function () {
+      if (isReviewing || !arqLive) return;
+      requestReviewBlocked(agent);
+    });
+    return btn;
+  }
+
+  function requestReviewBlocked(agent) {
+    if (rolesSection.reviewingBlockedAgentId) return;
+    var arq = arquitectoState.agent;
+    if (!arq) return;
+
+    rolesSection.reviewingBlockedAgentId = agent.id;
+    rolesSection.reviewBlockedError = null;
+    renderRolesBody();
+
+    // REGLA DURA (00-gobierno/ARQUITECTO.md, "Texto plano al mandar
+    // instrucciones a un agente"): la descripción del Job NUNCA puede
+    // contener backticks ni caracteres especiales de shell (incidente
+    // real confirmado 2026-08-09). Se usa texto plano sin marcar.
+    var description =
+      "Revisa si el agente " + agent.name + " (rol " + agent.role + ", id " + agent.id + ") " +
+      "esta bloqueado. Revisa su pane con GET /agents/" + agent.id + "/pane y emite un veredicto " +
+      "estructurado indicando si esta atascado (y por que) o progresando con normalidad.";
+
+    BackendClient.createAndDispatchJob({ agent_id: arq.id, description: description })
+      .then(function (job) {
+        rolesSection.reviewingBlockedAgentId = null;
+        rolesSection.actionMessage =
+          "Revisión de " + agent.name + " enviada al Arquitecto (Job " + job.id + ", estado: " + job.status + ").";
+        renderRolesBody();
+        return pollRolesAgents();
+      })
+      .catch(function (error) {
+        rolesSection.reviewingBlockedAgentId = null;
+        rolesSection.reviewBlockedError = buildErrorMessage(error);
+        renderRolesBody();
+      });
+  }
+
+  // ── editor inline de modelo por defecto (solo Arquitecto sintético) ─────
+
+  function renderModelSelectInline(wrap, agent) {
+    var models = rolesSection.modelOptions;
+    if (!models || models.length === 0) return;
+
+    var sel = document.createElement("select");
+    sel.className = "clickable launch-select";
+    sel.style.margin = "6px 0";
+    models.forEach(function (m) {
+      var o = document.createElement("option");
+      o.value = m.id;
+      o.textContent = m.name + " (" + m.id + ")";
+      sel.appendChild(o);
+    });
+    wrap.appendChild(sel);
+
+    var actionsRow = h("div", "agent-actions");
+
+    var confirmBtn = button("Confirmar cambio");
+    confirmBtn.addEventListener("click", function () {
+      var selectedModel = sel.value;
+      rolesSection.modelSelectAgentId = null;
+      rolesSection.modelOptions = null;
+      rolesSection.modelChangePending = { agent_id: agent.id, model: selectedModel };
+      rolesSection.modelChangeError = null;
+      renderRolesBody();
+    });
+    actionsRow.appendChild(confirmBtn);
+
+    var cancelBtn = button("Cancelar", "agent-model-change");
+    cancelBtn.addEventListener("click", function () {
+      rolesSection.modelSelectAgentId = null;
+      rolesSection.modelOptions = null;
+      rolesSection.modelChangePending = null;
+      renderRolesBody();
+    });
+    actionsRow.appendChild(cancelBtn);
+
+    wrap.appendChild(actionsRow);
+  }
+
+  function renderDefaultModelEditorInline(wrap, role) {
+    var enabledModels = rolesSection.models.filter(function (m) { return m.enabled; });
+    var defaultModel = rolesSection.defaults[role];
+
+    var sel = document.createElement("select");
+    sel.className = "clickable launch-select";
+    sel.style.margin = "6px 0";
+    var noneOpt = document.createElement("option");
+    noneOpt.value = "";
+    noneOpt.textContent = "— sin default —";
+    sel.appendChild(noneOpt);
+    enabledModels.forEach(function (model, idx) {
+      var o = document.createElement("option");
+      o.value = String(idx);
+      o.textContent = model.name + " (" + model.runtime + ")";
+      if (defaultModel === model.id) o.selected = true;
+      sel.appendChild(o);
+    });
+    sel.addEventListener("change", function () {
+      rolesSection.modelIndex = parseInt(sel.value, 10) || 0;
+    });
+    wrap.appendChild(sel);
+
+    var actionsRow = h("div", "agent-actions");
+
+    var saveBtn = button(rolesSection.saving ? "Guardando…" : "Guardar modelo");
+    if (rolesSection.saving) saveBtn.disabled = true;
+    saveBtn.addEventListener("click", function () { saveRoleModel(role); });
+    actionsRow.appendChild(saveBtn);
+
+    var cancelBtn = button("Cancelar", "agent-model-change");
+    cancelBtn.addEventListener("click", function () {
+      rolesSection.editingRole = null;
+      rolesSection.modelIndex = 0;
+      rolesSection.saveError = null;
+      renderRolesBody();
+    });
+    actionsRow.appendChild(cancelBtn);
+
+    wrap.appendChild(actionsRow);
+
+    if (rolesSection.saveError) {
+      wrap.appendChild(h("p", "agent-error", rolesSection.saveError));
+    }
   }
 
   function saveRoleModel(role) {
@@ -3900,6 +4794,13 @@
         rolesSection.saving = false;
         rolesSection.editingRole = null;
         rolesSection.defaults = result.default_model_by_role || {};
+        // Si se cambió el default del Arquitecto, sincronizar la barra
+        // superior y el botón "Lanzar" para que reflejen el cambio
+        // inmediatamente (sin esperar al siguiente ciclo de polling).
+        if (role === "arquitecto") {
+          arquitectoState.defaultModel = rolesSection.defaults.arquitecto || null;
+          renderArquitectoBar();
+        }
         renderRolesBody();
       })
       .catch(function (error) {
@@ -3980,7 +4881,7 @@
 
     // Defaults por rol.
     form.appendChild(h("div", "jobs-form-title", "Modelo por defecto (opcional)"));
-    var roles = ["developer", "critic", "arquitecto", "tester"];
+    var roles = ["arquitecto", "developer", "tester"];
     var enabledModels = modelsSection.models.filter(function (m) { return m.enabled; });
     roles.forEach(function (role) {
       var row = h("div", "model-row");
@@ -4069,7 +4970,7 @@
   // ------------------------------------------------------------- FB-025
   // Acciones transversales de proyecto (US-FB025-01 a US-FB025-07):
   // botones directos que despachan Jobs al Arquitecto o ejecutan scripts
-  // deterministas, sin pasar por conversación con el Director.
+  // deterministas, sin pasar por el modo conversacional del Arquitecto.
 
   var ACCIONES = [
     { id: "documentar", label: "Documentar todo", desc: "Revisa que la documentación en 01-documentacion/ esté al día con el código real. Propone cambios, no escribe directamente." },
@@ -4082,7 +4983,7 @@
 
   function renderAccionesInto(content) {
     accionesSection.bodyWrap = content;
-    content.appendChild(h("p", "section-note", "Cada botón despacha la acción directamente, sin pasar por conversación con el Director."));
+    content.appendChild(h("p", "section-note", "Cada botón despacha la acción directamente, sin pasar por el modo conversacional del Arquitecto."));
 
     ACCIONES.forEach(function (accion) {
       var card = h("div", "accion-card");
@@ -4316,6 +5217,7 @@
   }
 
   function selectProject(project) {
+    stopArquitectoPolling();
     clearRoot();
     ROOT.textContent = "Seleccionando proyecto…";
     BackendClient.selectProject(project.id)
@@ -4335,6 +5237,341 @@
           state.pendingSelection = null;
           render();
         });
+      });
+  }
+
+  // ------------------------------------------------- FB-028 Pestaña Arquitecto
+  // (US-FB028-02): 5 órdenes deterministas, prompt libre e historial de
+  // últimas 10 respuestas del Arquitecto.
+
+  function renderArquitectoInto(content) {
+    arquitectoTabState.bodyWrap = content;
+    loadArquitectoHistory();
+    renderArquitectoBody();
+  }
+
+  function renderArquitectoBody() {
+    var wrap = arquitectoTabState.bodyWrap;
+    if (!wrap) return;
+    if (state.section !== "arquitecto") return;
+    wrap.textContent = "";
+
+    var arq = arquitectoState.agent;
+    var isActive = arq && arq.status !== "stopped";
+
+    if (!isActive) {
+      wrap.appendChild(h("p", "section-note", "El Arquitecto no está activo. Lánzalo desde la pestaña Agentes para enviarle órdenes."));
+    }
+
+    renderArquitectoOrders(wrap);
+    renderArquitectoPrompt(wrap);
+    renderArquitectoResult(wrap);
+    renderArquitectoHistory(wrap);
+  }
+
+  function renderArquitectoOrders(wrap) {
+    var arq = arquitectoState.agent;
+    var isActive = arq && arq.status !== "stopped";
+    var busy = arquitectoTabState.activeJobId !== null;
+
+    wrap.appendChild(h("div", "scripts-group-title", "Órdenes"));
+
+    ORDENES_ARQUITECTO.forEach(function (order) {
+      var card = h("div", "script-card");
+      var header = h("div", "script-card-header");
+      header.appendChild(h("span", "script-name", order.label));
+      card.appendChild(header);
+      card.appendChild(h("div", "script-description", order.desc));
+
+      if (order.needsSelect) {
+        var select = document.createElement("select");
+        select.className = "clickable launch-select";
+        select.style.margin = "6px 0";
+        select.disabled = !isActive || busy;
+
+        var placeholder = document.createElement("option");
+        placeholder.value = "";
+        placeholder.textContent = order.needsSelect === "epic" ? "— elige una Epic —" :
+                                  order.needsSelect === "us_in_progress" ? "— elige una US en progreso —" :
+                                  "— elige una User Story —";
+        select.appendChild(placeholder);
+
+        if (order.needsSelect === "epic") {
+          (arquitectoTabState._epics || []).forEach(function (epic) {
+            var o = document.createElement("option");
+            o.value = epic.id;
+            o.textContent = epic.title || epic.id;
+            if (arquitectoTabState.selectedEpicId === epic.id) o.selected = true;
+            select.appendChild(o);
+          });
+          select.addEventListener("change", function () {
+            arquitectoTabState.selectedEpicId = select.value || null;
+          });
+        } else if (order.needsSelect === "us") {
+          (arquitectoTabState._usList || []).forEach(function (us) {
+            var o = document.createElement("option");
+            o.value = us.id;
+            o.textContent = (us.title || us.id);
+            if (arquitectoTabState.selectedUSId === us.id) o.selected = true;
+            select.appendChild(o);
+          });
+          select.addEventListener("change", function () {
+            arquitectoTabState.selectedUSId = select.value || null;
+          });
+        } else if (order.needsSelect === "us_in_progress") {
+          (arquitectoTabState._usInProgress || []).forEach(function (us) {
+            var o = document.createElement("option");
+            o.value = us.id;
+            o.textContent = (us.title || us.id);
+            if (arquitectoTabState.selectedUSId === us.id) o.selected = true;
+            select.appendChild(o);
+          });
+          select.addEventListener("change", function () {
+            arquitectoTabState.selectedUSId = select.value || null;
+          });
+        }
+        card.appendChild(select);
+      }
+
+      var runLabel = busy && arquitectoTabState.activeOrderId === order.id ? "Ejecutando…" : "Ejecutar";
+      var runBtn = button(runLabel, "script-run");
+      var disabled = !isActive || busy || (order.needsSelect && !(
+        order.needsSelect === "epic" ? arquitectoTabState.selectedEpicId :
+        arquitectoTabState.selectedUSId
+      ));
+      if (disabled) runBtn.disabled = true;
+      runBtn.addEventListener("click", function () {
+        dispatchArquitectoOrder(order);
+      });
+      card.appendChild(runBtn);
+
+      wrap.appendChild(card);
+    });
+  }
+
+  function renderArquitectoPrompt(wrap) {
+    var arq = arquitectoState.agent;
+    var isActive = arq && arq.status !== "stopped";
+    var busy = arquitectoTabState.activeJobId !== null;
+
+    wrap.appendChild(h("div", "scripts-group-title", "Prompt libre"));
+
+    var card = h("div", "script-card");
+    var textarea = document.createElement("textarea");
+    textarea.className = "launch-select";
+    textarea.placeholder = "Escribe un prompt para el Arquitecto…";
+    textarea.value = arquitectoTabState.promptText;
+    textarea.rows = 4;
+    textarea.disabled = !isActive || busy;
+    textarea.addEventListener("input", function () {
+      arquitectoTabState.promptText = textarea.value;
+    });
+    card.appendChild(textarea);
+
+    if (arquitectoTabState.promptConfirmPending) {
+      var confirmBox = h("div", "agent-message");
+      confirmBox.appendChild(h("p", null, "Envía este prompt al Arquitecto:"));
+      confirmBox.appendChild(h("p", "script-command", arquitectoTabState.promptText));
+      var confirmBtn = button("Confirmar envío");
+      confirmBtn.addEventListener("click", function () {
+        dispatchArquitectoPrompt();
+      });
+      var cancelBtn = button("Cancelar");
+      cancelBtn.addEventListener("click", function () {
+        arquitectoTabState.promptConfirmPending = false;
+        renderArquitectoBody();
+      });
+      confirmBox.appendChild(cancelBtn);
+      confirmBox.appendChild(confirmBtn);
+      card.appendChild(confirmBox);
+    }
+
+    var sendBtn = button("Enviar");
+    sendBtn.className += " script-run";
+    if (!isActive || busy || !arquitectoTabState.promptText.trim()) sendBtn.disabled = true;
+    sendBtn.addEventListener("click", function () {
+      arquitectoTabState.promptConfirmPending = true;
+      renderArquitectoBody();
+    });
+    card.appendChild(sendBtn);
+
+    wrap.appendChild(card);
+  }
+
+  function renderArquitectoResult(wrap) {
+    if (!arquitectoTabState.activeJobId) return;
+    if (!arquitectoTabState.jobResult) return;
+
+    var panel = h("div", "script-result");
+    panel.appendChild(h("div", "script-result-title", "Resultado"));
+
+    var result = arquitectoTabState.jobResult;
+    if (result.status === "running") {
+      panel.appendChild(h("p", "section-note", "El Arquitecto está procesando la orden…"));
+    } else if (result.status === "completed") {
+      panel.appendChild(h("p", "job-status-ok", "Completado"));
+    } else if (result.status === "failed") {
+      panel.appendChild(h("p", "agent-error", "Falló: " + (result.result || "sin detalles")));
+    }
+
+    if (result.result) {
+      var out = h("div", "script-output");
+      out.textContent = String(result.result);
+      panel.appendChild(out);
+    }
+    wrap.appendChild(panel);
+  }
+
+  function renderArquitectoHistory(wrap) {
+    wrap.appendChild(h("div", "scripts-group-title", "Últimas respuestas"));
+
+    if (arquitectoTabState.history === null) {
+      if (arquitectoTabState.historyError) {
+        wrap.appendChild(h("p", "agent-error", arquitectoTabState.historyError));
+      } else {
+        wrap.appendChild(h("p", "section-note", "Cargando historial…"));
+      }
+      return;
+    }
+
+    if (arquitectoTabState.history.length === 0) {
+      wrap.appendChild(h("p", "section-note", "El Arquitecto aún no ha procesado ninguna orden."));
+      return;
+    }
+
+    arquitectoTabState.history.forEach(function (job) {
+      var card = h("div", "job-card");
+      var line = h("div", "job-line");
+      var prefix = job.status === "running" ? "⟳ " : job.status === "completed" ? "✓ " : "✗ ";
+      line.textContent = prefix + (job.description || "Sin descripción");
+      card.appendChild(line);
+
+      var meta = h("div", "job-hint");
+      var timestamp = job.created_at ? new Date(job.created_at).toLocaleString() : "fecha desconocida";
+      meta.textContent = timestamp + " · " + job.status;
+      card.appendChild(meta);
+
+      if (job.result) {
+        var preview = String(job.result).split("\n").slice(0, 2).join("\n");
+        var previewEl = h("div", "job-result");
+        previewEl.style.maxHeight = "60px";
+        previewEl.textContent = preview;
+        card.appendChild(previewEl);
+
+        var expanded = arquitectoTabState._expandedJobId === job.id;
+        var toggleBtn = button(expanded ? "▲ Ocultar" : "▼ Ver completo", "script-expand-toggle");
+        toggleBtn.addEventListener("click", function () {
+          arquitectoTabState._expandedJobId = expanded ? null : job.id;
+          renderArquitectoBody();
+        });
+        card.appendChild(toggleBtn);
+
+        if (expanded) {
+          var full = h("div", "job-result");
+          full.textContent = String(job.result);
+          card.appendChild(full);
+        }
+      }
+
+      wrap.appendChild(card);
+    });
+  }
+
+  function loadArquitectoHistory() {
+    BackendClient.getBacklog()
+      .then(function (backlog) {
+        var epics = (backlog && backlog.epics) ? backlog.epics : [];
+        arquitectoTabState._epics = epics.map(function (e) { return { id: e.id, title: e.title }; });
+
+        var allUS = [];
+        var inProgressUS = [];
+        epics.forEach(function (epic) {
+          if (epic.user_stories_list) {
+            epic.user_stories_list.forEach(function (us) {
+              allUS.push({ id: us.id, title: us.title });
+              if (us.status === "in_progress") {
+                inProgressUS.push({ id: us.id, title: us.title });
+              }
+            });
+          }
+        });
+        arquitectoTabState._usList = allUS;
+        arquitectoTabState._usInProgress = inProgressUS;
+        renderArquitectoBody();
+      })
+      .catch(function () {
+        arquitectoTabState._epics = [];
+        arquitectoTabState._usList = [];
+        arquitectoTabState._usInProgress = [];
+        renderArquitectoBody();
+      });
+
+    BackendClient.getJobs()
+      .then(function (jobs) {
+        var arqJobs = (jobs || []).filter(function (j) {
+          return j.role === "arquitecto" || (j.description && j.description.indexOf("[Arquitecto]") !== -1);
+        });
+        arqJobs.sort(function (a, b) {
+          var ta = a.created_at ? new Date(a.created_at).getTime() : 0;
+          var tb = b.created_at ? new Date(b.created_at).getTime() : 0;
+          return tb - ta;
+        });
+        arquitectoTabState.history = arqJobs.slice(0, 10);
+        arquitectoTabState.historyError = null;
+        renderArquitectoBody();
+      })
+      .catch(function (error) {
+        arquitectoTabState.history = [];
+        arquitectoTabState.historyError = buildErrorMessage(error);
+        renderArquitectoBody();
+      });
+  }
+
+  function dispatchArquitectoOrder(order) {
+    var arq = arquitectoState.agent;
+    if (!arq || arquitectoTabState.activeJobId) return;
+
+    var promptText;
+    if (order.needsSelect) {
+      var itemId = order.needsSelect === "epic" ? arquitectoTabState.selectedEpicId : arquitectoTabState.selectedUSId;
+      if (!itemId) return;
+      promptText = "[Arquitecto] " + order.promptPrefix + " " + itemId;
+    } else {
+      promptText = "[Arquitecto] " + order.promptPrefix;
+    }
+
+    _dispatchArquitectoJob(promptText, order.id);
+  }
+
+  function dispatchArquitectoPrompt() {
+    var arq = arquitectoState.agent;
+    if (!arq || arquitectoTabState.activeJobId) return;
+    var text = "[Arquitecto] " + arquitectoTabState.promptText.trim();
+    arquitectoTabState.promptConfirmPending = false;
+    _dispatchArquitectoJob(text, null);
+  }
+
+  function _dispatchArquitectoJob(description, orderId) {
+    var arq = arquitectoState.agent;
+    if (!arq) return;
+
+    arquitectoTabState.activeJobId = "pending";
+    arquitectoTabState.activeOrderId = orderId;
+    arquitectoTabState.jobResult = null;
+    renderArquitectoBody();
+
+    BackendClient.createAndDispatchJob({ agent_id: arq.id, description: description })
+      .then(function (result) {
+        arquitectoTabState.activeJobId = null;
+        arquitectoTabState.activeOrderId = null;
+        arquitectoTabState.jobResult = result;
+        loadArquitectoHistory();
+      })
+      .catch(function (error) {
+        arquitectoTabState.activeJobId = null;
+        arquitectoTabState.activeOrderId = null;
+        arquitectoTabState.jobResult = { status: "failed", result: buildErrorMessage(error) };
+        loadArquitectoHistory();
       });
   }
 

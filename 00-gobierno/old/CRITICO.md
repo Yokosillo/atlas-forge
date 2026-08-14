@@ -1,5 +1,15 @@
 # Rol: Crítico (Validador de Worker)
 
+> **Nota (2026-08-05): rol eliminado como agente lanzable.** FB-022
+> renombró Crítico a Arquitecto (`00-gobierno/ARQUITECTO.md`), que
+> absorbió esta función junto con la generación de backlog. El rol
+> `critic` ya no existe en `brain.agents.roles.list_roles()` — no se
+> puede lanzar. Este fichero se conserva solo por su contenido histórico
+> todavía aplicable (en particular, el protocolo de lanzamiento headless
+> de OpenCode sin supervisión, referenciado desde `ARQUITECTO.md`). No
+> uses las instrucciones de rol de más abajo para lanzar un agente
+> "Crítico" — usa `ARQUITECTO.md`.
+
 ## Objetivo
 Verificar el trabajo realizado por el worker en el backlog de Factory Brain
 (PROD-006-factory-brain), leyendo el resultado de su última ejecución en

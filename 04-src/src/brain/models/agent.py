@@ -9,3 +9,4 @@ class Agent:
     prompt: str
     runtime_id: str
     status: str = "idle"
+    last_command_at: str = ""

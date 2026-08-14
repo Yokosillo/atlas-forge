@@ -4,11 +4,13 @@ Factory Brain treats the **backlog** (`02-backlog/` of the active project) as a 
 
 ## Backlog schema
 
-Canonical structure (see `02-backlog/README.md`): Roadmap → Epic (`FB-NNN`) → User Story (`US-FBNNN-nn`) → Task (`T-FBNNN-USnn-mm`). Each file has mandatory sections per type and a `## Estado` field with the closed values `TODO | IN_PROGRESS | REVIEW | DONE`. Optional fields: `## Fase` (belonging to a roadmap Phase) and `## Bugs encontrados` (Tasks).
+Canonical structure (see `02-backlog/README.md`): Roadmap → Epic (`FB-NNN`) → User Story (`US-FBNNN-nn`) → Task (`T-FBNNN-USnn-mm`). Since FB-027 (2026-08-06), each file is **YAML frontmatter + Markdown body**: the frontmatter block (delimited by `---`) holds the structured fields, the Markdown body holds free prose (`## Objetivo`, `## Criterios de aceptación`, etc.).
+
+Common frontmatter fields: `id`, `type` (`epic | user_story | task`), `title`, `state` (closed set: `TODO | IN_PROGRESS | REVIEW | DONE | POSTERGADA`), `dependencies` (a YAML list of IDs — no bold markup, no free text). Optional: `priority` (User Story/Task), `fase`. User Stories and Tasks also carry `epic` (and Tasks additionally `user_story`) pointing to their parent.
 
 ## Deterministic parser (`brain/backlog/parser.py`)
 
-- Extracts per file: id (from the name prefix), type, state (`## Estado`), dependencies (`## Dependencias` with `**ID**` format), priority, phase.
+- Extracts per file: id, type, `state`, `dependencies` (parsed directly from the YAML list), priority, phase, parent references — all read from the frontmatter, no regex over free-form Markdown.
 - `load_backlog(backlog_path) → BacklogGraph`: parses the three subdirectories; malformed files are collected in `graph.errors` without aborting the rest.
 - `classify_todo_items(graph)`: splits TODO items into **LISTA** (all dependencies DONE) and **BLOQUEADA** (some pending/missing dependency).
 - `calculate_unblock_degree(graph, epic)`: ratio of a Epic's US/Tasks whose dependencies are all resolved (basis of the heat map).
@@ -30,9 +32,9 @@ Accessible by three equivalent paths: `GET /backlog`, the `backlog_status` gener
 
 `GET /backlog/{item_id}` returns the detail by section (`## Objetivo`/`## Historia`, `## Criterios de aceptación`, dependencies with their state). For a User Story it includes its Tasks and (FB-024-US09) the execution history (Jobs) of that Story. IDs of the type `FB-xxx` resolve as an Epic.
 
-## Format validator (`brain/backlog/validator.py`)
+## Format validator (`brain/backlog/validator_v2.py`)
 
-Deterministic schema validator: title format, internal sections in H2, mandatory sections per type, reference fields (`**Epic:**`, `**User Story:**`), `## Estado` format, `## Dependencias` format. Used as a safety net by the Architect generators. `ValidationResult{valid, file_type, errors}`.
+Deterministic schema validator for the YAML frontmatter format: required frontmatter fields per type (`id`, `type`, `title`, `state`, `dependencies`, plus `epic`/`user_story` where applicable), closed `state` set, dependency IDs well-formed, id matching the filename prefix. `ValidationResultV2{valid, errors}`.
 
 ## Backlog-centric pipeline (Phase 1.0, FB-022)
 
@@ -68,7 +70,10 @@ Packages the input of a Tester Job: acceptance criteria of the Tasks + `git diff
 - **TUI**: 3-level Backlog screen with Rich colors and progress bars.
 - **Android app**: Backlog screen with listing/detail and launch development.
 
+## Parallelizable development thread analysis (FB-026, implemented)
+
+`brain/backlog/dependency_graph.py` computes, for an Epic, which groups of US/Tasks are mutually independent (parallelizable threads) and in what order to tackle them, based on the real dependency graph — so development can be split across several Developers with an actual basis instead of guesswork. Exposed as `POST /backlog/epic/{epic_id}/analyze-threads` (accepts the number of target agents as a query param) and as the "Generar hilos de desarrollo" button in the web Backlog tab (Epic detail, expandable). The result is persisted as a report.
+
 ## Planned (not implemented)
 
 - **Full Epic→US generator in the product** (the current pipeline validates the schema format; content generation is sketched as scaffolding).
-- **Parallelizable development thread analysis** (FB-026): dependency graph analysis per Epic with topological levels and a recommendation for splitting among several Developers. The `brain/backlog/dependency_graph.py` module exists in the code, but it has **no DONE Tasks nor an interface exposing it** — documented as planned.

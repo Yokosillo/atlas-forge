@@ -82,6 +82,23 @@ def test_discover_projects_detects_root_itself_when_it_is_a_repo(
     assert projects[0].path == str(tmp_path)
 
 
+def test_discover_projects_skips_hidden_directories_but_keeps_sibling_repo(
+    tmp_path: Path,
+) -> None:
+    # Caso real: `.brain` es un repo git real (con .git válido) que vive al
+    # mismo nivel que los productos, pero es infraestructura interna, no un
+    # proyecto de trabajo. Todo directorio oculto debe excluirse del recorrido.
+    _make_git_repo(tmp_path / ".brain")
+
+    # Repo real hermano, sin punto al principio: sí debe aparecer.
+    _make_git_repo(tmp_path / "real-project")
+
+    projects = discover_projects(tmp_path)
+    paths = {project.path for project in projects}
+
+    assert paths == {str(tmp_path / "real-project")}
+
+
 def test_discover_projects_returns_alphabetical_order_when_created_unsorted(
     tmp_path: Path,
 ) -> None:

@@ -9,6 +9,11 @@ from brain.workspace.discovery_cache import TTLCache
 # no son proyectos de trabajo del desarrollador, son artefactos de
 # dependencias o infraestructura interna que pueden contener su propio
 # `.git` (submódulos, paquetes vendorizados) sin representar un proyecto real.
+# Red de seguridad explícita: el recorrido ya excluye todo directorio oculto
+# (nombre que empieza por `.`) de forma general, así que las entradas `.venv`
+# y `.git` quedan cubiertas por esa regla; se conservan por claridad y
+# defensa en profundidad junto con los nombres no ocultos (node_modules, venv,
+# __pycache__) que sí requieren esta lista.
 _EXCLUDED_DIR_NAMES = {
     "node_modules",
     ".venv",
@@ -106,8 +111,8 @@ def _discover_projects_walk(root: Path, workspace_id: str) -> list[Project]:
     """Recorrido real del filesystem (`os.walk`) con la lógica original de
     discovery — extraído a esta función privada para que `discover_projects`
     lo envuelva con la caché TTL sin tocar ningún comportamiento: exclusión
-    de directorios internos, detección de `.git`, no descender dentro de un
-    repo ya detectado, y orden alfabético case-insensitive."""
+    de directorios internos y ocultos, detección de `.git`, no descender
+    dentro de un repo ya detectado, y orden alfabético case-insensitive."""
     projects: list[Project] = []
 
     if not root.exists() or not root.is_dir():
@@ -117,8 +122,14 @@ def _discover_projects_walk(root: Path, workspace_id: str) -> list[Project]:
         current_path = Path(current_dir)
 
         # Poda in-place: os.walk no descenderá a estos subdirectorios.
+        # Además de la lista explícita de nombres internos, se excluye todo
+        # directorio oculto (nombre que empieza por `.`): son infraestructura
+        # interna (p. ej. `.brain`, `.venv`, `.git`) que puede contener su
+        # propio `.git` sin representar un proyecto de trabajo real.
         subdir_names[:] = [
-            name for name in subdir_names if name not in _EXCLUDED_DIR_NAMES
+            name
+            for name in subdir_names
+            if name not in _EXCLUDED_DIR_NAMES and not name.startswith(".")
         ]
 
         if is_git_repository(current_path):

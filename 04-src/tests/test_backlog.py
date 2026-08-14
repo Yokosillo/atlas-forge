@@ -42,27 +42,29 @@ REAL_BACKLOG_PATH = (
 )
 
 _WELL_FORMED_US = (
-    "# US-FB001-01 · Ejemplo\n\n"
-    "**User Story:** US-FB001-01\n"
-    "**Epic:** FB-001 · Pruebas\n\n"
-    "## Descripción\n\n"
-    "Nada que verificar aquí.\n\n"
-    "## Dependencias\n\n"
-    "Ninguna.\n\n"
-    "## Estado\n\n"
-    "DONE\n"
+    "---\n"
+    "id: US-FB001-01\n"
+    "type: user_story\n"
+    "title: Ejemplo\n"
+    "state: DONE\n"
+    "dependencies: []\n"
+    "epic: FB-001\n"
+    "priority: Alta\n"
+    "---\n"
 )
 
 _WELL_FORMED_TASK_TODO = (
-    "# T-FB001-US01-01 · Ejemplo\n\n"
-    "**User Story:** US-FB001-01\n"
-    "**Epic:** FB-001 · Pruebas\n\n"
-    "## Descripción\n\n"
-    "Nada que verificar aquí.\n\n"
-    "## Dependencias\n\n"
-    "**US-FB001-01** (dependencia de prueba).\n\n"
-    "## Estado\n\n"
-    "TODO\n"
+    "---\n"
+    "id: T-FB001-US01-01\n"
+    "type: task\n"
+    "title: Ejemplo\n"
+    "state: TODO\n"
+    "dependencies:\n"
+    "  - US-FB001-01\n"
+    "epic: FB-001\n"
+    "user_story: US-FB001-01\n"
+    "priority: Alta\n"
+    "---\n"
 )
 
 
@@ -101,59 +103,64 @@ def _mini_backlog(tmp_path: Path) -> tuple[Path, list[str]]:
         backlog,
         "user-stories",
         "US-FB001-02-lista.md",
-        _WELL_FORMED_TASK_TODO.replace("T-FB001-US01-01", "US-FB001-02")
-        .replace("**US-FB001-01** (dependencia de prueba).", "**US-FB001-01** (ya DONE).")
-        .replace("**Epic:** FB-001 · Pruebas", "**Epic:** FB-001 · Pruebas"),
+        _WELL_FORMED_TASK_TODO.replace("id: T-FB001-US01-01", "id: US-FB001-02")
+        .replace("type: task", "type: user_story")
+        .replace("user_story: US-FB001-01\n", "")
+        .replace("  - US-FB001-01\n", "  - US-FB001-01\n")
+        .replace("state: TODO", "state: TODO"),
     )
     _write(
         backlog,
         "user-stories",
         "US-FB002-01-lista.md",
-        _WELL_FORMED_TASK_TODO.replace("T-FB001-US01-01", "US-FB002-01")
-        .replace("**US-FB001-01** (dependencia de prueba).", "**US-FB001-01** (ya DONE)."),
+        _WELL_FORMED_TASK_TODO.replace("id: T-FB001-US01-01", "id: US-FB002-01")
+        .replace("type: task", "type: user_story")
+        .replace("user_story: US-FB001-01\n", "")
+        .replace("  - US-FB001-01\n", "  - US-FB001-01\n")
+        .replace("state: TODO", "state: TODO"),
     )
     _write(
         backlog,
         "tasks",
         "T-FB001-US01-01-done.md",
-        _WELL_FORMED_TASK_TODO.replace("TODO", "DONE"),
+        _WELL_FORMED_TASK_TODO.replace("state: TODO", "state: DONE"),
     )
     _write(
         backlog,
         "tasks",
         "T-FB002-US01-01-lista.md",
-        _WELL_FORMED_TASK_TODO.replace("T-FB001-US01-01", "T-FB002-US01-01")
-        .replace("**US-FB001-01** (dependencia de prueba).", "**T-FB001-US01-01** (ya DONE)."),
+        _WELL_FORMED_TASK_TODO.replace("id: T-FB001-US01-01", "id: T-FB002-US01-01")
+        .replace("  - US-FB001-01\n", "  - T-FB001-US01-01\n"),
     )
     _write(
         backlog,
         "tasks",
         "T-FB002-US01-02-bloqueada.md",
-        _WELL_FORMED_TASK_TODO.replace("T-FB001-US01-01", "T-FB002-US01-02")
-        .replace("**US-FB001-01** (dependencia de prueba).", "**T-FB002-US01-01** (sigue TODO)."),
+        _WELL_FORMED_TASK_TODO.replace("id: T-FB001-US01-01", "id: T-FB002-US01-02")
+        .replace("  - US-FB001-01\n", "  - T-FB002-US01-01\n"),
     )
     _write(
         backlog,
         "tasks",
         "T-FB002-US01-03-bloqueada.md",
-        _WELL_FORMED_TASK_TODO.replace("T-FB001-US01-01", "T-FB002-US01-03")
-        .replace("**US-FB001-01** (dependencia de prueba).", "**T-FB002-US01-02** (sigue TODO)."),
+        _WELL_FORMED_TASK_TODO.replace("id: T-FB001-US01-01", "id: T-FB002-US01-03")
+        .replace("  - US-FB001-01\n", "  - T-FB002-US01-02\n"),
     )
     _write(
         backlog,
         "tasks",
         "T-FB002-US01-04-lista.md",
-        _WELL_FORMED_TASK_TODO.replace("T-FB001-US01-01", "T-FB002-US01-04")
-        .replace("**US-FB001-01** (dependencia de prueba).", "**T-FB001-US01-01** (ya DONE)."),
+        _WELL_FORMED_TASK_TODO.replace("id: T-FB001-US01-01", "id: T-FB002-US01-04")
+        .replace("  - US-FB001-01\n", "  - T-FB001-US01-01\n"),
     )
     _write(
         backlog,
         "tasks",
         "T-FB003-US01-01-bloqueada.md",
-        _WELL_FORMED_TASK_TODO.replace("T-FB001-US01-01", "T-FB003-US01-01")
+        _WELL_FORMED_TASK_TODO.replace("id: T-FB001-US01-01", "id: T-FB003-US01-01")
         .replace(
-            "**US-FB001-01** (dependencia de prueba).",
-            "**US-FB002-01** (sigue TODO), **T-FB002-US01-02** (sigue TODO).",
+            "  - US-FB001-01\n",
+            "  - US-FB002-01\n  - T-FB002-US01-02\n",
         ),
     )
     expected_nodes = [
@@ -186,7 +193,7 @@ def test_parse_backlog_item_extracts_fields_from_a_well_formed_file(
     assert item.kind == "T"
     assert item.state == "TODO"
     assert item.dependencies == ("US-FB001-01",)
-    assert item.epic == "FB-001 · Pruebas"
+    assert item.epic == "FB-001"
     assert item.path == path
 
 
@@ -206,14 +213,15 @@ def test_parse_backlog_item_reports_missing_estado(tmp_path: Path) -> None:
         tmp_path,
         "tasks",
         "T-FB001-US01-02-sin-estado.md",
-        "# T-FB001-US01-02 · Sin estado\n\n## Dependencias\n\nNinguna.\n",
+        "---\nid: T-FB001-US01-02\ntype: task\nepic: FB-001\nuser_story: US-FB001-01\n"
+        "title: Sin estado\ndependencies: []\npriority: Alta\n---\n",
     )
 
     with pytest.raises(BacklogParseError) as excinfo:
         parse_backlog_item(path)
 
     assert excinfo.value.item_id == "T-FB001-US01-02"
-    assert "Estado" in excinfo.value.reason
+    assert "state" in excinfo.value.reason.lower()
 
 
 def test_parse_backlog_item_reports_missing_dependencias(tmp_path: Path) -> None:
@@ -221,14 +229,15 @@ def test_parse_backlog_item_reports_missing_dependencias(tmp_path: Path) -> None
         tmp_path,
         "tasks",
         "T-FB001-US01-03-sin-deps.md",
-        "# T-FB001-US01-03 · Sin deps\n\n## Estado\n\nTODO\n",
+        "---\nid: T-FB001-US01-03\ntype: task\nepic: FB-001\nuser_story: US-FB001-01\n"
+        "title: Sin deps\nstate: TODO\npriority: Alta\n---\n",
     )
 
     with pytest.raises(BacklogParseError) as excinfo:
         parse_backlog_item(path)
 
     assert excinfo.value.item_id == "T-FB001-US01-03"
-    assert "Dependencias" in excinfo.value.reason
+    assert "dependencies" in excinfo.value.reason.lower()
 
 
 def test_parse_backlog_item_reports_empty_estado(tmp_path: Path) -> None:
@@ -236,7 +245,8 @@ def test_parse_backlog_item_reports_empty_estado(tmp_path: Path) -> None:
         tmp_path,
         "tasks",
         "T-FB001-US01-04-estado-vacio.md",
-        "# T-FB001-US01-04 · Estado vacío\n\n## Estado\n\n\n## Dependencias\n\nNinguna.\n",
+        "---\nid: T-FB001-US01-04\ntype: task\nepic: FB-001\nuser_story: US-FB001-01\n"
+        "title: Estado vacio\nstate:\ndependencies: []\npriority: Alta\n---\n",
     )
 
     with pytest.raises(BacklogParseError) as excinfo:
@@ -246,43 +256,26 @@ def test_parse_backlog_item_reports_empty_estado(tmp_path: Path) -> None:
 
 
 def test_parse_backlog_item_reads_priority(tmp_path: Path) -> None:
-    """T-FB018-US02-02: el campo `## Prioridad` se parsea como el resto de
-    secciones (valor en la línea siguiente, o inline tras `:`)."""
-    path = _write(
-        tmp_path,
-        "tasks",
-        "T-FB001-US01-05-con-prioridad.md",
-        _WELL_FORMED_TASK_TODO + "## Prioridad\n\nAlta.\n",
-    )
+    content = _WELL_FORMED_TASK_TODO.replace("priority: Alta", "priority: Alta")
+    path = _write(tmp_path, "tasks", "T-FB001-US01-05-con-prioridad.md", content)
 
     item = parse_backlog_item(path)
 
-    assert item.priority == "Alta."
+    assert item.priority == "Alta"
 
 
-def test_parse_backlog_item_priority_inline_value(tmp_path: Path) -> None:
-    path = _write(
-        tmp_path,
-        "tasks",
-        "T-FB001-US01-06-prioridad-inline.md",
-        _WELL_FORMED_TASK_TODO + "## Prioridad: Media.\n",
-    )
+def test_parse_backlog_item_priority_none_when_not_valid(tmp_path: Path) -> None:
+    content = _WELL_FORMED_TASK_TODO.replace("priority: Alta", "priority: Inexistente")
+    path = _write(tmp_path, "tasks", "T-FB001-US01-06-prioridad-rara.md", content)
 
     item = parse_backlog_item(path)
 
-    assert item.priority == "Media."
+    assert item.priority == "Inexistente"
 
 
 def test_parse_backlog_item_priority_is_optional(tmp_path: Path) -> None:
-    """A diferencia de `## Estado`/`## Dependencias`, la ausencia de
-    `## Prioridad` NO es un error de parseo: un backlog recién creado puede
-    tener items aún sin prioridad, y el item se lee igual (priority=None)."""
-    path = _write(
-        tmp_path,
-        "tasks",
-        "T-FB001-US01-07-sin-prioridad.md",
-        _WELL_FORMED_TASK_TODO,
-    )
+    content = _WELL_FORMED_TASK_TODO.replace("\npriority: Alta", "")
+    path = _write(tmp_path, "tasks", "T-FB001-US01-07-sin-prioridad.md", content)
 
     item = parse_backlog_item(path)
 
@@ -308,18 +301,20 @@ def test_load_backlog_reports_malformed_files_without_aborting_the_rest(
     tmp_path: Path,
 ) -> None:
     backlog, _ = _mini_backlog(tmp_path)
-    # Añadir dos ficheros mal formados (uno por cada sección problemática).
+    # Añadir dos ficheros mal formados (uno por cada campo problemático).
     _write(
         backlog,
         "tasks",
         "T-FB999-US01-01-sin-estado.md",
-        "# T-FB999-US01-01 · Sin estado\n\n## Dependencias\n\nNinguna.\n",
+        "---\nid: T-FB999-US01-01\ntype: task\nepic: FB-999\nuser_story: US-FB999-01\n"
+        "title: Sin estado\ndependencies: []\npriority: Alta\n---\n",
     )
     _write(
         backlog,
         "tasks",
         "T-FB999-US01-02-sin-deps.md",
-        "# T-FB999-US01-02 · Sin deps\n\n## Estado\n\nTODO\n",
+        "---\nid: T-FB999-US01-02\ntype: task\nepic: FB-999\nuser_story: US-FB999-01\n"
+        "title: Sin deps\nstate: TODO\npriority: Alta\n---\n",
     )
 
     graph = load_backlog(backlog)
@@ -328,8 +323,8 @@ def test_load_backlog_reports_malformed_files_without_aborting_the_rest(
     assert len(graph.items) == 9
     assert len(graph.errors) == 2
     reasons = sorted(error.reason for error in graph.errors)
-    assert any("Estado" in reason for reason in reasons)
-    assert any("Dependencias" in reason for reason in reasons)
+    assert any("state" in reason.lower() for reason in reasons)
+    assert any("dependencies" in reason.lower() for reason in reasons)
     # El error reporta el identificador del fichero concreto.
     assert {error.item_id for error in graph.errors} == {
         "T-FB999-US01-01",
@@ -392,10 +387,7 @@ def test_find_max_leverage_chain_returns_empty_when_nothing_is_blocked(
         backlog,
         "tasks",
         "T-FB001-US01-01-lista.md",
-        _WELL_FORMED_TASK_TODO.replace(
-            "**US-FB001-01** (dependencia de prueba).",
-            "**US-FB001-01** (ya DONE).",
-        ),
+        _WELL_FORMED_TASK_TODO,
     )
     graph = load_backlog(backlog)
 
@@ -444,24 +436,18 @@ def test_load_backlog_on_the_real_backlog_matches_the_file_count() -> None:
     assert graph.errors == ()
 
 
-def test_read_state_strips_trailing_note_from_the_comparable_value(
+def test_read_state_works_in_yaml_frontmatter(
     tmp_path: Path,
 ) -> None:
-    """T-FB018-US02-05: un `## Estado` con nota de trazabilidad
-    (`DONE  # DESCARTADA (en principio)...`, caso real FB-015) debe
-    devolver el valor del conjunto cerrado limpio (`DONE`), comparable por
-    igualdad exacta — la nota no es parte del valor real. Regresión: antes
-    de este fix, `state` conservaba la nota completa y `FB-015` no se
-    agrupaba con el resto de items `DONE` en los conteos agregados."""
     epic_path = tmp_path / "FB-999.md"
     epic_path.write_text(
-        "# FB-999 · Ejemplo\n\n"
-        "## Descripción\n\n"
-        "Nada que verificar aquí.\n\n"
-        "## Dependencias\n\n"
-        "Ninguna.\n\n"
-        "## Estado\n\n"
-        "DONE  # DESCARTADA (en principio) — nota de trazabilidad\n",
+        "---\n"
+        "id: FB-999\n"
+        "type: epic\n"
+        "title: Ejemplo\n"
+        "state: DONE\n"
+        "dependencies: []\n"
+        "---\n",
         encoding="utf-8",
     )
 

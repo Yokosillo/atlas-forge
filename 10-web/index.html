@@ -4,7 +4,7 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Factory Brain</title>
-  <link rel="stylesheet" href="style.css" />
+  <link rel="stylesheet" href="/ui/style.css?v=20260809a" />
 </head>
 <body>
   <header class="topbar">
@@ -16,10 +16,15 @@
          confirme que el backend responde. Sin esto, ningún dato a medio
          cargar es visible antes de tiempo. -->
   </main>
-  <script src="backend-client.js"></script>
+  <!-- Rutas absolutas (T-FB024): este mismo index.html se sirve para
+       cualquier sección (`/ui/roles`, `/ui/arquitecto`...), no solo para
+       `/ui/`. Una ruta relativa resolvería distinto según cuántos
+       segmentos tenga la URL activa; una ruta absoluta bajo /ui/ es
+       correcta siempre. -->
+  <script src="/ui/backend-client.js?v=20260809a"></script>
   <!-- T-FB021-US04-01: reconexión WebSocket, cargado ANTES que app.js
        (la sección Jobs construye `new ReconnectingWebSocket(...)`). -->
-  <script src="reconnecting-websocket.js"></script>
-  <script src="app.js"></script>
+  <script src="/ui/reconnecting-websocket.js?v=20260809a"></script>
+  <script src="/ui/app.js?v=20260809a"></script>
 </body>
 </html>

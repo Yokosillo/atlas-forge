@@ -232,6 +232,7 @@ def test_malformed_dependency_line_with_bold() -> None:
 
 
 def test_existing_task_files_are_valid() -> None:
+    from brain.backlog.validator_v2 import validate_backlog_file_v2
     import os
     tasks_dir = os.path.join(
         os.path.dirname(__file__), "..", "..", "02-backlog", "tasks"
@@ -242,17 +243,18 @@ def test_existing_task_files_are_valid() -> None:
     file4 = os.path.join(tasks_dir, "T-FB022-US03A-01-implementar-validador-formato.md")
 
     for path in (file1, file2, file3, file4):
-        result = validate_backlog_file(path)
+        result = validate_backlog_file_v2(path)
         assert result.valid is True, f"{path}: {result.errors}"
 
 
 def test_existing_fb022_epic_is_valid() -> None:
+    from brain.backlog.validator_v2 import validate_backlog_file_v2
     import os
     path = os.path.join(
         os.path.dirname(__file__), "..", "..", "02-backlog", "epics",
         "FB-022-pipeline-backlog-centrico.md"
     )
-    result = validate_backlog_file(path)
+    result = validate_backlog_file_v2(path)
     assert result.valid is True, f"Errors: {result.errors}"
 
 

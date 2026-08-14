@@ -179,6 +179,66 @@ Una Task no puede marcarse como DONE sin cumplir todos sus criterios de aceptaci
 
 ---
 
+# Chequeo de reconciliación de estado
+
+El backlog tiene un mecanismo automático de red de seguridad para garantizar
+que el estado de US/Epic nunca quede desincronizado respecto a sus hijos
+(criterio de la US-FB022-13). Se ejecuta en **cada `git commit`** como
+pre-commit hook, no como pipeline de CI: este repositorio no tiene CI remoto
+(sin `.github/`, sin `.gitlab-ci.yml`), así que el gancho se instala
+localmente por fichero (ver más abajo).
+
+## Quién lo ejecuta (determinista, sin LLM)
+
+El encargado de ejecutarlo es `04-src/scripts/promote_states.py --check`
+(Python determinista dentro del venv `04-src/.venv`), que implementa la regla
+de trazabilidad definida en `brain/backlog/promote.py`:
+
+1. Una User Story → `DONE` si tiene ≥1 Task y todas sus Tasks son `DONE`.
+2. Una Epic → `DONE` si tiene ≥1 US y todas sus US son `DONE`.
+
+Solo detecta drift: `--check` no escribe nada; `--apply` escribe las
+promociones. Ambos son **deterministas e idempotentes** — no interviene ningún
+agente LLM en la decisión, coherente con "automatización determinista primero".
+
+## Cuándo se ejecuta
+
+- **Pre-commit hook** (local, en cada commit): `promote_states.py --check`
+  corre con `git commit` y **bloquea el commit** si hay drift (US/Epic con
+  todos sus hijos `DONE` pero el padre no); es el único mecanismo de reporte
+  en el proyecto (no hay pipeline de CI remoto) — siempre que el gancho esté
+  instalado.
+- **Síncrono en el pipeline** (`brain/dispatcher/job_plan_dispatch.py`):
+  `_mark_story_tasks_done` invoca `promote_backlog` justo después de marcar
+  `DONE` las Tasks de una Story — mismo instante, sin ventana de inconsistencia.
+
+## Instalación
+
+El hook se instala con:
+
+```bash
+bash 04-src/scripts/install_git_hooks.sh
+```
+
+que escribe `.git/hooks/pre-commit` (respaldando antes una versión previa en
+`.git/hooks/pre-commit.bak`). Debe reinstalarse en cada clon del repositorio.
+
+## Resolución de drift
+
+El mensaje del hook indica la solución: salir de drift se hace con
+`promote_states.py --apply`:
+
+```bash
+python3 04-src/scripts/promote_states.py --apply
+git add 02-backlog/ && git commit
+```
+
+Como el chequeo es idempotente, ejecutar `--apply` sobre un backlog ya
+consistente no cambia nada — por lo que se puede entrelazar con `--check`
+sin miedo.
+
+---
+
 # Informes
 
 Cada sesión de trabajo debe generar un informe indicando:

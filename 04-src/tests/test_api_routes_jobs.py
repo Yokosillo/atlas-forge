@@ -195,18 +195,20 @@ def test_get_jobs_returns_404_when_no_session_is_active() -> None:
     assert response.status_code == 404
 
 
-def test_post_jobs_chains_developer_result_into_critic_job(
+def test_post_jobs_chains_developer_result_into_architect_job(
     tmp_path: Path, isolated_socket: str, monkeypatch
 ) -> None:
     """Criterio de aceptación: encadenar un Job de Developer como entrada
-    de un Job de Critic (previous_job_id) funciona igual que hoy en la
-    TUI (US-FB008-02) — verificado end-to-end vía HTTP."""
+    de un Job de Arquitecto (previous_job_id) funciona igual que hoy en la
+    TUI (US-FB008-02) — verificado end-to-end vía HTTP. `SIM_ROLE=critic`
+    es solo la etiqueta interna del doble cooperativo de prueba
+    (`cooperative_agent_sim.sh`), no depende del rol real lanzado."""
     _project, session = _active_project_and_session(tmp_path, monkeypatch)
     developer, dev_runtime = _launch_cooperative_agent(
         "developer", tmp_path, session, isolated_socket, monkeypatch
     )
-    critic, critic_runtime = _launch_cooperative_agent(
-        "critic", tmp_path, session, isolated_socket, monkeypatch, extra_env="SIM_ROLE=critic"
+    architect, architect_runtime = _launch_cooperative_agent(
+        "arquitecto", tmp_path, session, isolated_socket, monkeypatch, extra_env="SIM_ROLE=critic"
     )
 
     client = TestClient(create_app())
@@ -216,20 +218,20 @@ def test_post_jobs_chains_developer_result_into_critic_job(
     ).json()
     assert dev_job["status"] == "completed"
 
-    critic_job = client.post(
+    architect_job = client.post(
         "/jobs",
         json={
-            "agent_id": critic.id,
+            "agent_id": architect.id,
             "description": "review this implementation",
             "previous_job_id": dev_job["id"],
         },
     ).json()
 
-    assert critic_job["status"] == "completed"
-    assert "reviewed the following prior result" in critic_job["result"]
+    assert architect_job["status"] == "completed"
+    assert "reviewed the following prior result" in architect_job["result"]
 
     stop_runtime(dev_runtime, socket_name=isolated_socket)
-    stop_runtime(critic_runtime, socket_name=isolated_socket)
+    stop_runtime(architect_runtime, socket_name=isolated_socket)
 
 
 def test_post_jobs_rejects_developer_to_developer_chaining(

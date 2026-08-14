@@ -65,6 +65,27 @@ _SCRIPT_KEYWORDS = ("script", "automatización", "automatizacion")
 _SCRIBE_KEYWORDS = ("scribe",)
 
 
+def task_file_story_prefix(story_id: str) -> str:
+    """Normaliza `story_id` al prefijo real de los ficheros de Task
+    (`FB020-US01`), aceptando tanto la forma canónica del backlog
+    (`US-FB020-01`) como la ya normalizada (`FB020-US01`).
+
+    - `US-FB020-01` -> `FB020-US01`
+    - `FB020-US01`  -> `FB020-US01` (idempotente)
+
+    Los nombres de fichero reales de Task son `T-FB020-US01-...md`
+    (NUNCA `T-US-FB020-01-...md`), así que el glob `T-{story_id}-` que
+    construyen `_pending_task_files_for_story`, `_mark_story_tasks_done`
+    (`job_plan_dispatch.py`) y `read_acceptance_criteria` (`tester_input.py`)
+    debe partir de este prefijo, no de la forma canónica tal cual.
+    """
+    base = story_id.removeprefix("US-")
+    if "-US" in base:
+        return base
+    epic, number = base.split("-", 1)
+    return f"{epic}-US{number}"
+
+
 def _task_correlative(task_path: Path) -> int:
     # T-FBNNN-USnn-mm-<slug>.md -> mm, para ordenar igual que aparecen en
     # el backlog (criterio de aceptación de la Task).
@@ -99,7 +120,7 @@ def _mechanism_for_task(text: str) -> tuple[str, str | None]:
 
 
 def _pending_task_files_for_story(story_id: str, tasks_dir: Path) -> list[Path]:
-    prefix = f"T-{story_id}-"
+    prefix = f"T-{task_file_story_prefix(story_id)}-"
     candidates = sorted(
         (path for path in tasks_dir.glob(f"{prefix}*.md")),
         key=_task_correlative,

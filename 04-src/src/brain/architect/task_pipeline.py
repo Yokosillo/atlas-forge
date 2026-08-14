@@ -33,19 +33,29 @@ class TaskPipelineResult:
     approved_tasks: list[TaskApprovalResult] = field(default_factory=list)
 
 
+def _yaml_block_list(items: list[str]) -> str:
+    if not items:
+        return " []"
+    return "\n" + "\n".join(f"  - {item}" for item in items)
+
+
 def _build_task_content(task) -> str:
     criteria_text = "\n".join(f"- {c}" for c in task.criteria)
-    deps_text = ", ".join(f"**{d}**" for d in task.dependencies) if task.dependencies else "Ninguna."
+    deps_block = _yaml_block_list(task.dependencies) if task.dependencies else " []"
     return (
-        f"# {task.id} · {task.title}\n\n"
-        f"**Epic:** {task.epic_id}\n"
-        f"**User Story:** {task.us_id}\n\n"
+        "---\n"
+        f"id: {task.id}\n"
+        "type: task\n"
+        f"title: {task.title}\n"
+        f"epic: {task.epic_id}\n"
+        f"user_story: {task.us_id}\n"
+        f"state: TODO\n"
+        f"dependencies:{deps_block}\n"
+        f"priority: {task.priority}\n"
+        "---\n\n"
         f"## Objetivo\n\n{task.objective}\n\n"
         f"## Descripción\n\n{task.description}\n\n"
-        f"## Criterios de aceptación\n\n{criteria_text}\n\n"
-        f"## Prioridad\n\n{task.priority}\n\n"
-        f"## Dependencias\n\n{deps_text}\n\n"
-        f"## Estado\n\nTODO\n"
+        f"## Criterios de aceptación\n\n{criteria_text}\n"
     )
 
 

@@ -77,6 +77,7 @@ body {
   border: none;
   border-bottom: 3px solid transparent;
   cursor: pointer;
+  color: #20232a;
   font-size: 15px;
 }
 
@@ -134,10 +135,20 @@ body {
 }
 
 .agent-card {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px 12px;
   border: 1px solid #ddd;
   border-radius: 8px;
   padding: 10px 12px;
   margin: 8px 0;
+}
+
+.agent-info {
+  flex: 1 1 250px;
+  min-width: 0;
 }
 
 .agent-name {
@@ -197,22 +208,34 @@ body {
 /* FB-021 · Acciones por agente (T-FB021-US03-02)                      */
 /* ------------------------------------------------------------------ */
 
-/* Fila de acciones alineada a la derecha, "Detener" el último elemento:
-   al crecer su etiqueta con el aviso combinado de confirmación se expande
-   hacia la izquierda y su borde derecho (el que el usuario vuelve a
-   pulsar) no se desplaza entre el primer y el segundo clic. */
+/* Fila de acciones dentro de agent-card: flex horizontal, botones centrados
+   verticalmente entre si y sin margen superior (el gap de agent-card lo
+   gestiona). Se encoge lo necesario para no desbordar. */
 .agent-actions {
   display: flex;
   justify-content: flex-end;
+  align-items: center;
   gap: 8px;
-  margin-top: 8px;
   flex-wrap: wrap;
+  flex-shrink: 0;
+}
+
+.agent-actions button {
+  min-width: 10em;
 }
 
 .agent-actions .agent-stop {
+  min-width: 12em;
   max-width: 100%;
   white-space: normal;
   line-height: 1.25;
+}
+
+.agent-model-select-row,
+.agent-editor-row {
+  flex: 0 0 100%;
+  width: 100%;
+  margin-top: 4px;
 }
 
 /* Panel del pane de actividad: solo lectura, con scroll si es largo. */
@@ -799,6 +822,20 @@ body {
   cursor: default;
 }
 
+.accion-controls {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.accion-num-agents {
+  width: 48px;
+  padding: 5px 6px;
+  border: 1px solid #ccc;
+  border-radius: 6px;
+  font-size: 14px;
+}
+
 .accion-result {
   border: 1px solid #ddd;
   border-radius: 8px;
@@ -859,3 +896,118 @@ body {
   color: #d32f2f;
   margin: 6px 0 2px;
 }
+
+/* ------------------------------------------------------------------ */
+/* FB-028 · Barra de estado del Arquitecto (US-FB028-01)               */
+/* ------------------------------------------------------------------ */
+
+.arquitecto-bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 0 8px;
+  border-bottom: 1px solid #eee;
+  margin-bottom: 4px;
+  font-size: 14px;
+  flex-wrap: wrap;
+}
+
+.arq-status-dot {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background-color: #999;
+  flex-shrink: 0;
+}
+
+.arq-status-dot-active {
+  background-color: var(--status-idle);
+}
+
+/* Pulso para working: animación sutil */
+.arq-status-dot-working {
+  background-color: var(--status-working);
+  animation: arq-pulse 1.2s ease-in-out infinite;
+}
+
+@keyframes arq-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.4; }
+}
+
+.arq-role-name {
+  font-weight: 700;
+  color: #20232a;
+}
+
+.arq-model {
+  font-size: 13px;
+  color: #555;
+  background: #f0f0f0;
+  padding: 2px 8px;
+  border-radius: 4px;
+}
+
+.arq-model-none {
+  color: #999;
+  font-style: italic;
+}
+
+.arq-status-text {
+  font-size: 13px;
+  color: #777;
+}
+
+.arq-btn {
+  margin-left: auto;
+  font-size: 13px;
+  padding: 4px 14px;
+  min-height: 32px;
+  white-space: nowrap;
+}
+
+.arq-btn-stop {
+  border: 1px solid #b3261e;
+  color: #b3261e;
+  background: #fff6f5;
+}
+
+.arq-btn-stop-confirm {
+  border: 1px solid #b3261e;
+  color: #fff;
+  background: #b3261e;
+  font-weight: 700;
+}
+
+/* ------------------------------------------------------------------ */
+/* FB-028 · Pestaña Arquitecto (US-FB028-02)                           */
+/* ------------------------------------------------------------------ */
+
+.arq-section-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 0;
+  margin-bottom: 8px;
+  border-bottom: 1px solid #eee;
+}
+
+/* ------------------------------------------------------------------ */
+/* FB-024 · Pantalla Agentes (US-FB024-11): instancias vivas por rol  */
+/* ------------------------------------------------------------------ */
+
+/* Título de cada grupo de rol (Arquitecto / Developer) en la pantalla
+   Agentes, separado de la tarjeta anterior. */
+.roles-group-title {
+  font-weight: 700;
+  font-size: 16px;
+  margin-top: 16px;
+}
+
+/* Razón visible cuando "Lanzar nuevo Developer" está deshabilitado por
+   haber alcanzado el límite de instancias vivas (US-FB024-11, criterio 3). */
+.devlaunch-reason {
+  margin-top: 6px;
+}
+

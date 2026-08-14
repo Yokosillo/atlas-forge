@@ -68,6 +68,7 @@ from typing import Any, Callable
 from brain.core.session_lifecycle import list_agents
 from brain.dispatcher.job_creation import JobCreationError, create_job
 from brain.dispatcher.job_dispatch import dispatch_job
+from brain.dispatcher.job_plan_builder import task_file_story_prefix
 from brain.dispatcher.job_plan_cancellation_registry import (
     clear_active_job_for_plan,
     clear_job_plan_cancellation,
@@ -413,21 +414,29 @@ def _process_verdict_result(story_id: str, verdict_output: str) -> None:
         _write_rejection_instruction(story_id, justificacion, siguiente_prompt)
 
 
-def _mark_story_tasks_done(story_id: str) -> None:
+def _mark_story_tasks_done(story_id: str, backlog_dir: Path | None = None) -> None:
     """Marca `Estado: DONE` en todos los ficheros de Task de `story_id`
-    que actualmente están en `TODO`."""
-    tasks_dir = (
-        Path(__file__).resolve().parents[4] / "02-backlog" / "tasks"
-    )
-    prefix = f"T-{story_id}-"
+    que actualmente están en `TODO`, y promueve transitivamente la propia
+    User Story (y su Epic) a `DONE` si con esto quedan todos sus hijos
+    completados (T-FB022-US13-01) — misma invocación, sin paso posterior.
+
+    `backlog_dir` solo se sobreescribe en tests (sintético con `tmp_path`);
+    en producción se resuelve contra el `02-backlog/` real del proyecto.
+    """
+    if backlog_dir is None:
+        backlog_dir = Path(__file__).resolve().parents[4] / "02-backlog"
+    tasks_dir = backlog_dir / "tasks"
+    prefix = f"T-{task_file_story_prefix(story_id)}-"
     for task_path in sorted(tasks_dir.glob(f"{prefix}*.md")):
         text = task_path.read_text(encoding="utf-8")
         state = _read_task_state(text)
         if state == "TODO":
-            updated = text.replace(
-                "## Estado\n\nTODO", "## Estado\n\nDONE"
-            )
+            updated = text.replace("state: TODO", "state: DONE", 1)
             task_path.write_text(updated, encoding="utf-8")
+
+    from brain.backlog.promote import promote_backlog
+
+    promote_backlog(backlog_dir)
 
 
 def _write_rejection_instruction(
@@ -447,8 +456,8 @@ def _write_rejection_instruction(
 
 
 def _read_task_state(text: str) -> str:
-    """Lee el valor del campo `## Estado` de un fichero de Task."""
+    """Lee el valor del campo `state` del frontmatter YAML de un fichero de Task."""
     import re
 
-    match = re.search(r"^##\s*Estado\s*\n\s*(.+)$", text, re.MULTILINE)
+    match = re.search(r"^state:\s*(.+)$", text, re.MULTILINE)
     return match.group(1).strip() if match else ""

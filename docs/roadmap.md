@@ -16,7 +16,7 @@ Real state of Factory Brain contrasted against `02-backlog/` (canonical states) 
 
 ## Status by Epic
 
-Source: the `## Estado` field of each Epic in `02-backlog/epics/` (canonical) crossed with DONE Tasks and closing reports.
+Source: the `state` frontmatter field of each Epic in `02-backlog/epics/` (canonical) crossed with DONE Tasks and closing reports.
 
 ### DONE (implemented and operational)
 
@@ -35,14 +35,13 @@ Source: the `## Estado` field of each Epic in `02-backlog/epics/` (canonical) cr
 | **FB-019** TUI | Plan screen, cancel Job/Plan, confirmations, connectivity. |
 | **FB-020** Backlog Management | Listing/detail endpoints, launch development, views in web/app/TUI. |
 | **FB-021** Web Interface | Complete web: projects, agents, Jobs, plan, scripts, backlog, models. |
+| **FB-026** Parallelizable thread analysis | `dependency_graph.py` module, `POST /backlog/epic/{epic_id}/analyze-threads` endpoint, "Generar hilos de desarrollo" button in the web Backlog tab. |
 
-### Phase 1.0 (Tasks DONE; Epic files pending update to `DONE`)
-
-The FB-022, FB-024 and FB-025 Epics have **all their Tasks DONE** and closing reports in `07-informes/`, but their Epic files remain marked `## Estado: TODO` — a backlog metadata discrepancy (Developers close Tasks; the Epic state update is applied by the Director). They are listed here as implemented according to the real evidence.
+### Phase 1.0 — mostly DONE at Epic level
 
 | Epic | Tasks | What it provides |
 |---|---|---|
-| **FB-022** Backlog-centric Pipeline | 34/34 DONE | Director/Architect roles, Epic→US→Task generators with validator+self-audit, verdicts, FIFO queue, file model catalog, Tester contract. |
+| **FB-022** Backlog-centric Pipeline | 34/34 DONE (US-FB022-13, 3 Tasks, still TODO) | Director/Architect roles, Epic→US→Task generators with validator+self-audit, verdicts, FIFO queue, file model catalog, Tester contract. |
 | **FB-024** Web UX improvements | 23/23 DONE | DONE/TODO visual differentiation, badge, dependency blocking, Phase field, heat map, roles screen, US-detail history. |
 | **FB-025** Cross-cutting actions | 10/12 DONE (US01–07) | Web actions: document, analyze-architecture, suggest-ideas, test, audit-ux, index. |
 
@@ -61,13 +60,12 @@ The FB-022, FB-024 and FB-025 Epics have **all their Tasks DONE** and closing re
 | **FB-012** Development Automations | No Tasks. Planned (Phase 0.7). |
 | **FB-013** Configuration Management | **On hold** (backlog hold): reviewed when a real multi-user configuration need appears. |
 | **FB-023** Lifecycle supervision | Not a priority (2026-08-05 decision). `persistent` flag, stuck detection, headless `opencode serve`. |
-| **FB-026** Thread analysis | `dependency_graph.py` module exists in the code but with **no DONE Tasks nor an interface** — planned. |
 
-### Discarded
+### Postponed / discarded
 
 | Epic | Note |
 |---|---|
-| **FB-015** Remote access (SSH+tmux) | **DISCARDED** (2026-08-02): the need was resolved by FB-016/FB-017 (a real touch app). Kept for traceability. |
+| **FB-015** Remote access (SSH+tmux) | **Postponed** (discarded in principle, 2026-08-02): the need was resolved by FB-016/FB-017 (a real touch app). Kept for traceability, revisited only if a real need appears that FB-016/FB-017 don't cover. |
 
 ## Technical debt and relevant decisions
 

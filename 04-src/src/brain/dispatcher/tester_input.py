@@ -12,6 +12,7 @@ import subprocess
 from pathlib import Path
 
 from brain.dispatcher.job_report import read_job_report
+from brain.dispatcher.job_plan_builder import task_file_story_prefix
 
 _TASKS_DIRNAME = "02-backlog/tasks"
 
@@ -39,7 +40,7 @@ def read_acceptance_criteria(
     if not root.is_dir():
         return []
 
-    prefix = f"T-{story_id}-"
+    prefix = f"T-{task_file_story_prefix(story_id)}-"
     results: list[tuple[str, str]] = []
 
     for task_path in sorted(root.glob(f"{prefix}*.md")):

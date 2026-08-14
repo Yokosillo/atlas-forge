@@ -11,12 +11,6 @@ from brain.agents.developer import (
     build_developer_prompt,
     register_developer,
 )
-from brain.agents.director import (
-    DIRECTOR_PROMPT,
-    DIRECTOR_ROLE,
-    build_director_prompt,
-    register_director,
-)
 from brain.agents.governance import (
     project_governance_instruction,
     project_has_governance,
@@ -40,14 +34,11 @@ __all__ = [
     "ARQUITECTO_ROLE",
     "DEVELOPER_PROMPT",
     "DEVELOPER_ROLE",
-    "DIRECTOR_PROMPT",
-    "DIRECTOR_ROLE",
     "InvalidAgentTransitionError",
     "MAX_SIMULTANEOUS_DEVELOPERS",
     "RoleConfig",
     "build_arquitecto_prompt",
     "build_developer_prompt",
-    "build_director_prompt",
     "get_agent_state",
     "get_role",
     "get_register_fn_for_role",
@@ -63,7 +54,6 @@ __all__ = [
     "register_agent_with_reuse",
     "register_arquitecto",
     "register_developer",
-    "register_director",
     "register_role",
     "stop_agent",
 ]

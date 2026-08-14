@@ -580,16 +580,16 @@ async def test_history_distinguishes_completed_failed_and_running_jobs(
         # histórico distingue `running` de `completed`/`failed` mientras
         # el Job sigue en curso del lado del backend.
         _launch_cooperative_agent(
-            backend, monkeypatch, tmp_path, extra_env="SIM_DELAY=5", role="critic"
+            backend, monkeypatch, tmp_path, extra_env="SIM_DELAY=5", role="arquitecto"
         )
-        critic_agent = next(
-            a for a in backend.get_agents() if a["role"] == "critic"
+        second_agent = next(
+            a for a in backend.get_agents() if a["role"] == "arquitecto"
         )
 
         import threading
 
         def _dispatch_slow_job():
-            backend.create_and_dispatch_job(critic_agent["id"], "a running task")
+            backend.create_and_dispatch_job(second_agent["id"], "a running task")
 
         thread = threading.Thread(target=_dispatch_slow_job, daemon=True)
         thread.start()

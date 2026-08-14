@@ -12,13 +12,11 @@ Wants=tailscaled.service
 
 [Service]
 Type=simple
-# Usuario no-root explícito (criterio de aceptación de la Task): el mismo
-# usuario que ya opera Factory Brain en esta VM (sesiones tmux del
-# servidor "factory-brain", estado persistido en
-# ~/.local/share/brain/), para no necesitar permisos adicionales ni
-# reconciliar propietarios de ficheros entre procesos.
-User=secure_ai_atlas
-Group=secure_ai_atlas
+# User= y Group= se omiten en la instancia de systemd de usuario (el
+# proceso hereda el usuario/group del session manager).
+# Para systemd de sistema (root), descomentar:
+# User=secure_ai_atlas
+# Group=secure_ai_atlas
 # Raíz del workspace (factoria-software/), no 04-src/ — mismo motivo ya
 # documentado en discover_projects (FB-001): el proceso necesita ver los
 # repos reales de 10-PRODUCTOS/ para poder lanzar agentes sobre ellos,

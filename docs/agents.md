@@ -2,7 +2,7 @@
 
 Agents are the fundamental unit of work. An agent = **role** + **prompt** + **runtime** + **tmux session** + **state**. They are not language models nor generic processes.
 
-In the backlog-centric pipeline, agents are roles orchestrated by the product (Director, Architect, Developer, Tester) rather than launched one by one by hand: the product decides who runs each step of a plan.
+In the backlog-centric pipeline, agents are roles orchestrated by the product (Architect, Developer, Tester) rather than launched one by one by hand: the product decides who runs each step of a plan.
 
 ## Registered roles
 
@@ -11,9 +11,7 @@ Factory Brain uses a **centralized role registry** (`brain/agents/roles.py`) whe
 | Role | Governance | Behavior |
 |---|---|---|
 | **`developer`** | `developer.md` | Implements User Stories. Always creates a new instance (parallelism allowed, max **3** simultaneous Developers); self-named `Developer-1`, `Developer-2`… |
-| **`critic`** | `CRITICO.md` | Reusable role: reviews work. Predecessor of the Architect (FB-022 renamed Critic→Architect). |
-| **`director`** | `DIRECTOR.md` | Reusable, **conversational** role: converses with the human about existing Epics (read-only on the backlog; does not modify files, does not validate Developer work). |
-| **`arquitecto`** | `ARQUITECTO.md` | Reusable, **dual-function** role: lands the backlog (generates Epic→US→Task in standard format) and issues structured **verdicts** (`APROBADO` / `APROBADO_CON_OBSERVACIONES` / `RECHAZADO`) on Developer work. |
+| **`arquitecto`** | `ARQUITECTO.md` | Reusable, **triple-function** role: lands the backlog (generates Epic→US→Task in standard format), issues structured **verdicts** (`APROBADO` / `APROBADO_CON_OBSERVACIONES` / `RECHAZADO`) on Developer work, and converses with the human about existing Epics (read-only on the backlog). Predecessor of two now-merged roles: Critic (FB-022 renamed Critic→Architect) and Director (merged into Architect 2026-08-09). |
 
 !!! note "Tester"
     The **Tester role is not yet registered** in the backend (there is no `agents/tester.py`). Its *input/output contract* does exist (`dispatcher/tester_input.py`: packages acceptance criteria + code diff for a Tester Job) and it appears in the web role configuration with a default model. Registering the Tester agent is future work.
@@ -52,7 +50,7 @@ stateDiagram-v2
 
 ## Reuse
 
-`register_agent_with_reuse` looks for an existing agent of the same role in the session. Reuse applies to Critic/Director/Architect (persistent conversational agents); the Developer always creates a new instance (up to 3 simultaneous). Reason: `_find_agent_by_role` picks the first agent of a role — substitution (not coexistence) avoids a stopped agent of a role blocking routing.
+`register_agent_with_reuse` looks for an existing agent of the same role in the session. Reuse applies to Architect (persistent, reused across conversation and verdict Jobs); the Developer always creates a new instance (up to 3 simultaneous). Reason: `_find_agent_by_role` picks the first agent of a role — substitution (not coexistence) avoids a stopped agent of a role blocking routing.
 
 ## Runtime↔agent registry
 
@@ -60,7 +58,7 @@ stateDiagram-v2
 
 ## Launch options catalog
 
-`GET /agents/options` (and `list_available_agent_options` in the domain) generates the **roles × enabled models** Cartesian product, with the runtime resolved automatically from the model catalog. `supports_model` indicates whether that model supports hot model switching (OpenCode only). The API filters Critic+OpenCode combinations (product decision).
+`GET /agents/options` (and `list_available_agent_options` in the domain) generates the **roles × enabled models** Cartesian product, with the runtime resolved automatically from the model catalog. `supports_model` indicates whether that model supports hot model switching (OpenCode only).
 
 ## Governance
 

@@ -357,7 +357,7 @@
   /* ------------------------------------------------------------------ */
 
   /** `POST /project/actions/{action_id}` — despacha una acción transversal
-   * de proyecto sin pasar por el Director. Bloqueante como `createAndDispatchJob`.
+   * de proyecto sin pasar por el modo conversacional del Arquitecto. Bloqueante como `createAndDispatchJob`.
    * Acciones disponibles: `documentar`, `analizar-arquitectura`, `sugerir-ideas`,
    * `testear`, `auditar-ux`, `indexar`. */
   async function runProjectAction(actionId) {
@@ -400,9 +400,12 @@
 
   /** `POST /backlog/epic/{epic_id}/analyze-threads` — ejecuta el análisis
    * determinista de hilos de desarrollo para una Epic (FB-026).
-   * Bloqueante, sin despachar Job al Arquitecto. */
-  async function analyzeEpicThreads(epicId) {
-    return request("POST", "/backlog/epic/" + encodeURIComponent(epicId) + "/analyze-threads", { post: true });
+   * Bloqueante, sin despachar Job al Arquitecto. `numAgents` (default 2,
+   * corrección 2026-08-06) es el número de agentes disponibles para la
+   * recomendación de reparto — configurable, nunca fijo. */
+  async function analyzeEpicThreads(epicId, numAgents) {
+    var query = "?num_agents=" + encodeURIComponent(numAgents || 2);
+    return request("POST", "/backlog/epic/" + encodeURIComponent(epicId) + "/analyze-threads" + query, { post: true });
   }
 
   /* ------------------------------------------------------------------ */

@@ -309,7 +309,28 @@ def group_threads_and_detect_crosses(
                     )
                 )
 
-    return threads, cross_edges
+    # Deduplicar por (from_task, to_thread): si UNA MISMA Task depende de
+    # varias Tasks del mismo hilo destino (p. ej. T-FB022-US05-02 depende
+    # de las 4 Tasks de T-FB022-US06-*), eso es UN cruce real "esta Task
+    # depende del hilo destino", no uno por cada arista individual —
+    # criterio de aceptación de la Epic FB-026 (corrección 2026-08-06,
+    # auditoría de cierre de Fase 1.0: la versión sin deduplicar reportaba
+    # 6 cruces sobre el caso real de FB-022 en vez de los 3 reales).
+    # Deliberadamente NO se deduplica por (from_thread, to_thread): dos
+    # Tasks distintas del mismo hilo origen dependiendo del mismo hilo
+    # destino (p. ej. US05-02 y US07-01, ambas -> hilo-3) son DOS cruces
+    # reales — cada una es un punto de sincronización propio que el hilo
+    # origen debe esperar, no la misma relación repetida.
+    seen_pairs: set[tuple[str, str]] = set()
+    deduped_crosses: list[CrossEdge] = []
+    for cross in cross_edges:
+        pair = (cross.from_task, cross.to_thread)
+        if pair in seen_pairs:
+            continue
+        seen_pairs.add(pair)
+        deduped_crosses.append(cross)
+
+    return threads, deduped_crosses
 
 
 def _topological_order(task_graph: TaskGraph) -> list[str]:

@@ -39,8 +39,8 @@ Factory Brain centralizes that flow: the active project, the live session, the l
 See the [roadmap](roadmap.md) for full detail.
 
 - **Phases 0.1 to 0.4: complete.** Workspace, Session, Runtime (Claude Code and OpenCode), Agents, manual Dispatcher (Jobs, chaining, plans, cancellation), Scribe, backend API, Android app, generic scripts, TUI, backlog management and web interface.
-- **Phase 1.0 (backlog-centric pipeline): in progress.** Director/Architect roles and Epic→US→Task generators are implemented (Tasks DONE); the Epic files have not yet been updated to `DONE` (a backlog metadata discrepancy noted in the [roadmap](roadmap.md#status-by-epic)).
-- **Planned, not implemented:** Context Engine (FB-006), Knowledge Engine (FB-007), Capability Engine (FB-010), Plugin System (FB-011), Automation Engine (FB-009/012), Config Management (FB-013), lifecycle supervision (FB-023), thread analysis (FB-026). **There is no plugin system or MCP yet.**
+- **Phase 1.0 (backlog-centric pipeline): in progress.** Director/Architect roles, Epic→US→Task generators, cross-cutting actions (FB-025) and parallelizable thread analysis (FB-026) are implemented and in production.
+- **Planned, not implemented:** Context Engine (FB-006), Knowledge Engine (FB-007), Capability Engine (FB-010), Plugin System (FB-011), Automation Engine (FB-009/012), Config Management (FB-013), lifecycle supervision (FB-023). **There is no plugin system or MCP yet.**
 
 ## Getting started
 

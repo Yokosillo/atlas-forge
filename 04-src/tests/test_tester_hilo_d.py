@@ -116,6 +116,21 @@ class TestReadAcceptanceCriteria:
         result = read_acceptance_criteria("FB022-US12", tasks_dir=tasks_dir)
         assert result == []
 
+    def test_accepts_canonical_us_prefixed_story_id(self, tmp_path: Path):
+        # T-FB022-US13-01B: read_acceptance_criteria debe encontrar las Tasks
+        # reales (T-FB022-US12-...) aunque reciba la forma canónica US-FB022-12,
+        # que es la que llega al tester vía el plan/verdicto del pipeline.
+        tasks_dir = tmp_path / "02-backlog" / "tasks"
+        _write_task_file(tasks_dir, "T-FB022-US12-01-test", (
+            "## Criterios de aceptación\n\n1. Criterio A.\n"
+        ))
+
+        result = read_acceptance_criteria("US-FB022-12", tasks_dir=tasks_dir)
+
+        assert len(result) == 1
+        assert result[0][0] == "T-FB022-US12-01-test"
+        assert "Criterio A" in result[0][1]
+
 
 class TestCollectDeveloperCodeDiff:
     def test_returns_diff_from_git_repo(self, tmp_path: Path):

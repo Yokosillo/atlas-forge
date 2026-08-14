@@ -25,56 +25,53 @@ from brain.backlog.dependency_graph import (
 from brain.backlog.parser import load_backlog, parse_backlog_item
 from brain.models import BacklogGraph, BacklogItem, BacklogParseError
 
-_TASK_TEMPLATE_DONE = (
-    "# T-FB001-US01-01 · Ejemplo\n\n"
-    "**User Story:** US-FB001-01\n"
-    "**Epic:** FB-001 · Pruebas\n\n"
-    "## Descripcion\n\n"
-    "Nada que verificar aqui.\n\n"
-    "## Dependencias\n\n"
-    "Ninguna.\n\n"
-    "## Estado\n\n"
-    "DONE\n"
-)
+def _yaml_list(items: list[str]) -> str:
+    if not items:
+        return " []"
+    return "\n" + "\n".join(f"  - {item}" for item in items)
 
 
-def _make_task(task_id: str, us_id: str, deps: str,
-               epic: str = "FB-022") -> str:
+def _make_task(task_id: str, us_id: str, deps: list[str],
+               epic: str = "FB-022", state: str = "TODO") -> str:
     return (
-        f"# {task_id} · Ejemplo\n\n"
-        f"**User Story:** {us_id}\n"
-        f"**Epic:** {epic} · Pipeline Backlog-centrico\n\n"
-        f"## Descripcion\n\n"
-        f"Nada que verificar aqui.\n\n"
-        f"## Dependencias\n\n"
-        f"{deps}\n"
-        f"## Estado\n\n"
-        f"TODO\n"
+        "---\n"
+        f"id: {task_id}\n"
+        "type: task\n"
+        f"title: {task_id}\n"
+        f"state: {state}\n"
+        f"dependencies:{_yaml_list(deps)}\n"
+        f"epic: {epic}\n"
+        f"user_story: {us_id}\n"
+        "priority: Alta\n"
+        "---\n"
     )
 
 
-def _make_us(us_id: str, epic: str = "FB-022") -> str:
+def _make_us(us_id: str, epic: str = "FB-022", deps: list[str] | None = None,
+             state: str = "TODO") -> str:
+    deps = deps or []
     return (
-        f"# {us_id} · Ejemplo\n\n"
-        f"**Epic:** {epic} · Pipeline Backlog-centrico\n\n"
-        f"## Descripcion\n\n"
-        f"Story de test.\n\n"
-        f"## Dependencias\n\n"
-        f"Ninguna.\n\n"
-        f"## Estado\n\n"
-        f"TODO\n"
+        "---\n"
+        f"id: {us_id}\n"
+        "type: user_story\n"
+        f"title: {us_id}\n"
+        f"state: {state}\n"
+        f"dependencies:{_yaml_list(deps)}\n"
+        f"epic: {epic}\n"
+        "priority: Alta\n"
+        "---\n"
     )
 
 
-def _make_epic(epic_id: str) -> str:
+def _make_epic(epic_id: str, state: str = "TODO") -> str:
     return (
-        f"# {epic_id} · Ejemplo\n\n"
-        f"## Descripcion\n\n"
-        f"Epic de test.\n\n"
-        f"## Dependencias\n\n"
-        f"Ninguna.\n\n"
-        f"## Estado\n\n"
-        f"TODO\n"
+        "---\n"
+        f"id: {epic_id}\n"
+        "type: epic\n"
+        f"title: {epic_id}\n"
+        f"state: {state}\n"
+        "dependencies: []\n"
+        "---\n"
     )
 
 
@@ -99,45 +96,45 @@ def _fb022_fixture(tmp_path: Path) -> tuple[Path, list[str]]:
     """
     backlog = tmp_path / "backlog"
 
-    tasks = [
-        ("T-FB022-US01-01", "US-FB022-01", "Ninguna."),
-        ("T-FB022-US01-02", "US-FB022-01", "**T-FB022-US01-01**."),
-        ("T-FB022-US01-03", "US-FB022-01", "**T-FB022-US01-01**."),
-        ("T-FB022-US02-01", "US-FB022-02", "**T-FB022-US01-01**."),
-        ("T-FB022-US02-02", "US-FB022-02", "**T-FB022-US02-01**, **T-FB022-US03A-01**."),
-        ("T-FB022-US02-03", "US-FB022-02", "**T-FB022-US02-02**."),
-        ("T-FB022-US02-04", "US-FB022-02", "**T-FB022-US02-03**."),
-        ("T-FB022-US03-01", "US-FB022-03", "**T-FB022-US01-01**."),
-        ("T-FB022-US03-02", "US-FB022-03", "**T-FB022-US03-01**."),
+    tasks: list[tuple[str, str, list[str]]] = [
+        ("T-FB022-US01-01", "US-FB022-01", []),
+        ("T-FB022-US01-02", "US-FB022-01", ["T-FB022-US01-01"]),
+        ("T-FB022-US01-03", "US-FB022-01", ["T-FB022-US01-01"]),
+        ("T-FB022-US02-01", "US-FB022-02", ["T-FB022-US01-01"]),
+        ("T-FB022-US02-02", "US-FB022-02", ["T-FB022-US02-01", "T-FB022-US03A-01"]),
+        ("T-FB022-US02-03", "US-FB022-02", ["T-FB022-US02-02"]),
+        ("T-FB022-US02-04", "US-FB022-02", ["T-FB022-US02-03"]),
+        ("T-FB022-US03-01", "US-FB022-03", ["T-FB022-US01-01"]),
+        ("T-FB022-US03-02", "US-FB022-03", ["T-FB022-US03-01"]),
         ("T-FB022-US03-03", "US-FB022-03",
-         "**T-FB022-US03-02**, **T-FB022-US02-02**, **T-FB022-US02-03**."),
-        ("T-FB022-US03A-01", "US-FB022-03A", "Ninguna."),
-        ("T-FB022-US05-01", "US-FB022-05", "**T-FB022-US01-03**."),
+         ["T-FB022-US03-02", "T-FB022-US02-02", "T-FB022-US02-03"]),
+        ("T-FB022-US03A-01", "US-FB022-03A", []),
+        ("T-FB022-US05-01", "US-FB022-05", ["T-FB022-US01-03"]),
         ("T-FB022-US05-02", "US-FB022-05",
-         "**T-FB022-US05-01**, y el mecanismo de informe por job_id de **US-FB022-06**."),
-        ("T-FB022-US05-03", "US-FB022-05", "**T-FB022-US05-02**."),
-        ("T-FB022-US06-01", "US-FB022-06", "Ninguna."),
-        ("T-FB022-US06-02", "US-FB022-06", "**T-FB022-US06-01**."),
-        ("T-FB022-US06-03", "US-FB022-06", "**T-FB022-US06-02**."),
-        ("T-FB022-US06-04", "US-FB022-06", "**T-FB022-US06-03**."),
-        ("T-FB022-US07-01", "US-FB022-07", "**T-FB022-US05-02**, **T-FB022-US06-02**."),
-        ("T-FB022-US07-02", "US-FB022-07", "**T-FB022-US07-01**."),
-        ("T-FB022-US08-01", "US-FB022-08", "**T-FB022-US02-04**."),
-        ("T-FB022-US08-02", "US-FB022-08", "**T-FB022-US08-01**."),
-        ("T-FB022-US09-01", "US-FB022-09", "Ninguna."),
-        ("T-FB022-US09-02", "US-FB022-09", "**T-FB022-US09-01**."),
-        ("T-FB022-US09-03", "US-FB022-09", "**T-FB022-US09-02**."),
-        ("T-FB022-US10-01", "US-FB022-10", "**US-FB022-09**."),
-        ("T-FB022-US10-02", "US-FB022-10", "**T-FB022-US10-01**."),
-        ("T-FB022-US10-03", "US-FB022-10", "**T-FB022-US10-01**."),
-        ("T-FB022-US11-01", "US-FB022-11", "**US-FB022-09**, **US-FB022-10**."),
-        ("T-FB022-US11-02", "US-FB022-11", "**T-FB022-US11-01**."),
+         ["T-FB022-US05-01", "US-FB022-06"]),
+        ("T-FB022-US05-03", "US-FB022-05", ["T-FB022-US05-02"]),
+        ("T-FB022-US06-01", "US-FB022-06", []),
+        ("T-FB022-US06-02", "US-FB022-06", ["T-FB022-US06-01"]),
+        ("T-FB022-US06-03", "US-FB022-06", ["T-FB022-US06-02"]),
+        ("T-FB022-US06-04", "US-FB022-06", ["T-FB022-US06-03"]),
+        ("T-FB022-US07-01", "US-FB022-07", ["T-FB022-US05-02", "T-FB022-US06-02"]),
+        ("T-FB022-US07-02", "US-FB022-07", ["T-FB022-US07-01"]),
+        ("T-FB022-US08-01", "US-FB022-08", ["T-FB022-US02-04"]),
+        ("T-FB022-US08-02", "US-FB022-08", ["T-FB022-US08-01"]),
+        ("T-FB022-US09-01", "US-FB022-09", []),
+        ("T-FB022-US09-02", "US-FB022-09", ["T-FB022-US09-01"]),
+        ("T-FB022-US09-03", "US-FB022-09", ["T-FB022-US09-02"]),
+        ("T-FB022-US10-01", "US-FB022-10", ["US-FB022-09"]),
+        ("T-FB022-US10-02", "US-FB022-10", ["T-FB022-US10-01"]),
+        ("T-FB022-US10-03", "US-FB022-10", ["T-FB022-US10-01"]),
+        ("T-FB022-US11-01", "US-FB022-11", ["US-FB022-09", "US-FB022-10"]),
+        ("T-FB022-US11-02", "US-FB022-11", ["T-FB022-US11-01"]),
         ("T-FB022-US12-01", "US-FB022-12",
-         "**US-FB022-06** (informe del Developer, parte de esta entrada)."),
-        ("T-FB022-US12-02", "US-FB022-12", "**T-FB022-US12-01**."),
-        ("T-FB022-US12-03", "US-FB022-12", "**T-FB022-US12-02**."),
+         ["US-FB022-06"]),
+        ("T-FB022-US12-02", "US-FB022-12", ["T-FB022-US12-01"]),
+        ("T-FB022-US12-03", "US-FB022-12", ["T-FB022-US12-02"]),
         ("T-FB022-US12-04", "US-FB022-12",
-         "**T-FB022-US12-03**, **T-FB022-US06-03** (mecanismo reutilizado)."),
+         ["T-FB022-US12-03", "T-FB022-US06-03"]),
     ]
 
     us_ids = sorted(set(t[1] for t in tasks))
@@ -204,10 +201,10 @@ class TestBuildTaskGraph:
 
         _write(backlog, "tasks", "T-FB099-US99-01.md",
                _make_task_for("T-FB099-US99-01", "US-FB099-99",
-                              "**T-FB099-US99-99** (no existe)."))
+                              ["T-FB099-US99-99"]))
         _write(backlog, "tasks", "T-FB099-US99-02.md",
                _make_task_for("T-FB099-US99-02", "US-FB099-99",
-                              "**T-FB099-US99-01**."))
+                              ["T-FB099-US99-01"]))
         _write(backlog, "user-stories", "US-FB099-99-test.md", _make_us_for("US-FB099-99"))
 
         graph = load_backlog(backlog)
@@ -216,7 +213,8 @@ class TestBuildTaskGraph:
 
     def test_empty_epic_returns_empty_graph(self, tmp_path: Path):
         backlog = tmp_path / "backlog"
-        _write(backlog, "tasks", "T-FB001-US01-01-done.md", _TASK_TEMPLATE_DONE)
+        _write(backlog, "tasks", "T-FB001-US01-01-done.md",
+               _make_task("T-FB001-US01-01", "US-FB001-01", [], state="DONE"))
         graph = load_backlog(backlog)
         task_graph = build_task_graph(graph, "FB-999")
         assert len(task_graph.nodes) == 0
@@ -262,10 +260,10 @@ class TestTopologicalLevels:
         backlog = tmp_path / "backlog"
         _write(backlog, "epics", "FB-099.md", _make_epic("FB-099"))
         _write(backlog, "tasks", "T-FB099-US01-01.md", _make_task(
-            "T-FB099-US01-01", "US-FB099-01", "**T-FB099-US01-02**.",
+            "T-FB099-US01-01", "US-FB099-01", ["T-FB099-US01-02"],
             epic="FB-099"))
         _write(backlog, "tasks", "T-FB099-US01-02.md", _make_task(
-            "T-FB099-US01-02", "US-FB099-01", "**T-FB099-US01-01**.",
+            "T-FB099-US01-02", "US-FB099-01", ["T-FB099-US01-01"],
             epic="FB-099"))
         _write(backlog, "user-stories", "US-FB099-01-test.md",
                _make_us("US-FB099-01", epic="FB-099"))
@@ -299,21 +297,28 @@ class TestGroupThreads:
         task_graph = build_task_graph(graph, "FB-022")
         threads, crosses = group_threads_and_detect_crosses(task_graph)
 
-        assert len(threads) >= 4, (
-            f"Expected at least 4 threads, got {len(threads)}"
+        assert len(threads) == 4, (
+            f"Expected exactly 4 threads, got {len(threads)}"
         )
 
     def test_detects_cross_between_threads(self, tmp_path: Path):
-        """Caso real de FB-022: se detectan cruces entre hilos. El cruce
-        manual (Tester US12 -> Developer US06) se materializa como US12
-        siguiendo la cadena de US06 (todas sus deps son de US06), mientras
-        que el cruce algoritmo es US05 (Veredicto) -> US06 (Developer)."""
+        """Caso real de FB-022: se detectan exactamente 3 cruces entre
+        hilos (corrección 2026-08-06: deduplicados por (from_task,
+        to_thread) — antes de la corrección, la falta de deduplicación
+        producía 6 cruces al contar cada arista individual en vez de cada
+        punto de sincronización real). El cruce manual (Tester US12 ->
+        Developer US06) se materializa como US12 siguiendo la cadena de
+        US06 (todas sus deps son de US06), mientras que los cruces reales
+        del algoritmo son US02(Arquitecto)->US03A(Validador),
+        US05(Veredicto)->US06(Developer), US07(Cola)->US06(Developer)."""
         backlog_path, _ = _fb022_fixture(tmp_path)
         graph = load_backlog(backlog_path)
         task_graph = build_task_graph(graph, "FB-022")
         threads, crosses = group_threads_and_detect_crosses(task_graph)
 
-        assert len(crosses) > 0, "Debe haber cruces entre hilos"
+        assert len(crosses) == 3, (
+            f"Expected exactly 3 crosses, got {len(crosses)}: {crosses}"
+        )
         cross_pairs = {(c.from_task, c.to_task) for c in crosses}
         assert any(to.startswith("T-FB022-US06") for _, to in cross_pairs), (
             f"Cruce hacia Developer (US06) no detectado. Cruces: {cross_pairs}"
@@ -322,16 +327,37 @@ class TestGroupThreads:
             f"Cruce US02 -> US03A no detectado. Cruces: {cross_pairs}"
         )
 
+    def test_crosses_deduplicated_by_task_and_target_thread(
+        self, tmp_path: Path
+    ):
+        """Regresión (corrección 2026-08-06): una Task con varias
+        dependencias en el mismo hilo destino (T-FB022-US05-02 depende de
+        las 4 Tasks de T-FB022-US06-*) cuenta como UN solo cruce, no uno
+        por cada arista — pero dos Tasks DISTINTAS del mismo hilo origen
+        dependiendo del mismo hilo destino (US05-02 y US07-01, ambas ->
+        hilo-3) siguen siendo dos cruces reales, no se colapsan entre sí."""
+        backlog_path, _ = _fb022_fixture(tmp_path)
+        graph = load_backlog(backlog_path)
+        task_graph = build_task_graph(graph, "FB-022")
+        _threads, crosses = group_threads_and_detect_crosses(task_graph)
+
+        exact_pairs = {(c.from_task, c.to_task) for c in crosses}
+        assert exact_pairs == {
+            ("T-FB022-US02-02", "T-FB022-US03A-01"),
+            ("T-FB022-US05-02", "T-FB022-US06-01"),
+            ("T-FB022-US07-01", "T-FB022-US06-02"),
+        }, f"Cruces exactos no coinciden: {exact_pairs}"
+
     def test_no_crosses_for_linear_chain(self, tmp_path: Path):
         """3 Tasks en cadena lineal: sin cruces."""
         backlog = tmp_path / "backlog"
         _write(backlog, "tasks", "T-FB099-US01-01.md", _make_task(
-            "T-FB099-US01-01", "US-FB099-01", "Ninguna.", epic="FB-099"))
+            "T-FB099-US01-01", "US-FB099-01", [], epic="FB-099"))
         _write(backlog, "tasks", "T-FB099-US01-02.md", _make_task(
-            "T-FB099-US01-02", "US-FB099-01", "**T-FB099-US01-01**.",
+            "T-FB099-US01-02", "US-FB099-01", ["T-FB099-US01-01"],
             epic="FB-099"))
         _write(backlog, "tasks", "T-FB099-US01-03.md", _make_task(
-            "T-FB099-US01-03", "US-FB099-01", "**T-FB099-US01-02**.",
+            "T-FB099-US01-03", "US-FB099-01", ["T-FB099-US01-02"],
             epic="FB-099"))
         _write(backlog, "user-stories", "US-FB099-01-test.md",
                _make_us("US-FB099-01", epic="FB-099"))
@@ -347,9 +373,9 @@ class TestGroupThreads:
         """Dos Tasks del mismo nivel sin relacion: hilos distintos."""
         backlog = tmp_path / "backlog"
         _write(backlog, "tasks", "T-FB099-US01-01.md", _make_task(
-            "T-FB099-US01-01", "US-FB099-01", "Ninguna.", epic="FB-099"))
+            "T-FB099-US01-01", "US-FB099-01", [], epic="FB-099"))
         _write(backlog, "tasks", "T-FB099-US02-01.md", _make_task(
-            "T-FB099-US02-01", "US-FB099-02", "Ninguna.", epic="FB-099"))
+            "T-FB099-US02-01", "US-FB099-02", [], epic="FB-099"))
         _write(backlog, "user-stories", "US-FB099-01-test.md",
                _make_us("US-FB099-01", epic="FB-099"))
         _write(backlog, "user-stories", "US-FB099-02-test.md",
@@ -467,10 +493,10 @@ class TestAnalyzeEpicThreads:
     def test_cycle_in_epic_propagates(self, tmp_path: Path):
         backlog = tmp_path / "backlog"
         _write(backlog, "tasks", "T-FB099-US01-01.md", _make_task(
-            "T-FB099-US01-01", "US-FB099-01", "**T-FB099-US01-02**.",
+            "T-FB099-US01-01", "US-FB099-01", ["T-FB099-US01-02"],
             epic="FB-099"))
         _write(backlog, "tasks", "T-FB099-US01-02.md", _make_task(
-            "T-FB099-US01-02", "US-FB099-01", "**T-FB099-US01-01**.",
+            "T-FB099-US01-02", "US-FB099-01", ["T-FB099-US01-01"],
             epic="FB-099"))
         _write(backlog, "user-stories", "US-FB099-01-test.md",
                _make_us("US-FB099-01", epic="FB-099"))
@@ -541,7 +567,7 @@ class TestPersistAnalysis:
         backlog = tmp_path / "backlog"
         _write(backlog, "tasks", "T-FB099-US01-01.md", _make_task(
             "T-FB099-US01-01", "US-FB099-01",
-            "**T-FB099-US99-99** (no existe).",
+            ["T-FB099-US99-99"],
             epic="FB-099"))
         _write(backlog, "user-stories", "US-FB099-01-test.md",
                _make_us("US-FB099-01", epic="FB-099"))

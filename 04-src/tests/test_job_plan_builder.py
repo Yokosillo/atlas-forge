@@ -1,6 +1,7 @@
 from pathlib import Path
 
 from brain.dispatcher import build_job_plan_for_story
+from brain.dispatcher.job_plan_builder import task_file_story_prefix
 from brain.models import JobPlan, JobPlanStep
 
 
@@ -45,6 +46,31 @@ def test_job_plan_defaults_to_proposed_status_and_empty_steps() -> None:
 
     assert plan.status == "proposed"
     assert plan.steps == []
+
+
+def test_task_file_story_prefix_normalizes_canonical_and_normalized_forms() -> None:
+    # T-FB022-US13-01B: la forma canónica (US-FBnnn-nn) y la ya normalizada
+    # (FBnnn-USnn) deben resolver al mismo prefijo de fichero.
+    assert task_file_story_prefix("US-FB020-01") == "FB020-US01"
+    assert task_file_story_prefix("FB020-US01") == "FB020-US01"
+    assert task_file_story_prefix("US-FB022-13") == "FB022-US13"
+
+
+def test_build_job_plan_accepts_canonical_us_prefixed_story_id(tmp_path: Path) -> None:
+    # T-FB022-US13-01B: build_job_plan_for_story debe encontrar las Tasks
+    # reales (T-FB999-US01-...) aunque reciba la forma canónica US-FB999-01,
+    # que es la que envía la web desde el selector de historias.
+    _write_task(
+        tmp_path, "FB999-US01", "01", "primer-paso", "Primer paso", state="TODO"
+    )
+    _write_task(
+        tmp_path, "FB999-US01", "02", "segundo-paso", "Segundo paso", state="DONE"
+    )
+
+    plan = build_job_plan_for_story("US-FB999-01", tasks_dir=tmp_path)
+
+    assert plan.goal == "US-FB999-01"
+    assert [step.description for step in plan.steps] == ["Primer paso"]
 
 
 def test_build_job_plan_returns_one_step_per_pending_task_in_backlog_order(

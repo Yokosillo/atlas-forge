@@ -1,6 +1,7 @@
 import tempfile
 import time
 import uuid
+from datetime import datetime, timezone
 from pathlib import Path
 
 from brain.agents.lifecycle import mark_idle, mark_working
@@ -340,6 +341,7 @@ def dispatch_job(
     """
     mark_running(job)
     mark_working(agent)
+    agent.last_command_at = datetime.now(timezone.utc).isoformat()
 
     description = _resolve_job_description(job, agent)
     record_job_dispatch(job.session_id, agent.id)

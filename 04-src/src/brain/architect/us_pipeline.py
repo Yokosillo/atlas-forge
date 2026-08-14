@@ -8,6 +8,12 @@ from brain.backlog.validator import ValidationError, validate_backlog_content
 VERDICT_STATUSES = ("APROBADO", "APROBADO_CON_OBSERVACIONES", "RECHAZADO")
 
 
+def _yaml_block_list(items: list[str]) -> str:
+    if not items:
+        return " []"
+    return "\n" + "\n".join(f"  - {item}" for item in items)
+
+
 @dataclass
 class USValidationResult:
     valid: bool = False
@@ -38,14 +44,19 @@ class USPipelineResult:
 
 def _build_us_content(story) -> str:
     criteria_text = "\n".join(f"- {c}" for c in story.criteria)
+    deps_block = _yaml_block_list([story.epic_id])  # default: depends on parent Epic
     return (
-        f"# {story.id} · {story.title}\n\n"
-        f"**Epic:** {story.epic_id}\n\n"
+        "---\n"
+        f"id: {story.id}\n"
+        "type: user_story\n"
+        f"title: {story.title}\n"
+        f"epic: {story.epic_id}\n"
+        f"state: TODO\n"
+        f"dependencies:{deps_block}\n"
+        f"priority: {story.priority}\n"
+        "---\n\n"
         f"## Historia\n\n{story.description}\n\n"
-        f"## Criterios de aceptación\n\n{criteria_text}\n\n"
-        f"## Prioridad\n\n{story.priority}\n\n"
-        f"## Dependencias\n\n**{story.epic_id}**\n\n"
-        f"## Estado\n\nTODO\n"
+        f"## Criterios de aceptación\n\n{criteria_text}\n"
     )
 
 

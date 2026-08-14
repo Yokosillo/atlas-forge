@@ -179,14 +179,14 @@ async def test_navigating_to_agents_and_back_keeps_dashboard_updated(
         await pilot.pause()
         assert isinstance(pilot.app.screen, AgentsScreen)
 
-        backend.launch_agent("critic", "claude-code", None)
+        backend.launch_agent("arquitecto", "claude-code", None)
 
         pilot.app.pop_screen()
         await pilot.pause()
 
         assert pilot.app.screen is dashboard_screen
         agents_widget = dashboard_screen.query_one("#agents-list")
-        assert "critic" in str(agents_widget.content).lower()
+        assert "arquitecto" in str(agents_widget.content).lower()
 
 
 async def test_going_back_to_workspace_allows_changing_active_project(

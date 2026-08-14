@@ -1,6 +1,6 @@
 from dataclasses import dataclass
 
-from brain.agent_model import get_available_model_entries
+from brain.agent_model import _CATALOG_RUNTIME_TO_REAL_TYPE, get_available_model_entries
 from brain.agents.roles import list_roles
 from brain.model_preferences import load_model_preferences
 
@@ -51,13 +51,16 @@ def list_available_agent_options() -> list[AgentLaunchOption]:
         if not all_enabled and model["id"] not in enabled_ids:
             continue
         supports = model["runtime"] == "opencode"
+        runtime_type = _CATALOG_RUNTIME_TO_REAL_TYPE.get(
+            model["runtime"], model["runtime"]
+        )
         for role in agent_roles:
             options.append(
                 AgentLaunchOption(
                     agent_role=role,
                     model_id=model["id"],
                     model_name=model["name"],
-                    runtime_type=model["runtime"],
+                    runtime_type=runtime_type,
                     runtime_name=_runtime_display_name(model["runtime"]),
                     supports_model=supports,
                 )

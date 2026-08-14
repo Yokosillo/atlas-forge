@@ -25,6 +25,14 @@ from brain.backlog.dependency_graph import (
     format_thread_analysis_markdown,
     persist_thread_analysis,
 )
+from brain.architect.propose_user_stories import (
+    load_epic_context,
+    propose_user_stories_from_epic,
+)
+from brain.architect.propose_tasks import propose_tasks_from_user_story
+from brain.architect.review_user_story import review_user_story_for_gaps
+from brain.architect.task_pipeline import run_task_pipeline
+from brain.architect.us_pipeline import run_us_pipeline
 from brain.backlog.parser import load_backlog
 from brain.backlog.report import build_backlog_report
 from brain.core.session_lifecycle import SessionNotActiveError, list_agents
@@ -52,6 +60,7 @@ from brain.dispatcher.job_plan_builder import (
     _pending_task_files_for_story,
     _read_task_title,
     build_job_plan_for_story,
+    task_file_story_prefix,
 )
 from brain.dispatcher.job_plan_cancellation import (
     JobPlanCancellationRejectedError,
@@ -132,12 +141,16 @@ class LaunchAgentRequest(BaseModel):
     initial_job_description: str | None = None
 
     def resolved_runtime_type(self) -> str | None:
-        """Resuelve el runtime_type: si se dio model_id/model, se infiere del
-        catalogo; si no, se usa el campo runtime_type (legacy)."""
+        """Resuelve el runtime_type: si se dio model_id/model catalogado, se
+        infiere del catalogo; si el modelo no esta catalogado (p. ej. un
+        modelo libre de OpenCode) o no se dio modelo, se usa el
+        runtime_type explicito del request."""
         model = self.model_id or self.model
         if model:
             from brain.agent_model import resolve_runtime_for_model
-            return resolve_runtime_for_model(model)
+            resolved = resolve_runtime_for_model(model)
+            if resolved is not None:
+                return resolved
         return self.runtime_type
 
 
@@ -290,7 +303,7 @@ def post_project(body: SelectProjectRequest) -> dict:
 # Acciones transversales de proyecto (US-FB025-01 a US-FB025-07).
 # Despachan Jobs al Arquitecto, scripts deterministas, o invocaciones
 # headless de opencode/Scribe desde un solo clic en la web, sin pasar por
-# conversación con el Director.
+# el modo conversacional del Arquitecto.
 
 
 @router.post("/project/actions/{action_id}")
@@ -379,6 +392,7 @@ def _serialize_agent(agent: Agent) -> dict:
         "status": agent.status,
         "runtime_id": agent.runtime_id,
         "model": model,
+        "last_command_at": getattr(agent, "last_command_at", None) or None,
     }
 
 
@@ -1215,9 +1229,14 @@ def _job_plan_builder_story_id(story_id: str) -> str:
     `"US-FB999-01"`) — sin esta conversión, `_pending_task_files_for_story`
     nunca encuentra ningún fichero real, aunque la Story sí tenga Tasks
     `TODO` (el 400 de 'sin Tasks pendientes' se dispararía siempre,
-    incorrectamente)."""
-    epic, story_number = story_id.removeprefix("US-").split("-", 1)
-    return f"{epic}-US{story_number}"
+    incorrectamente).
+
+    Delega en `task_file_story_prefix` (`job_plan_builder.py`), el mismo
+    normalizador que ya usan `_pending_task_files_for_story`,
+    `_mark_story_tasks_done` y `read_acceptance_criteria` (T-FB022-US13-01B):
+    un único criterio de conversión `story_id` → prefijo de fichero, sin
+    lógica duplicada."""
+    return task_file_story_prefix(story_id)
 
 
 def _build_launch_development_description(story_id: str, story_detail: dict, tasks_dir: Path) -> str:
@@ -1338,17 +1357,28 @@ def post_launch_development(story_id: str, body: LaunchDevelopmentRequest) -> di
 
 
 @router.post("/backlog/epic/{epic_id}/analyze-threads")
-def post_analyze_epic_threads(epic_id: str) -> dict:
+def post_analyze_epic_threads(epic_id: str, num_agents: int = 2) -> dict:
     """Ejecuta el análisis determinista de hilos de desarrollo para una
     Epic: grafo de dependencias, niveles topológicos, agrupación en hilos
     paralelizables, detección de cruces y recomendación de reparto entre
     agentes.
+
+    `num_agents` (query param, default 2) es el número de agentes
+    disponibles para la recomendación de reparto — configurable, nunca
+    fijo (corrección 2026-08-06, auditoría de cierre de Fase 1.0: el
+    valor estaba hardcodeado sin posibilidad de override, contradiciendo
+    el criterio de aceptación de la Epic FB-026).
 
     No despacha un Job al Arquitecto — el análisis es determinista (mismo
     criterio que `testear` en FB-025), ya implementado en
     `brain.backlog.dependency_graph`. El informe se persiste en
     `07-informes/<epic_id>/` con identificador único por ejecución (no se
     sobrescribe)."""
+    if num_agents < 1:
+        raise HTTPException(
+            status_code=400,
+            detail="'num_agents' debe ser al menos 1.",
+        )
     project = get_active_project(state_dir=_STATE_DIR)
     if project is None:
         raise HTTPException(status_code=404, detail="No hay ningún proyecto activo.")
@@ -1374,7 +1404,6 @@ def post_analyze_epic_threads(epic_id: str) -> dict:
                     "analizables en el backlog.",
         )
 
-    num_agents = 2
     report_path = persist_thread_analysis(analysis, num_agents=num_agents)
 
     markdown = format_thread_analysis_markdown(analysis, num_agents=num_agents)
@@ -1403,11 +1432,134 @@ def post_analyze_epic_threads(epic_id: str) -> dict:
         "num_tasks": sum(len(t.tasks) for t in analysis.threads),
         "num_threads": len(analysis.threads),
         "num_crosses": len(analysis.crosses),
+        "num_agents": num_agents,
         "threads": threads_data,
         "crosses": crosses_data,
         "missing_refs": list(analysis.missing_refs),
         "report_path": str(report_path),
         "markdown": markdown,
+    }
+
+
+# ------------------------------------------------------------------ FB-022
+# Pipeline Epic→User Story: carga el fichero real de Epic desde disco,
+# genera propuesta de User Stories a partir de su alcance v1 y ejecuta
+# el pipeline completo (validacion + autoauditoria).
+
+
+@router.post("/backlog/epic/{epic_id}/propose-stories")
+def post_propose_stories(epic_id: str) -> dict:
+    project = get_active_project(state_dir=_STATE_DIR)
+    if project is None:
+        raise HTTPException(status_code=404, detail="No hay ningun proyecto activo.")
+
+    epic_path = Path(project.path) / "02-backlog" / "epics"
+    candidates = list(epic_path.glob(f"{epic_id}*.md"))
+    if not candidates:
+        raise HTTPException(
+            status_code=404,
+            detail=f"No existe ningun fichero de Epic con id '{epic_id}'.",
+        )
+
+    epic_context = load_epic_context(str(candidates[0]))
+    proposal = propose_user_stories_from_epic(epic_context)
+
+    output_dir = str(Path(project.path) / "02-backlog" / "user-stories")
+    pipeline_result = run_us_pipeline(
+        proposal,
+        output_dir=output_dir,
+        auto_approve=False,
+    )
+
+    stories_data = []
+    for story in proposal.stories:
+        stories_data.append({
+            "id": story.id,
+            "title": story.title,
+            "epic_id": story.epic_id,
+            "description": story.description,
+            "criteria": story.criteria,
+            "priority": story.priority,
+        })
+
+    return {
+        "epic": epic_id,
+        "num_stories": len(proposal.stories),
+        "stories": stories_data,
+        "notes": proposal.notes,
+        "validation_valid": pipeline_result.validation.valid,
+        "validation_errors": pipeline_result.validation.errors,
+        "self_audit": (
+            {
+                "status": pipeline_result.self_audit.status,
+                "justification": pipeline_result.self_audit.justification,
+                "suggestions": pipeline_result.self_audit.suggestions,
+            }
+            if pipeline_result.self_audit
+            else None
+        ),
+    }
+
+
+@router.post("/backlog/us/{us_id}/propose-tasks")
+def post_propose_tasks(us_id: str) -> dict:
+    project = get_active_project(state_dir=_STATE_DIR)
+    if project is None:
+        raise HTTPException(status_code=404, detail="No hay ningun proyecto activo.")
+
+    us_path = Path(project.path) / "02-backlog" / "user-stories"
+    candidates = list(us_path.glob(f"{us_id}*.md"))
+    if not candidates:
+        raise HTTPException(
+            status_code=404,
+            detail=f"No existe ningun fichero de User Story con id '{us_id}'.",
+        )
+
+    us_file_path = str(candidates[0])
+    review = review_user_story_for_gaps(us_file_path)
+
+    epic_id = us_id.split("-US")[0] if "-US" in us_id else us_id.split("-")[0]
+
+    proposal = propose_tasks_from_user_story(review, epic_id, us_file_path)
+
+    output_dir = str(Path(project.path) / "02-backlog" / "tasks")
+    pipeline_result = run_task_pipeline(
+        proposal,
+        output_dir=output_dir,
+        auto_approve=False,
+    )
+
+    tasks_data = []
+    for task in proposal.tasks:
+        tasks_data.append({
+            "id": task.id,
+            "title": task.title,
+            "epic_id": task.epic_id,
+            "us_id": task.us_id,
+            "objective": task.objective,
+            "description": task.description,
+            "criteria": task.criteria,
+            "priority": task.priority,
+            "dependencies": task.dependencies,
+        })
+
+    return {
+        "us_id": us_id,
+        "epic_id": epic_id,
+        "num_tasks": len(proposal.tasks),
+        "tasks": tasks_data,
+        "notes": proposal.notes,
+        "validation_valid": pipeline_result.validation.valid,
+        "validation_errors": pipeline_result.validation.errors,
+        "self_audit": (
+            {
+                "status": pipeline_result.self_audit.status,
+                "justification": pipeline_result.self_audit.justification,
+                "suggestions": pipeline_result.self_audit.suggestions,
+            }
+            if pipeline_result.self_audit
+            else None
+        ),
     }
 
 

@@ -42,6 +42,7 @@ from pathlib import Path
 from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
+from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from brain.api import routes as routes_module
 from brain.api.events import jobs_hub, plans_hub, register_event_loops
@@ -139,7 +140,32 @@ def create_app() -> FastAPI:
     #      la web es `/ui/`.
     # La verificación explícita de que ningún endpoint de dominio usa esta
     # ruta está en `tests/test_api_static_web.py` (no solo asumido aquí).
-    app.mount("/ui", StaticFiles(directory=WEB_ROOT, html=True), name="web-ui")
+    # Fallback SPA (T-FB024): rutas propias por sección (`/ui/roles`,
+    # `/ui/arquitecto`...) que no corresponden a ningún fichero estático real
+    # deben servir el mismo `index.html` (el router de `app.js` decide qué
+    # pintar según `location.pathname`), no un 404 — sin este fallback,
+    # recargar la página en `/ui/roles` rompería porque `StaticFiles` no
+    # encuentra ningún fichero con ese nombre.
+    #
+    # Verificado con `TestClient` real (no supuesto): declarar una ruta
+    # `@app.get("/ui/{full_path:path}")` ANTES del `mount("/ui", ...)`
+    # intercepta TODO bajo `/ui/*`, incluidos los assets reales (`app.js`
+    # nunca llegaría a `StaticFiles`); declararla DESPUÉS nunca se alcanza
+    # (Starlette resuelve por orden de declaración y el mount ya capturó el
+    # prefijo completo). Por eso el fallback es una subclase de
+    # `StaticFiles` que intenta servir el asset real primero y solo cae a
+    # `index.html` si `StaticFiles` habría respondido 404 — un único mount,
+    # sin ruta duplicada ni ambigüedad de orden.
+    class _SPAStaticFiles(StaticFiles):
+        async def get_response(self, path, scope):
+            try:
+                return await super().get_response(path, scope)
+            except StarletteHTTPException as exc:
+                if exc.status_code == 404:
+                    return await super().get_response("index.html", scope)
+                raise
+
+    app.mount("/ui", _SPAStaticFiles(directory=WEB_ROOT, html=True), name="web-ui")
 
     @app.get("/health")
     def health() -> dict:
