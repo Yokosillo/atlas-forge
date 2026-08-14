@@ -1,19 +1,28 @@
+from pathlib import Path
+
 from brain.agents.governance import project_governance_instruction
 from brain.agents.registry import register_agent
 from brain.agents.roles import RoleConfig, register_role
 from brain.core.session_lifecycle import list_agents
 from brain.models import Agent, DevelopmentSession, Runtime
 from brain.runtime import RuntimeInstance
+from brain.system_preferences import get_max_simultaneous_developers
 from brain.tmux.manager import DEFAULT_SOCKET_NAME
 
 DEVELOPER_ROLE = "developer"
+# Valor por defecto (US-FB024-12): el limite real y editable vive en
+# `system_preferences.json` via `get_max_simultaneous_developers` —
+# `register_developer` lo lee ahi, esta constante solo es el fallback
+# cuando no hay preferencia guardada. Se mantiene exportada porque
+# `test_developer_agent.py` la usa para acotar cuantas instancias lanzar
+# en el test del limite, sin depender del `state_dir` real del proceso.
 MAX_SIMULTANEOUS_DEVELOPERS = 3
 DEVELOPER_PROMPT = (
     "Eres el agente Developer de Factory Brain. Tu responsabilidad es "
     "implementar funcionalidades: escribir código, modificar "
     "documentación, crear tests, refactorizar y generar propuestas. "
     "No validas tu propio trabajo — esa responsabilidad corresponde al "
-    "agente Critic.\n"
+    "agente Arquitecto.\n"
     "\n"
     "Cuando termines tu trabajo, comunica el resultado de forma "
     "estructurada y sin ambigüedad, en texto plano, con estos tres campos "
@@ -21,7 +30,7 @@ DEVELOPER_PROMPT = (
     "- Resultado: 'éxito' o 'fallo'.\n"
     "- Resumen: qué implementaste, de forma concisa.\n"
     "- Siguiente paso sugerido: una única acción recomendada para quien "
-    "revise tu trabajo (normalmente el Critic).\n"
+    "revise tu trabajo (normalmente el Arquitecto).\n"
     "\n"
     "Este protocolo de reporte es genérico de Factory Brain y no asume "
     "ningún formato de fichero, marcador ni carpeta propios de un proyecto "
@@ -36,7 +45,7 @@ def build_developer_prompt(project_path: str) -> str:
     """CAPA 2 — prompt en dos capas para Developer: rol base
     (`DEVELOPER_PROMPT`) + gobierno específico del proyecto si aplica
     (`project_governance_instruction`, solo si existen
-    `00-gobierno/developer.md` y `00-gobierno/METODOLOGIA.md` en
+    `00-gobierno/DEVELOPER.md` y `00-gobierno/METODOLOGIA.md` en
     `project_path`). La decisión de incluir la capa de gobierno se toma
     AQUÍ en Python, antes de construir el string final — el agente solo
     recibe la instrucción ya decidida."""
@@ -75,9 +84,10 @@ def register_developer(
     runtime: Runtime,
     project_path: str,
     socket_name: str = DEFAULT_SOCKET_NAME,
+    state_dir: Path | None = None,
 ) -> tuple[Agent, RuntimeInstance]:
     """Registra un agente Developer NUEVO en `session` (T-FB005-US01-04):
-    a diferencia de Critic (sigue con `register_agent_with_reuse`,
+    a diferencia de Arquitecto (sigue con `register_agent_with_reuse`,
     reutilizado sin cambios), cada llamada crea un `Agent` y
     `RuntimeInstance` nuevos — nunca devuelve una instancia existente. El
     usuario necesita varios Developer trabajando en paralelo dentro de la
@@ -89,20 +99,25 @@ def register_developer(
     único por instancia) — no necesita ningún cambio para evitar
     colisiones entre Developers distintos, verificado con test explícito.
 
-    T-FB022-US06-02: rechaza explícitamente un intento de superar
-    `MAX_SIMULTANEOUS_DEVELOPERS` en `session` con feedback claro — no
-    falla en silencio.
+    T-FB022-US06-02: rechaza explícitamente un intento de superar el
+    límite configurado en `session` con feedback claro — no falla en
+    silencio. US-FB024-12: el límite ya no es la constante fija
+    `MAX_SIMULTANEOUS_DEVELOPERS`, se lee de `system_preferences.json`
+    (`state_dir`, mismo criterio que `_STATE_DIR` en `brain.api.routes` —
+    `None` resuelve al `state_dir` real del proceso, parámetro expuesto
+    solo para que los tests puedan aislarse en uno propio).
     """
+    max_developers = get_max_simultaneous_developers(state_dir=state_dir)
     existing = sum(
         1
         for agent in list_agents(session)
         if isinstance(agent, Agent) and agent.role == DEVELOPER_ROLE
     )
-    if existing >= MAX_SIMULTANEOUS_DEVELOPERS:
+    if existing >= max_developers:
         raise RuntimeError(
             f"No se puede lanzar otro Developer: ya hay "
             f"{existing} Developer(s) activos en la sesión (máximo "
-            f"{MAX_SIMULTANEOUS_DEVELOPERS}). Detén alguno antes de "
+            f"{max_developers}). Detén alguno antes de "
             f"lanzar uno nuevo."
         )
 
@@ -120,7 +135,7 @@ def register_developer(
 
 register_role(RoleConfig(
     role=DEVELOPER_ROLE,
-    governance_filename="developer.md",
+    governance_filename="DEVELOPER.md",
     prompt=DEVELOPER_PROMPT,
     prompt_builder=build_developer_prompt,
     register_fn=register_developer,

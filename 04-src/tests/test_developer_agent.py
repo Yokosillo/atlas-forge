@@ -206,3 +206,50 @@ def test_register_developer_rejects_when_limit_exceeded(
 
     with pytest.raises(RuntimeError, match="No se puede lanzar otro Developer"):
         register_developer(session, runtime, str(tmp_path), socket_name=isolated_socket)
+
+
+def test_register_developer_reads_limit_from_system_preferences(
+    isolated_socket: str, tmp_path
+) -> None:
+    """US-FB024-12: el límite ya no es la constante fija — si hay una
+    preferencia de sistema guardada, `register_developer` la respeta en
+    vez de `MAX_SIMULTANEOUS_DEVELOPERS`."""
+    from brain.system_preferences import save_system_preferences
+
+    state_dir = tmp_path / "state"
+    save_system_preferences({"max_simultaneous_developers": 1}, state_dir=state_dir)
+
+    session = _active_session()
+    runtime = _test_runtime()
+
+    register_developer(
+        session, runtime, str(tmp_path), socket_name=isolated_socket, state_dir=state_dir
+    )
+
+    with pytest.raises(RuntimeError, match="máximo 1"):
+        register_developer(
+            session, runtime, str(tmp_path), socket_name=isolated_socket, state_dir=state_dir
+        )
+
+
+def test_register_developer_without_saved_preference_uses_default(
+    isolated_socket: str, tmp_path
+) -> None:
+    """Sin preferencia guardada (`state_dir` vacío), el comportamiento es
+    idéntico al anterior: usa `MAX_SIMULTANEOUS_DEVELOPERS` (3) como
+    default."""
+    from brain.agents.developer import MAX_SIMULTANEOUS_DEVELOPERS
+
+    state_dir = tmp_path / "empty_state"
+    session = _active_session()
+    runtime = _test_runtime()
+
+    for _ in range(MAX_SIMULTANEOUS_DEVELOPERS):
+        register_developer(
+            session, runtime, str(tmp_path), socket_name=isolated_socket, state_dir=state_dir
+        )
+
+    with pytest.raises(RuntimeError, match="No se puede lanzar otro Developer"):
+        register_developer(
+            session, runtime, str(tmp_path), socket_name=isolated_socket, state_dir=state_dir
+        )

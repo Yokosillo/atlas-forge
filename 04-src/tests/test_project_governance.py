@@ -128,7 +128,7 @@ def test_governance_instruction_mentions_the_role_specific_file(tmp_path) -> Non
     developer_instruction = project_governance_instruction(
         developer_project, "developer"
     )
-    assert "00-gobierno/developer.md" in developer_instruction
+    assert "00-gobierno/DEVELOPER.md" in developer_instruction
     assert "00-gobierno/METODOLOGIA.md" in developer_instruction
 
 
@@ -229,7 +229,7 @@ def test_developer_prompt_with_governance_is_base_plus_explicit_instruction(
 
     assert prompt == DEVELOPER_PROMPT + instruction
     assert prompt.startswith(DEVELOPER_PROMPT)
-    assert "00-gobierno/developer.md" in prompt
+    assert "00-gobierno/DEVELOPER.md" in prompt
     assert "00-gobierno/METODOLOGIA.md" in prompt
 
 
@@ -251,7 +251,7 @@ def test_register_developer_with_governance_project_builds_two_layer_prompt(
         assert agent.prompt == DEVELOPER_PROMPT + project_governance_instruction(
             project, DEVELOPER_ROLE
         )
-        assert "00-gobierno/developer.md" in agent.prompt
+        assert "00-gobierno/DEVELOPER.md" in agent.prompt
     finally:
         from brain.runtime import stop_runtime
 

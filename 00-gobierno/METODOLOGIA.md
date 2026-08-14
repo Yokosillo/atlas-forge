@@ -269,7 +269,7 @@ Cuando el usuario plantea una reorientación de producto de alcance amplio (afec
 
 2. **Informe de arquitectura propio, redactado directamente (no delegado).** Quien conduce la reorientación (el asistente principal de la conversación) escribe un primer informe con: visión de destino descrita por el usuario, estado real pieza por pieza (verificado, no supuesto), decisiones razonadas explícitas sobre los puntos ambiguos que el usuario deja abiertos (no listar opciones sin más — dar una recomendación con su porqué), y tamaño relativo del trabajo. Se guarda en `07-informes/`.
 
-3. **Auditoría independiente de un segundo agente, con encargo por escrito y persistente.** Se prepara un encargo detallado (rol, marco de producto, preguntas concretas obligatorias por área, método de verificación exigido, formato de entregable) y se guarda como fichero de gobierno reutilizable en `00-gobierno/` (no solo como prompt efímero) — mismo patrón que `CRITICO.md`/`developer.md`. El agente auditor recibe el informe de arquitectura como contexto obligatorio, para que su auditoría lo contraste en vez de partir de cero.
+3. **Auditoría independiente de un segundo agente, con encargo por escrito y persistente.** Se prepara un encargo detallado (rol, marco de producto, preguntas concretas obligatorias por área, método de verificación exigido, formato de entregable) y se guarda como fichero de gobierno reutilizable en `00-gobierno/` (no solo como prompt efímero) — mismo patrón que `ARQUITECTO.md`/`DEVELOPER.md`. El agente auditor recibe el informe de arquitectura como contexto obligatorio, para que su auditoría lo contraste en vez de partir de cero.
 
 4. **El auditor no es un espejo — se le exige incisividad y evidencia verificable.** El encargo debe prohibir explícitamente hallazgos vacíos ("la UX podría mejorar" sin decir cómo) y exigir que cada afirmación sea reproducible por un tercero (cita de línea de código, captura real, comando ejecutado). Navegación/verificación real contra el sistema vivo, no solo lectura de código estático, cuando el objeto de auditoría lo permite.
 
@@ -281,7 +281,7 @@ Cuando el usuario plantea una reorientación de producto de alcance amplio (afec
 
 ## Nota operativa: si el segundo agente corre sobre OpenCode headless
 
-Ver `00-gobierno/CRITICO.md`, sección "Lanzar OpenCode para una tarea puntual sin supervisión" — el protocolo técnico de lanzamiento (evitar tmux, usar `opencode run --auto` o `opencode serve`, fragmentar escrituras largas, detectar cuelgues por inactividad de log) es prerrequisito operativo para que los pasos 3-5 de este protocolo funcionen de forma fiable sin intervención manual constante.
+Ver `00-gobierno/ARQUITECTO.md`, sección "Lanzar OpenCode para una tarea puntual sin supervisión" — el protocolo técnico de lanzamiento (evitar tmux, usar `opencode run --auto` o `opencode serve`, fragmentar escrituras largas, detectar cuelgues por inactividad de log) es prerrequisito operativo para que los pasos 3-5 de este protocolo funcionen de forma fiable sin intervención manual constante.
 
 ---
 

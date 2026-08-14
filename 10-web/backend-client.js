@@ -274,6 +274,20 @@
   }
 
   /* ------------------------------------------------------------------ */
+  /* Sistema — preferencias (US-FB024-12)                                */
+  /* ------------------------------------------------------------------ */
+
+  /** `GET /system/preferences` — catálogo de valores de sistema configurables (hoy solo `max_simultaneous_developers`). */
+  async function getSystemPreferences() {
+    return request("GET", "/system/preferences");
+  }
+
+  /** `PUT /system/preferences` — actualiza uno o más valores de sistema. */
+  async function updateSystemPreferences(payload) {
+    return request("PUT", "/system/preferences", { post: true, body: payload });
+  }
+
+  /* ------------------------------------------------------------------ */
   /* Jobs                                                                 */
   /* ------------------------------------------------------------------ */
 
@@ -430,6 +444,8 @@
     getAgentAvailableModels: getAgentAvailableModels,
     getModelsPreferences: getModelsPreferences,
     updateModelsPreferences: updateModelsPreferences,
+    getSystemPreferences: getSystemPreferences,
+    updateSystemPreferences: updateSystemPreferences,
     getJobs: getJobs,
     getJob: getJob,
     createAndDispatchJob: createAndDispatchJob,

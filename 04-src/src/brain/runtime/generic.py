@@ -1,9 +1,16 @@
+import time
 from dataclasses import dataclass
 from typing import Any, Callable
 
 from brain.models import Runtime
-from brain.tmux import create_session, is_alive, kill_session, run_command
+from brain.tmux import create_session, is_alive, kill_session, run_command, send_keys_literal
 from brain.tmux.manager import DEFAULT_SOCKET_NAME
+
+# Tiempo de espera antes del Enter de confirmación del diálogo de confianza
+# de carpeta de Claude Code (ver `start_runtime`). Empírico: tiempo
+# suficiente para que la CLI pinte el diálogo si va a aparecer, sin
+# ralentizar perceptiblemente el arranque cuando no aparece.
+_CLAUDE_CODE_TRUST_DIALOG_WAIT_SECONDS = 1.5
 
 # Registro de "cómo pasar un prompt inicial por línea de comandos" por
 # `Runtime.type` (T-FB005-US01-03) — mismo patrón dict-dispatch ya usado
@@ -99,6 +106,19 @@ def start_runtime(
 
     create_session(session_name, project_path, socket_name=socket_name)
     run_command(session_name, full_command, socket_name=socket_name)
+
+    # Claude Code puede mostrar el diálogo "Do you trust this folder?" antes
+    # de procesar el prompt inicial, dejando el agente atascado ahí (visto en
+    # producción: dos veces en un día) hasta que alguien manda un Enter a
+    # mano. Un Enter extra confirma la opción por defecto del diálogo si
+    # aparece; si el proyecto ya es de confianza y no aparece, el Enter no
+    # tiene ningún efecto negativo (verificado contra ambos casos). Solo
+    # para Claude Code: OpenCode y los runtimes de prueba genéricos
+    # (`test_runtime_generic.py`) no tienen este diálogo y no deben recibir
+    # teclas adicionales no solicitadas.
+    if runtime.type == "claude-code":
+        time.sleep(_CLAUDE_CODE_TRUST_DIALOG_WAIT_SECONDS)
+        send_keys_literal(session_name, "Enter", socket_name=socket_name)
 
     return RuntimeInstance(runtime=runtime, session_name=session_name)
 

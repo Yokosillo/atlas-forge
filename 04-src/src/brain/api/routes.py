@@ -82,6 +82,10 @@ from brain.model_preferences import (
     load_model_preferences,
     save_model_preferences,
 )
+from brain.system_preferences import (
+    load_system_preferences,
+    save_system_preferences,
+)
 from brain.tmux.manager import DEFAULT_SOCKET_NAME
 from brain.tmux import capture_pane_lines
 from brain.workspace.active_project import (
@@ -741,6 +745,44 @@ def put_models_preferences(body: UpdateModelsPreferencesRequest) -> dict:
         current["default_model_by_role"] = body.default_model_by_role
 
     save_model_preferences(current, state_dir=_STATE_DIR)
+    return current
+
+
+@router.get("/system/preferences")
+def get_system_preferences() -> dict:
+    """Preferencias de sistema (US-FB024-12): catálogo abierto de valores
+    operativos configurables desde la web en vez de constantes fijas en
+    código (hoy solo `max_simultaneous_developers`). No requiere sesión
+    activa, mismo criterio que `GET /models/preferences`."""
+    return load_system_preferences(state_dir=_STATE_DIR)
+
+
+class UpdateSystemPreferencesRequest(BaseModel):
+    max_simultaneous_developers: int | None = None
+
+
+@router.put("/system/preferences")
+def put_system_preferences(body: UpdateSystemPreferencesRequest) -> dict:
+    """Actualiza las preferencias de sistema (US-FB024-12). Recibe
+    `{max_simultaneous_developers: <int>}`. Rechaza con 400 un valor
+    inválido (0, negativo, no numérico ya lo rechaza FastAPI/Pydantic al
+    parsear el body) sin persistir un estado que rompería
+    `register_developer` (criterio de aceptación explícito: nunca
+    persistir un límite que dejaría el sistema en un estado roto)."""
+    current = load_system_preferences(state_dir=_STATE_DIR)
+
+    if body.max_simultaneous_developers is not None:
+        if body.max_simultaneous_developers < 1:
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    "max_simultaneous_developers debe ser un entero mayor "
+                    f"que 0 (recibido: {body.max_simultaneous_developers})."
+                ),
+            )
+        current["max_simultaneous_developers"] = body.max_simultaneous_developers
+
+    save_system_preferences(current, state_dir=_STATE_DIR)
     return current
 
 

@@ -3,7 +3,7 @@
 ## Objetivo
 Convertir Factory Brain en un repositorio que transmita profesionalidad,
 calidad técnica y madurez a cualquiera que lo abra por primera vez. Este
-rol se invoca directamente (no pasa por el Director) — mismo patrón que
+rol se invoca directamente (no pasa por el Arquitecto) — mismo patrón que
 la acción "Documentar todo" de `FB-025` (`00-gobierno/METODOLOGIA.md`,
 protocolo de reorientación de producto), pero con alcance ampliado:
 documentación pública en `/docs`, no solo `01-documentacion/` interna.

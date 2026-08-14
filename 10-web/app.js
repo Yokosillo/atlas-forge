@@ -87,7 +87,7 @@
   // un asset real (ver `app.py::_SPAStaticFiles`), así que esto es
   // puramente de enrutado en el cliente: no hay servidor de rutas nuevo.
   var DEFAULT_SECTION = "backlog";
-  var ROUTE_SECTIONS = ["backlog", "roles", "arquitecto", "plan", "scripts", "acciones", "agents", "jobs", "models"];
+  var ROUTE_SECTIONS = ["backlog", "roles", "arquitecto", "plan", "scripts", "acciones", "agents", "jobs", "models", "configuracion"];
 
   function sectionFromPath(pathname) {
     // "/ui/roles" -> "roles"; "/ui/" o "/ui" -> sección por defecto.
@@ -112,7 +112,7 @@
     // Valor inicial resuelto desde la URL real (T-FB024), no un literal
     // fijo — así recargar la página respeta la sección en la que estabas.
     section: sectionFromPath(window.location.pathname),
-    sections: { agents: null, jobs: null, plan: null, scripts: null, backlog: null, models: null, roles: null },
+    sections: { agents: null, jobs: null, plan: null, scripts: null, backlog: null, models: null, roles: null, configuracion: null },
     showPicker: false,
     pickerReason: "initial", // "initial" (onboarding) | "change" (voluntario)
     pendingSelection: null,
@@ -150,21 +150,22 @@
     listError: null,
     pollTimer: null,
     actionMessage: null,
-    // Edición del modelo por defecto (inline, solo para Arquitecto sintético).
+    // Edición del modelo por defecto (inline). editingRole guarda el rol
+    // (lo consume saveRoleModel); editingAgentId identifica la fila exacta
+    // que abrió el editor, para no abrirlo en todas las filas del mismo rol
+    // en roles multi-instancia (Developer) — ver US-FB024-11 criterio 11.
     editingRole: null,
+    editingAgentId: null,
     modelIndex: 0,
     saving: false,
     saveError: null,
-    // Cambio de modelo por instancia lanzada (prompt + GET/PUT agents/{id}/model).
-    modelChangeAgentId: null,
-    modelChangePending: null,
-    modelChangeError: null,
-    modelOptions: null,
-    // Selector de modelo para agentes lanzados (modal inline con <select>).
-    modelSelectAgentId: null,
     // Modal fallback de "Copiar comando de conexión" si clipboard.writeText falla.
     detalleAgent: null,
     detalleCopied: false,
+    // Límite de Developer simultáneos (US-FB024-12, GET /system/preferences)
+    // — null hasta que responda el backend, buildUnifiedRows usa el default
+    // local mientras tanto (ver DEFAULT_MAX_SIMULTANEOUS_DEVELOPERS).
+    maxSimultaneousDevelopers: null,
     // "Revisar si está bloqueado": single-flight del POST /jobs al Arquitecto.
     reviewingBlockedAgentId: null,
     reviewBlockedError: null,
@@ -439,6 +440,22 @@
     saveError: null,
   };
 
+  // Sección CONFIGURACIÓN (US-FB024-12): catálogo abierto de preferencias
+  // de sistema, consumiendo GET/PUT /system/preferences. Empieza con un
+  // único valor (límite de Developer simultáneos), pero el formulario está
+  // pensado para crecer sin rediseñarse — cada preferencia es una fila
+  // propia, no un formulario de un campo.
+  var configuracionSection = {
+    bodyWrap: null,
+    state: null, // null | "loading" | "ready" | "unavailable"
+    error: null,
+    maxSimultaneousDevelopers: null, // valor actual del backend
+    maxSimultaneousDevelopersInput: "", // valor editado en el <input>, como texto
+    dirty: false,
+    saving: false,
+    saveError: null,
+  };
+
   // --------------------------------------------------------- FB-025 Hilo 3
   var accionesSection = {
     bodyWrap: null,
@@ -640,7 +657,7 @@
     // enlaces/botones que cambian qué sección del DOM se muestra, sin
     // recargar la página.
     var nav = h("nav", "section-nav");
-    ["backlog", "roles", "arquitecto", "plan", "scripts", "acciones"].forEach(function (key) {
+    ["backlog", "roles", "arquitecto", "plan", "scripts", "acciones", "configuracion"].forEach(function (key) {
       var tab = button(SECTION_LABEL(key), "section-tab");
       if (key === "backlog" && state.pendingBacklogCount > 0) {
         tab.appendChild(h("span", "backlog-pending-badge", String(state.pendingBacklogCount)));
@@ -658,7 +675,7 @@
   }
 
   function SECTION_LABEL(key) {
-    return { roles: "Agentes", agents: "Agentes", jobs: "Jobs", plan: "Plan", scripts: "Scripts", backlog: "Backlog", models: "Modelos", acciones: "Acciones", arquitecto: "Arquitecto" }[key];
+    return { roles: "Agentes", agents: "Agentes", jobs: "Jobs", plan: "Plan", scripts: "Scripts", backlog: "Backlog", models: "Modelos", acciones: "Acciones", arquitecto: "Arquitecto", configuracion: "Configuración" }[key];
   }
 
   // Barra de estado del Arquitecto (US-FB028-01): segunda linea bajo
@@ -731,12 +748,9 @@
     if (key !== state.section && state.section === "roles") {
       stopRolesPolling();
       rolesSection.editingRole = null;
+      rolesSection.editingAgentId = null;
       rolesSection.modelIndex = 0;
       rolesSection.saveError = null;
-      rolesSection.modelChangeAgentId = null;
-      rolesSection.modelChangePending = null;
-      rolesSection.modelChangeError = null;
-      rolesSection.modelOptions = null;
       rolesSection.detalleAgent = null;
       rolesSection.detalleCopied = false;
       rolesSection.reviewingBlockedAgentId = null;
@@ -832,6 +846,14 @@
     if (state.section === "models") {
       ROOT.appendChild(content);
       renderModelsInto(content);
+      return;
+    }
+    // Configuración también tiene su propio renderizado con estado
+    // (catálogo abierto de preferencias de sistema, US-FB024-12): no pasa
+    // por la caché única.
+    if (state.section === "configuracion") {
+      ROOT.appendChild(content);
+      renderConfiguracionInto(content);
       return;
     }
     if (state.section === "arquitecto") {
@@ -4123,6 +4145,19 @@
         rolesSection.error = buildErrorMessage(error);
         renderRolesBody();
       });
+    // Límite de Developer simultáneos (US-FB024-12 criterio 6): carga
+    // independiente de la de arriba — un fallo aquí no debe bloquear el
+    // resto de la pantalla, buildUnifiedRows ya tiene su propio fallback
+    // al default mientras esto no haya respondido.
+    BackendClient.getSystemPreferences()
+      .then(function (result) {
+        rolesSection.maxSimultaneousDevelopers = result.max_simultaneous_developers;
+        if (state.section === "roles") renderRolesBody();
+      })
+      .catch(function () {
+        // Sin preferencia disponible: buildUnifiedRows sigue usando el
+        // default local, no hay nada más que hacer aquí.
+      });
   }
 
   // ── polling de agentes (3s) ────────────────────────────────────────────
@@ -4168,9 +4203,6 @@
     if (rolesSection.actionMessage) {
       wrap.appendChild(h("p", "agent-message", rolesSection.actionMessage));
     }
-    if (rolesSection.modelChangeError) {
-      wrap.appendChild(h("p", "agent-error", rolesSection.modelChangeError));
-    }
     if (rolesSection.reviewBlockedError) {
       wrap.appendChild(h("p", "agent-error", rolesSection.reviewBlockedError));
     }
@@ -4195,6 +4227,13 @@
 
   // ── construcción de filas unificadas ────────────────────────────────────
 
+  // Default local (US-FB024-12): solo se usa mientras `GET
+  // /system/preferences` no ha respondido todavía (ver
+  // `loadRolesPreferences`) — coincide con
+  // `system_preferences.DEFAULT_MAX_SIMULTANEOUS_DEVELOPERS` en backend,
+  // pero el valor real y editable vive ahí, no aquí.
+  var DEFAULT_MAX_SIMULTANEOUS_DEVELOPERS = 3;
+
   function buildUnifiedRows() {
     var agents = rolesSection.agentsList || [];
     var rows = [];
@@ -4214,16 +4253,22 @@
       rows.push(syntheticRow("arquitecto", "stopped"));
     }
 
-    // Developer: todas las instancias (vivas y detenidas) desde GET /agents.
+    // Developer: siempre se muestran tantas filas como el límite
+    // configurado (`rolesSection.maxSimultaneousDevelopers`,
+    // US-FB024-12). Las instancias reales (vivas o detenidas) ocupan las
+    // primeras filas; las que falten hasta el límite se rellenan con
+    // filas sintéticas "Developer-N" en `stopped`, cada una con su propio
+    // botón Lanzar ya funcional — el rol developer sí está registrado en
+    // el backend (a diferencia de auditor_oss/ux/tester), así que lanzar
+    // desde una fila sintética crea la instancia real correspondiente
+    // (US-FB024-11, regla de filas fijas de Developer).
     var devAgents = agents.filter(function (a) { return a.role === "developer"; });
-    if (devAgents.length === 0) {
-      // Sin ninguna instancia (proyecto nuevo o backend reiniciado): fila
-      // sintética "detenida" para poder lanzar la primera instancia. El rol
-      // developer sí está registrado en el backend, a diferencia de
-      // auditor_oss/ux/tester, así que su botón Lanzar queda habilitado.
-      rows.push(syntheticRow("developer", "stopped"));
-    } else {
-      devAgents.forEach(function (a) { rows.push(a); });
+    var maxDevelopers = rolesSection.maxSimultaneousDevelopers !== null
+      ? rolesSection.maxSimultaneousDevelopers
+      : DEFAULT_MAX_SIMULTANEOUS_DEVELOPERS;
+    devAgents.forEach(function (a) { rows.push(a); });
+    for (var devIdx = devAgents.length; devIdx < maxDevelopers; devIdx++) {
+      rows.push(syntheticRow("developer", "stopped", "Developer-" + (devIdx + 1)));
     }
 
     // Roles aún no registrados en el backend: una fila sintética cada uno.
@@ -4234,12 +4279,12 @@
     return rows;
   }
 
-  function syntheticRow(role, status) {
+  function syntheticRow(role, status, nameOverride) {
     var nameMap = { arquitecto: "Arquitecto", developer: "Developer", auditor_oss: "Auditor-OSS", ux: "UX", tester: "Tester" };
     return {
       _synthetic: true,
       id: null,
-      name: nameMap[role] || role,
+      name: nameOverride || nameMap[role] || role,
       role: role,
       status: status || "unregistered",
       runtime_id: null,
@@ -4254,7 +4299,8 @@
     var isWorking = agent.status === "working";
     var isStopped = agent.status === "stopped";
     var isUnregistered = agent.status === "unregistered";
-    var isLive = agent.id && !isStopped && !isUnregistered;
+    var isUnavailable = agent.status === "unavailable";
+    var isLive = agent.id && !isStopped && !isUnregistered && !isUnavailable;
     var isArquitecto = agent.role === "arquitecto";
     var isSyntheticArquitecto = agent._synthetic && isArquitecto;
 
@@ -4323,15 +4369,8 @@
 
     card.appendChild(actions);
 
-    // Selector de modelo inline para agentes lanzados (fila completa debajo)
-    if (rolesSection.modelSelectAgentId === agent.id && rolesSection.modelOptions) {
-      var selectWrap = h("div", "agent-model-select-row");
-      card.appendChild(selectWrap);
-      renderModelSelectInline(selectWrap, agent);
-    }
-
     // Editor inline de modelo por defecto (fila completa debajo)
-    if (rolesSection.editingRole === agent.role) {
+    if (rolesSection.editingRole === agent.role && rolesSection.editingAgentId === agent.id) {
       var editorWrap = h("div", "agent-editor-row");
       card.appendChild(editorWrap);
       renderDefaultModelEditorInline(editorWrap, agent.role);
@@ -4364,25 +4403,23 @@
   // ── botón Cambiar modelo ────────────────────────────────────────────────
 
   function renderCambiarModeloBtn(agent) {
-    var isLive = agent.id && agent.status !== "stopped" && agent.status !== "unregistered";
+    var isUnavailable = agent.status === "unavailable";
+    var isLive = agent.id && agent.status !== "stopped" && agent.status !== "unregistered" && !isUnavailable;
 
-    var isChanging = agent.id && rolesSection.modelChangeAgentId === agent.id;
-    var isPending = agent.id && rolesSection.modelChangePending && rolesSection.modelChangePending.agent_id === agent.id;
-    var label;
-    if (isChanging) {
-      label = "Cambiando modelo…";
-    } else if (isPending) {
-      label = "Confirmar: " + rolesSection.modelChangePending.model;
-    } else {
-      label = "Cambiar modelo";
-    }
-    var b = button(label, "agent-model-change");
-    if (isChanging) b.disabled = true;
+    var b = button("Cambiar modelo", "agent-model-change");
     if (isLive) {
-      b.addEventListener("click", function () { requestModelChangeLive(agent); });
+      // Instancia lanzada y viva (idle o working): nunca se cambia el
+      // modelo en caliente desde esta pantalla (US-FB024-11 criterio 9) —
+      // el mecanismo `set_active_model` es frágil incluso idle y peligroso
+      // working, así que se deshabilita siempre aquí, sin excepción.
+      b.disabled = true;
+      b.title = "no se puede cambiar el modelo mientras el agente está lanzado: detenlo primero";
     } else {
+      // Parada (stopped/unavailable) o fila sintética sin instancia: abre
+      // el editor de modelo por defecto del rol para esa fila concreta.
       b.addEventListener("click", function () {
         rolesSection.editingRole = agent.role;
+        rolesSection.editingAgentId = agent.id;
         rolesSection.modelIndex = 0;
         rolesSection.saveError = null;
         renderRolesBody();
@@ -4391,80 +4428,11 @@
     return b;
   }
 
-  function requestModelChangeLive(agent) {
-    if (rolesSection.modelChangeAgentId) return;
-    if (!rolesSection.modelChangePending || rolesSection.modelChangePending.agent_id !== agent.id) {
-      rolesSection.modelChangePending = null;
-      rolesSection.modelChangeError = null;
-      rolesSection.modelChangeAgentId = agent.id;
-      renderRolesBody();
-      BackendClient.getAgentAvailableModels(agent.id)
-        .then(function (result) {
-          rolesSection.modelChangeAgentId = null;
-          if (!result.supports_model) {
-            rolesSection.modelChangeError = "Este agente no admite cambio de modelo.";
-            renderRolesBody();
-            return;
-          }
-          var models = result.models;
-          if (!models || models.length === 0) {
-            rolesSection.modelChangeError = "No hay modelos disponibles para este agente.";
-            renderRolesBody();
-            return;
-          }
-          var chosen;
-          if (models.length === 1) {
-            chosen = models[0].id;
-          } else {
-            rolesSection.modelOptions = models;
-            rolesSection.modelSelectAgentId = agent.id;
-            renderRolesBody();
-            return;
-          }
-          rolesSection.modelChangePending = { agent_id: agent.id, model: chosen };
-          rolesSection.modelChangeError = null;
-          renderRolesBody();
-        })
-        .catch(function (error) {
-          rolesSection.modelChangeAgentId = null;
-          rolesSection.modelChangeError = buildErrorMessage(error);
-          renderRolesBody();
-        });
-      return;
-    }
-    executeModelChangeLive(agent, rolesSection.modelChangePending.model);
-  }
-
-  function executeModelChangeLive(agent, model) {
-    if (rolesSection.modelChangeAgentId) return;
-    rolesSection.modelChangePending = null;
-    rolesSection.modelChangeAgentId = agent.id;
-    rolesSection.modelChangeError = null;
-    renderRolesBody();
-    BackendClient.setAgentModel(agent.id, model)
-      .then(function (result) {
-        rolesSection.modelChangeAgentId = null;
-        rolesSection.modelOptions = null;
-        if (result.changed) {
-          rolesSection.actionMessage = "Modelo de " + agent.name + " cambiado a " + model + ".";
-        } else {
-          rolesSection.modelChangeError = "No se pudo cambiar el modelo. El agente puede no estar respondiendo.";
-        }
-        renderRolesBody();
-        return pollRolesAgents();
-      })
-      .catch(function (error) {
-        rolesSection.modelChangeAgentId = null;
-        rolesSection.modelOptions = null;
-        rolesSection.modelChangeError = buildErrorMessage(error);
-        renderRolesBody();
-      });
-  }
-
   // ── botón Lanzar / Detener ──────────────────────────────────────────────
 
   function renderLanzarDetenerBtn(agent) {
-    var isLive = agent.id && agent.status !== "stopped" && agent.status !== "unregistered";
+    var isUnavailable = agent.status === "unavailable";
+    var isLive = agent.id && agent.status !== "stopped" && agent.status !== "unregistered" && !isUnavailable;
     var isUnregistered = agent.status === "unregistered";
     var isStopped = agent.status === "stopped";
     var showDetener = isLive;
@@ -4506,12 +4474,12 @@
       return devStop;
     }
 
-    // Stopped o unregistered
+    // Stopped, unavailable o unregistered
     var devLaunch = button("Lanzar");
     if (isUnregistered) {
       devLaunch.disabled = true;
       devLaunch.title = "rol no disponible todavía: pendiente de registrar en el backend";
-    } else if (isStopped) {
+    } else if (isStopped || isUnavailable) {
       devLaunch.addEventListener("click", function () { launchStoppedDev(agent); });
     }
     return devLaunch;
@@ -4553,7 +4521,7 @@
   // ── botón Copiar comando de conexión ────────────────────────────────────
 
   function renderCopiarComandoBtn(agent) {
-    var isLive = agent.id && agent.status !== "stopped" && agent.status !== "unregistered";
+    var isLive = agent.id && agent.status !== "stopped" && agent.status !== "unregistered" && agent.status !== "unavailable";
     var canCopy = isLive && agent.runtime_id;
 
     var btn = button(rolesSection.detalleCopied && rolesSection.detalleAgent === agent ? "Copiado ✓" : "Copiar comando de conexión");
@@ -4677,47 +4645,7 @@
       });
   }
 
-  // ── editor inline de modelo por defecto (solo Arquitecto sintético) ─────
-
-  function renderModelSelectInline(wrap, agent) {
-    var models = rolesSection.modelOptions;
-    if (!models || models.length === 0) return;
-
-    var sel = document.createElement("select");
-    sel.className = "clickable launch-select";
-    sel.style.margin = "6px 0";
-    models.forEach(function (m) {
-      var o = document.createElement("option");
-      o.value = m.id;
-      o.textContent = m.name + " (" + m.id + ")";
-      sel.appendChild(o);
-    });
-    wrap.appendChild(sel);
-
-    var actionsRow = h("div", "agent-actions");
-
-    var confirmBtn = button("Confirmar cambio");
-    confirmBtn.addEventListener("click", function () {
-      var selectedModel = sel.value;
-      rolesSection.modelSelectAgentId = null;
-      rolesSection.modelOptions = null;
-      rolesSection.modelChangePending = { agent_id: agent.id, model: selectedModel };
-      rolesSection.modelChangeError = null;
-      renderRolesBody();
-    });
-    actionsRow.appendChild(confirmBtn);
-
-    var cancelBtn = button("Cancelar", "agent-model-change");
-    cancelBtn.addEventListener("click", function () {
-      rolesSection.modelSelectAgentId = null;
-      rolesSection.modelOptions = null;
-      rolesSection.modelChangePending = null;
-      renderRolesBody();
-    });
-    actionsRow.appendChild(cancelBtn);
-
-    wrap.appendChild(actionsRow);
-  }
+  // ── editor inline de modelo por defecto ──────────────────────────────────
 
   function renderDefaultModelEditorInline(wrap, role) {
     var enabledModels = rolesSection.models.filter(function (m) { return m.enabled; });
@@ -4964,6 +4892,135 @@
         modelsSection.saving = false;
         modelsSection.saveError = buildErrorMessage(error);
         renderModelsBody();
+      });
+  }
+
+  // ------------------------------------------------------- Configuración
+  // (US-FB024-12): catálogo abierto de preferencias de sistema. Hoy solo
+  // el límite de Developer simultáneos; el siguiente valor configurable
+  // que aparezca se añade como otra fila del mismo formulario.
+
+  function renderConfiguracionInto(content) {
+    configuracionSection.bodyWrap = content;
+    if (configuracionSection.state === null) {
+      loadSystemPreferences();
+      content.appendChild(h("p", "section-note", "Cargando configuración…"));
+      return;
+    }
+    if (configuracionSection.state === "loading") {
+      content.appendChild(h("p", "section-note", "Cargando configuración…"));
+      return;
+    }
+    if (configuracionSection.state === "unavailable") {
+      content.appendChild(h("p", "agent-error", configuracionSection.error));
+      return;
+    }
+    renderConfiguracionBody();
+  }
+
+  function loadSystemPreferences() {
+    configuracionSection.state = "loading";
+    BackendClient.getSystemPreferences()
+      .then(function (result) {
+        configuracionSection.state = "ready";
+        configuracionSection.maxSimultaneousDevelopers = result.max_simultaneous_developers;
+        configuracionSection.maxSimultaneousDevelopersInput = String(result.max_simultaneous_developers);
+        configuracionSection.dirty = false;
+        configuracionSection.saveError = null;
+        renderConfiguracionBody();
+      })
+      .catch(function (error) {
+        configuracionSection.state = "unavailable";
+        configuracionSection.error = buildErrorMessage(error);
+        renderConfiguracionBody();
+      });
+  }
+
+  function renderConfiguracionBody() {
+    var wrap = configuracionSection.bodyWrap;
+    if (!wrap) return;
+    wrap.textContent = "";
+
+    if (configuracionSection.state !== "ready") return;
+
+    var form = h("div", "jobs-form");
+
+    form.appendChild(h("div", "jobs-form-title", "Preferencias de sistema"));
+
+    var row = h("div", "model-row");
+    row.appendChild(h("span", "model-role-label", "Máximo de Developer simultáneos: "));
+    var input = document.createElement("input");
+    input.type = "number";
+    input.min = "1";
+    input.step = "1";
+    input.className = "clickable";
+    input.value = configuracionSection.maxSimultaneousDevelopersInput;
+    input.addEventListener("input", function () {
+      configuracionSection.maxSimultaneousDevelopersInput = input.value;
+      configuracionSection.dirty = String(configuracionSection.maxSimultaneousDevelopers) !== input.value;
+      renderConfiguracionBody();
+    });
+    row.appendChild(input);
+    form.appendChild(row);
+    form.appendChild(h(
+      "p",
+      "section-note",
+      "Número de instancias de Developer que puedes tener lanzadas a la vez. Cambiarlo no afecta a las instancias ya lanzadas, solo al límite para lanzar nuevas."
+    ));
+
+    var saveBtn = button("Guardar preferencias");
+    var parsedValue = parseInt(configuracionSection.maxSimultaneousDevelopersInput, 10);
+    var isValidValue = configuracionSection.maxSimultaneousDevelopersInput.trim() !== ""
+      && !isNaN(parsedValue)
+      && String(parsedValue) === configuracionSection.maxSimultaneousDevelopersInput.trim()
+      && parsedValue >= 1;
+    if (configuracionSection.saving || !configuracionSection.dirty || !isValidValue) {
+      saveBtn.disabled = true;
+    }
+    if (configuracionSection.saving) {
+      saveBtn.textContent = "Guardando…";
+    }
+    saveBtn.addEventListener("click", saveSystemPreferences);
+    form.appendChild(saveBtn);
+
+    if (configuracionSection.dirty && !isValidValue) {
+      form.appendChild(h("p", "agent-error", "Introduce un número entero mayor que 0."));
+    }
+    if (configuracionSection.saveError) {
+      form.appendChild(h("p", "agent-error", configuracionSection.saveError));
+    }
+    if (!configuracionSection.dirty && !configuracionSection.saving) {
+      form.appendChild(h("p", "section-note", "Sin cambios pendientes."));
+    }
+
+    wrap.appendChild(form);
+  }
+
+  function saveSystemPreferences() {
+    if (configuracionSection.saving) return;
+    var parsedValue = parseInt(configuracionSection.maxSimultaneousDevelopersInput, 10);
+    var isValidValue = configuracionSection.maxSimultaneousDevelopersInput.trim() !== ""
+      && !isNaN(parsedValue)
+      && String(parsedValue) === configuracionSection.maxSimultaneousDevelopersInput.trim()
+      && parsedValue >= 1;
+    if (!isValidValue) return;
+
+    configuracionSection.saving = true;
+    configuracionSection.saveError = null;
+    renderConfiguracionBody();
+
+    BackendClient.updateSystemPreferences({ max_simultaneous_developers: parsedValue })
+      .then(function (result) {
+        configuracionSection.saving = false;
+        configuracionSection.dirty = false;
+        configuracionSection.maxSimultaneousDevelopers = result.max_simultaneous_developers;
+        configuracionSection.maxSimultaneousDevelopersInput = String(result.max_simultaneous_developers);
+        renderConfiguracionBody();
+      })
+      .catch(function (error) {
+        configuracionSection.saving = false;
+        configuracionSection.saveError = buildErrorMessage(error);
+        renderConfiguracionBody();
       });
   }
 
