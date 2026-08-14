@@ -4370,6 +4370,9 @@
       actions.appendChild(renderRevisarBloqueadoBtn(agent));
     }
 
+    // (e) Ver log en vivo (T-FB032-US02-01)
+    actions.appendChild(renderVerLogEnVivoBtn(agent));
+
     card.appendChild(actions);
 
     // Editor inline de modelo por defecto (fila completa debajo)
@@ -4594,6 +4597,27 @@
     wrap.appendChild(overlay);
     // Autoseleccionar el textarea una vez montado el DOM.
     setTimeout(function () { ta.select(); ta.focus(); }, 10);
+  }
+
+  // ── botón Ver log en vivo (T-FB032-US02-01) ─────────────────────────────
+
+  function renderVerLogEnVivoBtn(agent) {
+    var isLive = agent.id && agent.status !== "stopped" && agent.status !== "unregistered" && agent.status !== "unavailable";
+    var canOpen = isLive && agent.session_name;
+
+    var btn = button("Ver log en vivo", "agent-model-change");
+    btn.disabled = !canOpen;
+    if (!canOpen) {
+      btn.title = "no disponible: el agente no tiene sesión activa";
+      return btn;
+    }
+    btn.addEventListener("click", function () {
+      window.open(
+        "/ui/agent-pane.html?agent_id=" + encodeURIComponent(agent.id),
+        "_blank"
+      );
+    });
+    return btn;
   }
 
   // ── botón Revisar si está bloqueado ─────────────────────────────────────

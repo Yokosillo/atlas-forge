@@ -1,0 +1,116 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Log en vivo — Factory Brain</title>
+  <link rel="stylesheet" href="/ui/style.css?v=20260809a" />
+  <style>
+    /* Página independiente (T-FB032-US02-01): se abre en ventana/pestaña
+       aparte desde "Ver log en vivo" (pantalla Roles), sin pasar por el
+       bootstrap completo de app.js (selector de proyecto, nav, polling
+       de otras secciones) — solo necesita conectar a un único WebSocket
+       y renderizar texto. Cargar index.html+app.js enteros para esto
+       introduciría acoplamiento y estado innecesarios para una vista
+       satélite de solo lectura. */
+    body {
+      margin: 0;
+      padding: 16px;
+      background: #fff;
+    }
+    #pane-title {
+      font-weight: 700;
+      margin: 0 0 8px;
+    }
+    #pane-status {
+      color: #666;
+      font-size: 13px;
+      margin: 0 0 8px;
+    }
+    #pane-content {
+      white-space: pre-wrap;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      font-size: 13px;
+      background: #fff;
+      border: 1px solid #ddd;
+      border-radius: 4px;
+      padding: 8px;
+      min-height: 60vh;
+      max-height: 90vh;
+      overflow-y: auto;
+    }
+  </style>
+</head>
+<body>
+  <h2 id="pane-title">Log en vivo</h2>
+  <p id="pane-status">Conectando…</p>
+  <div id="pane-content"></div>
+
+  <script>
+    (function () {
+      "use strict";
+
+      var params = new URLSearchParams(window.location.search);
+      var agentId = params.get("agent_id");
+
+      var titleEl = document.getElementById("pane-title");
+      var statusEl = document.getElementById("pane-status");
+      var contentEl = document.getElementById("pane-content");
+
+      if (!agentId) {
+        statusEl.textContent = "No se indicó ningún agente (falta el parámetro agent_id en la URL).";
+        return;
+      }
+
+      titleEl.textContent = "Log en vivo del agente";
+
+      // Mismo origen que la propia página, esquema ws(s):// en vez de
+      // http(s):// — mismo criterio ya usado por jobsWsUrl()/plansWsUrl()
+      // en app.js, sin depender de BackendClient (esta página no lo carga).
+      var wsUrl =
+        window.location.origin.replace(/^http/, "ws") +
+        "/ws/agents/" +
+        encodeURIComponent(agentId) +
+        "/pane";
+
+      var socket = new WebSocket(wsUrl);
+
+      socket.onopen = function () {
+        statusEl.textContent = "Conectado. Esperando actividad…";
+      };
+
+      socket.onmessage = function (event) {
+        var data;
+        try {
+          data = JSON.parse(event.data);
+        } catch (error) {
+          return;
+        }
+        if (data && data.event === "pane_content") {
+          statusEl.textContent = "En vivo.";
+          contentEl.textContent = data.content || "(pane vacío)";
+          contentEl.scrollTop = contentEl.scrollHeight;
+        }
+      };
+
+      // Motivo explícito de cierre (T-FB032-US01-01: código 4004 +
+      // `reason` cuando el agente no existe/no tiene runtime/no está
+      // vivo) — nunca una pantalla en blanco sin explicación (criterio
+      // 3 de la Task).
+      socket.onclose = function (event) {
+        if (event.reason) {
+          statusEl.textContent = "Conexión cerrada: " + event.reason;
+        } else if (!event.wasClean) {
+          statusEl.textContent = "Conexión perdida con el servidor.";
+        } else {
+          statusEl.textContent = "Conexión cerrada.";
+        }
+      };
+
+      socket.onerror = function () {
+        statusEl.textContent = "No se pudo conectar con el servidor.";
+      };
+    })();
+  </script>
+</body>
+</html>
