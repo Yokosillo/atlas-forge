@@ -145,7 +145,10 @@ def test_launch_without_initial_job_matches_launch_agent_registration(
     )
 
     assert agent.role == DEVELOPER_ROLE
-    assert agent.prompt == DEVELOPER_PROMPT
+    # T-FB005-US01-07: el prompt ya no es exactamente DEVELOPER_PROMPT —
+    # incluye siempre la capa de identidad del proyecto activo.
+    assert agent.prompt.startswith(DEVELOPER_PROMPT)
+    assert tmp_path.name in agent.prompt
     assert agent.status == "idle"
     assert agent in list_agents(session)
     assert job is None

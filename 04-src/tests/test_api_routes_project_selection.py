@@ -1,8 +1,10 @@
-"""Tests de `GET /projects`/`POST /project` (T-FB016-US01-11): descubrir
-repositorios y seleccionar uno como proyecto activo, re-arrancando la
-sesión de desarrollo del proceso para él — incluyendo el criterio de
-aceptación explícito sobre qué pasa con los agentes de la sesión
-anterior (deben detenerse, no quedar huérfanos)."""
+"""Tests de `GET /projects`/`POST /project`: descubrir repositorios y
+seleccionar uno como proyecto activo, dando el foco de sesión de
+desarrollo del proceso al proyecto seleccionado — incluyendo el
+criterio de aceptación explícito de FB-029 (T-FB029-US01-02) sobre qué
+pasa con los agentes de la sesión anterior (nada: siguen vivos en su
+propia sesión, ya no se detienen; comportamiento anterior de
+T-FB016-US01-11, ver nota en `02-backlog/epics/FB-016-api-backend.md`)."""
 
 import uuid
 from pathlib import Path
@@ -152,13 +154,16 @@ def test_post_project_with_unknown_project_id_returns_400(isolated_workspace) ->
     assert "no pertenece" in response.json()["detail"]
 
 
-def test_post_project_stops_agents_from_the_previous_session_real_tmux(
+def test_post_project_keeps_agents_from_the_previous_session_alive_real_tmux(
     isolated_workspace, isolated_socket: str
 ) -> None:
-    """Criterio de aceptación explícito: los agentes de la sesión anterior
-    no deben quedar huérfanos (proceso tmux real vivo, pero inalcanzable
-    desde ningún endpoint una vez cambiada la sesión) — se detienen de
-    verdad antes de descartar esa sesión."""
+    """Criterio de aceptación explícito de FB-029 (T-FB029-US01-02),
+    invierte `test_post_project_stops_agents_from_the_previous_session_real_tmux`
+    (comportamiento anterior de T-FB016-US01-11): el agente de un proyecto
+    que pierde el foco sigue con su proceso tmux real vivo, y vuelve a ser
+    alcanzable desde GET /agents en cuanto su proyecto recupera el foco —
+    ya no se detiene ni queda huérfano, porque cada proyecto conserva su
+    propia sesión viva en paralelo (`_SessionRegistry` multi-sesión)."""
     workspace, _state_dir = isolated_workspace
     _make_git_repo(workspace / "project-a")
     _make_git_repo(workspace / "project-b")
@@ -177,41 +182,20 @@ def test_post_project_stops_agents_from_the_previous_session_real_tmux(
 
     client.post("/project", json={"project_id": project_b.id})
 
-    # El proceso tmux real del agente de la sesión anterior debe haberse
-    # detenido de verdad, no solo dejar de aparecer en un listado.
-    assert not is_runtime_alive(runtime_instance, socket_name=isolated_socket)
+    # El proceso tmux real del agente de la sesión anterior sigue vivo:
+    # cambiar el foco no lo detiene.
+    assert is_runtime_alive(runtime_instance, socket_name=isolated_socket)
 
-    # Y ya no es alcanzable desde GET /agents (pertenece a la sesión
-    # anterior, ahora descartada) — la propia sesión nueva no lo conoce.
-    agents_now = client.get("/agents").json()
-    assert all(agent["id"] != launched["id"] for agent in agents_now)
+    # Y ya no es alcanzable desde GET /agents con el foco en B (sigue
+    # siendo de la sesión de A, aislamiento por sesión de siempre)...
+    agents_in_b = client.get("/agents").json()
+    assert all(agent["id"] != launched["id"] for agent in agents_in_b)
 
-
-def test_post_project_ignores_an_agent_whose_runtime_already_died(
-    isolated_workspace, isolated_socket: str
-) -> None:
-    """Un agente cuyo runtime ya murió externamente (antes del cambio de
-    proyecto) no debe bloquear el cambio — `AgentRuntimeNotFoundError` de
-    `stop_agent` se ignora para ese agente puntual."""
-    from brain.tmux.manager import kill_session
-
-    workspace, _state_dir = isolated_workspace
-    _make_git_repo(workspace / "project-a")
-    _make_git_repo(workspace / "project-b")
-    discovered = discover_projects(workspace)
-    project_a = next(p for p in discovered if p.name == "project-a")
-    project_b = next(p for p in discovered if p.name == "project-b")
-
-    client = TestClient(create_app())
+    # ...pero vuelve a aparecer, con su estado real, en cuanto A recupera
+    # el foco — sin haber tenido que relanzarlo.
     client.post("/project", json={"project_id": project_a.id})
-
-    launched = client.post(
-        "/agents", json={"role": "developer", "runtime_type": "claude-code"}
-    ).json()
-    runtime_instance = get_runtime_instance_for_agent(launched["id"])
-    kill_session(runtime_instance.session_name, socket_name=isolated_socket)
-
-    response = client.post("/project", json={"project_id": project_b.id})
-
-    assert response.status_code == 200
-    assert response.json()["id"] == project_b.id
+    agents_in_a = client.get("/agents").json()
+    assert any(
+        agent["id"] == launched["id"] and agent["status"] != "stopped"
+        for agent in agents_in_a
+    )

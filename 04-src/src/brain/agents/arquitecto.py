@@ -1,4 +1,7 @@
-from brain.agents.governance import project_governance_instruction
+from brain.agents.governance import (
+    project_governance_instruction,
+    project_identity_instruction,
+)
 from brain.agents.registry import register_agent_with_reuse
 from brain.agents.roles import RoleConfig, register_role
 from brain.models import Agent, DevelopmentSession, Runtime
@@ -67,8 +70,10 @@ ARQUITECTO_PROMPT = (
 
 
 def build_arquitecto_prompt(project_path: str) -> str:
-    return ARQUITECTO_PROMPT + project_governance_instruction(
-        project_path, ARQUITECTO_ROLE
+    return (
+        ARQUITECTO_PROMPT
+        + project_identity_instruction(project_path)
+        + project_governance_instruction(project_path, ARQUITECTO_ROLE)
     )
 
 

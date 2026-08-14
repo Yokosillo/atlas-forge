@@ -26,9 +26,10 @@ los tests dependan del orden de ejecución de otros tests). Vive en
 Se registra únicamente en `register_agent` (`agents/registry.py`) — el
 único punto donde se invoca `start_runtime` de verdad. El caso de
 reutilización (`register_agent_with_reuse`) no necesita registrar de
-nuevo: `RuntimeInstance` es determinista a partir de `(runtime,
-agent.id)` vía `session_name_for` (ver `runtime/generic.py`), así que la
-asociación ya registrada en el primer lanzamiento sigue siendo válida —
+nuevo: `RuntimeInstance` es determinista a partir de `(agent.name,
+project_path)` vía `session_name_for` (ver `runtime/generic.py`,
+FB-030), así que la asociación ya registrada en el primer lanzamiento
+sigue siendo válida —
 duplicar el registro en el punto de reutilización no se pierde nada
 (mismo `session_name`) pero tampoco aporta nada, y evita depender de que
 todos los futuros llamadores de "reutilización" recuerden registrar

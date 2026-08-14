@@ -37,6 +37,21 @@ def run_command(
     session.active_pane.send_keys(command)
 
 
+def list_sessions(socket_name: str = DEFAULT_SOCKET_NAME) -> list[str]:
+    """Nombres de todas las sesiones tmux vivas en `socket_name`, sin
+    necesitar conocer ninguno de antemano (a diferencia de `is_alive`) —
+    FB-031, base para que Brain pueda reconciliar su registro en memoria
+    contra lo que tmux ya tiene vivo tras un reinicio del proceso.
+
+    `server.sessions` (libtmux) ya devuelve una lista vacía cuando el
+    socket no tiene ningún servidor/sesión (verificado contra la versión
+    de libtmux fijada en `pyproject.toml`), así que no hace falta manejar
+    ese caso aparte — mismo criterio que el resto de funciones de este
+    módulo (`is_alive`, `kill_session`) no lanzan excepción ante ausencia."""
+    server = _get_server(socket_name)
+    return [session.session_name for session in server.sessions]
+
+
 def is_alive(session_name: str, socket_name: str = DEFAULT_SOCKET_NAME) -> bool:
     """Comprueba si la sesión tmux `session_name` sigue viva.
 

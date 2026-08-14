@@ -168,6 +168,8 @@ def test_get_agents_reflects_an_agent_launched_directly_via_domain(
             "status": agent.status,
             "runtime_id": agent.runtime_id,
             "model": None,
+            "session_name": runtime_instance.session_name,
+            "last_command_at": None,
         }
     ]
 
@@ -268,7 +270,16 @@ def test_post_agents_without_initial_job_is_identical_to_previous_response(
 
     assert response.status_code == 201
     body = response.json()
-    assert set(body.keys()) == {"id", "name", "role", "status", "runtime_id", "model"}
+    assert set(body.keys()) == {
+        "id",
+        "name",
+        "role",
+        "status",
+        "runtime_id",
+        "model",
+        "session_name",
+        "last_command_at",
+    }
     assert body["status"] == "idle"
 
     jobs_response = client.get("/jobs")

@@ -76,6 +76,20 @@ def _active_project_and_session(tmp_path: Path, monkeypatch):
     monkeypatch.setattr(
         routes_module, "get_active_project", lambda **_kwargs: discovered[0]
     )
+    # T-FB031-US02-02: algunos tests de este fichero usan `with
+    # TestClient(create_app())`, que SÍ ejecuta `_lifespan` de verdad
+    # (a diferencia de `TestClient(create_app())` sin `with`, que no lo
+    # ejecuta — verificado explícitamente). `_lifespan` llama
+    # `resolve_startup_session` de nuevo con
+    # `routes_module._WORKSPACE_ROOT`/`_STATE_DIR`, no con `workspace`/
+    # `state_dir` locales de este helper — sin este monkeypatch,
+    # resolvería contra el filesystem/estado real del proceso pytest (el
+    # propio repo) y, con FB-029 (multi-sesión con cambio de foco
+    # silencioso, sin `SessionAlreadyActiveError`), le robaría el foco a
+    # la sesión de test ya activa, dejando inalcanzables los agentes ya
+    # lanzados sobre ella.
+    monkeypatch.setattr(routes_module, "_WORKSPACE_ROOT", workspace)
+    monkeypatch.setattr(routes_module, "_STATE_DIR", state_dir)
 
     session = resolve_startup_session(workspace_root=workspace, state_dir=state_dir)
     assert session is not None

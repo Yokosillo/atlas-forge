@@ -121,7 +121,7 @@ def register_agent_with_reuse(
         None,
     )
     if existing_agent is not None and existing_agent.status in _REUSABLE_STATUSES:
-        existing_session_name = session_name_for(runtime, existing_agent)
+        existing_session_name = session_name_for(runtime, existing_agent, project_path)
         return existing_agent, RuntimeInstance(
             runtime=runtime, session_name=existing_session_name
         )

@@ -47,11 +47,15 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 from brain.api import routes as routes_module
 from brain.api.events import jobs_hub, plans_hub, register_event_loops
 from brain.api.routes import router
+from brain.core.session_reconciliation import reconcile_session_agents
 from brain.core.session_registry import (
     SessionAlreadyActiveError,
     get_current_session,
     resolve_startup_session,
 )
+from brain.runtime.agent_runtime_registry import get_runtime_instance_for_agent
+from brain.runtime.generic import is_runtime_alive
+from brain.tmux import capture_pane_lines
 
 # T-FB017-US01-01: ruta del APK más reciente servido por `GET /apk` (ver
 # docstring del endpoint más abajo para la justificación completa del
@@ -116,6 +120,31 @@ async def _lifespan(app: FastAPI):
         )
     except SessionAlreadyActiveError:
         pass
+
+    # T-FB031-US02-02: tras resolver la sesión del proyecto activo,
+    # reengancha cada sesión tmux real del socket que ya pertenezca a ese
+    # proyecto (FB-031, ver `core/session_reconciliation.py`) — sin esto,
+    # un reinicio del proceso deja `session.agents` vacío mientras las
+    # sesiones tmux de agentes ya lanzados siguen vivas (caso motivador
+    # real reproducido en la propia sesión de trabajo que originó esta
+    # Epic). Se consulta `get_current_session()` en vez de reutilizar el
+    # valor de retorno de `resolve_startup_session` de arriba porque
+    # también cubre el camino `SessionAlreadyActiveError` (la sesión ya
+    # existía, pero sigue siendo la sesión correcta a reconciliar). Sin
+    # proyecto activo (`None`), no hay nada que reconciliar todavía — el
+    # flujo de selección de proyecto (FB-001) debe completarse primero.
+    #
+    # `socket_name=routes_module._SOCKET_NAME` (no el valor por defecto de
+    # `list_sessions`): mismo patrón ya establecido en `api/routes.py`
+    # para que los tests puedan aislarse en su propio servidor tmux vía
+    # `monkeypatch` sin arriesgar interferir con el socket real
+    # `factory-brain` de producción durante la suite.
+    current_session = get_current_session()
+    if current_session is not None:
+        reconcile_session_agents(
+            current_session, socket_name=routes_module._SOCKET_NAME
+        )
+
     yield
 
 
@@ -239,5 +268,102 @@ def create_app() -> FastAPI:
             pass
         finally:
             plans_hub.disconnect(websocket)
+
+    @app.websocket("/ws/agents/{agent_id}/pane")
+    async def ws_agent_pane(websocket: WebSocket, agent_id: str) -> None:
+        """Empuja el contenido del pane tmux de `agent_id` mientras cambie
+        (T-FB032-US01-01) — equivalente en vivo de `GET /agents/{id}/pane`,
+        sin que el cliente tenga que pedirlo en bucle.
+
+        Canal 1:1, NO un `_ChannelHub` compartido (`brain.api.events`):
+        cada conexión abre su propio bucle de polling dedicado a su
+        `agent_id` — no hace falta un registro de conexiones ni publicar a
+        "todas las conexiones activas", porque no hay ninguna otra
+        conexión que deba ver este mismo contenido. `jobs_hub`/`plans_hub`
+        resuelven un problema que este canal no tiene: entregar un evento
+        publicado desde código SÍNCRONO en threadpool (`POST /jobs`) al
+        loop async — aquí el propio poller ya vive dentro de esta misma
+        corrutina, sin cruzar threads.
+
+        Resolución del agente/runtime: mismo patrón de 4 chequeos que
+        `get_agent_pane` (`api/routes.py:544`) — sesión activa, agente
+        existe, runtime registrado, runtime vivo. Si cualquiera falla, se
+        cierra la conexión con `websocket.close(code=4004, reason=...)`
+        tras aceptarla (RFC 6455 no define un código de cierre para
+        "recurso no encontrado" — el rango 4000-4999 es de aplicación,
+        sin registro IANA necesario; 4004 se eligió por analogía mnemónica
+        con el 404 HTTP que usa el endpoint REST equivalente, no por
+        ningún estándar que lo imponga). Se acepta la conexión primero
+        (`websocket.accept()`) porque un cliente no puede leer el
+        `reason` de un cierre en el propio handshake de rechazo en todos
+        los navegadores — aceptar y cerrar inmediatamente después es más
+        fiable para que el cliente vea el motivo.
+        """
+        await websocket.accept()
+
+        session = get_current_session()
+        if session is None:
+            await websocket.close(
+                code=4004, reason="No hay ninguna sesión de desarrollo activa."
+            )
+            return
+
+        agent = routes_module._find_agent_by_id(session, agent_id)
+        if agent is None:
+            await websocket.close(
+                code=4004,
+                reason=f"No existe ningún agente con id '{agent_id}'.",
+            )
+            return
+
+        runtime_instance = get_runtime_instance_for_agent(agent.id)
+        if runtime_instance is None:
+            await websocket.close(
+                code=4004,
+                reason=f"No hay ningún runtime registrado para el agente '{agent_id}'.",
+            )
+            return
+
+        if not is_runtime_alive(runtime_instance, socket_name=routes_module._SOCKET_NAME):
+            await websocket.close(
+                code=4004,
+                reason=f"El agente '{agent_id}' no tiene una sesión tmux viva que mostrar.",
+            )
+            return
+
+        # `capture_pane_lines` es SÍNCRONA y bloqueante (ejecuta `tmux
+        # capture-pane` real vía libtmux) — llamarla directamente aquí
+        # bloquearía el event loop entero mientras dura esa I/O,
+        # congelando TODAS las demás conexiones WebSocket del proceso
+        # (otros paneles, `/ws/jobs`, `/ws/plans`). `asyncio.to_thread`
+        # la ejecuta en el threadpool por defecto de `asyncio`, sin
+        # bloquear el loop.
+        last_content: list[str] | None = None
+        try:
+            while True:
+                content = await asyncio.to_thread(
+                    capture_pane_lines,
+                    runtime_instance.session_name,
+                    socket_name=routes_module._SOCKET_NAME,
+                )
+                if content != last_content:
+                    last_content = content
+                    await websocket.send_json(
+                        {
+                            "event": "pane_content",
+                            "agent_id": agent_id,
+                            "content": "\n".join(content),
+                        }
+                    )
+                # Mismo orden de magnitud que el polling de `dispatch_job`
+                # (`_REPORT_READ_RETRY_DELAY_SECONDS`/`poll_interval_seconds`
+                # por defecto, `job_dispatch.py`) — 0.2s, el valor menor
+                # del rango 0.2-1s que pide la Task: prioriza latencia
+                # baja sobre carga de CPU, coherente con ser un canal 1:1
+                # (nunca hay más de un poller por agente con conexión
+                # activa, no un fan-out costoso).
+                await asyncio.sleep(0.2)
+        except WebSocketDisconnect:
+            pass
 
     return app

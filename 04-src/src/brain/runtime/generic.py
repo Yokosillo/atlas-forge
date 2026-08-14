@@ -1,5 +1,7 @@
+import re
 import time
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any, Callable
 
 from brain.models import Runtime
@@ -49,17 +51,137 @@ class RuntimeInstance:
     session_name: str
 
 
-def session_name_for(runtime: Runtime, agent: Any) -> str:
-    # Desde FB-005 (T-FB005-US01-01) existe un modelo `Agent` real con un
-    # `id` propio, estable y legible — se usa preferentemente. El fallback a
-    # `id(agent)` (identidad de objeto Python) se conserva por
-    # compatibilidad con los tests de FB-004 anteriores a FB-005, que pasan
-    # un `object()` de prueba sin atributo `.id` (no se asumía ningún
-    # modelo de agente concreto en ese momento del roadmap). El `runtime.id`
-    # como prefijo evita que dos runtimes distintos (p. ej. Claude Code y
-    # OpenCode) asignados al mismo agente colisionen entre sí.
-    agent_identifier = getattr(agent, "id", None) or id(agent)
-    return f"{runtime.id}-{agent_identifier}"
+def sanitize_session_name_part(value: str) -> str:
+    """Normaliza `value` para que sea válida dentro de un nombre de sesión
+    tmux (`-t`): tmux usa `:` como separador `session:window.pane`, y un
+    nombre con espacios obliga a citarlo en cada comando manual de conexión
+    (`tmux attach -t <nombre>`, ver criterio 4 de `T-FB030-US01-01`). Se
+    sustituye cualquier carácter que no sea alfanumérico, `-` o `_` por
+    `-`, se pasa a minúsculas, y se colapsan guiones repetidos resultantes
+    de sustituir varios caracteres seguidos (p. ej. espacios múltiples).
+
+    Pública (sin guion bajo) desde T-FB031-US02-02: `core/
+    session_reconciliation.py` la reutiliza para normalizar el nombre del
+    proyecto real de la misma forma que `session_name_for` lo hizo al
+    construir el nombre de sesión original — comparar `parsed.project_name`
+    (ya sanitizado por `parse_session_name`) contra el nombre del proyecto
+    sin normalizar produciría falsos negativos en cuanto hubiera mayúsculas
+    o espacios."""
+    sanitized = re.sub(r"[^a-zA-Z0-9_-]+", "-", value.strip()).strip("-")
+    return sanitized.lower()
+
+
+def session_name_for(runtime: Runtime, agent: Any, project_path: str) -> str:
+    """Nombre de sesión tmux determinista `<rol>-<proyecto>` (roles de
+    instancia única, p. ej. Arquitecto) o `<rol>-N-<proyecto>` (roles
+    multi-instancia, p. ej. Developer) — FB-030/US-FB030-01, sustituye el
+    esquema opaco anterior (`f"{runtime.id}-{agent.id}"`, UUID aleatorio
+    sin relación con el proyecto).
+
+    El `<rol>-N` sale de `agent.name` ("Arquitecto", "Developer-2", ...)
+    ya en minúsculas — no se recalcula el número de instancia aquí: reusa
+    tal cual el mismo criterio de numeración que `_next_developer_name`
+    (`agents/developer.py`) ya aplicó al fijar `agent.name` antes de
+    lanzar el runtime, así que ambos quedan sincronizados por construcción
+    (mismo número visible en `agent.name` y en el nombre de sesión), sin
+    duplicar la lógica de conteo. `project_path` es el mismo que ya recibe
+    `start_runtime` — el nombre del proyecto es `Path(project_path).name`,
+    igual criterio que `Project.name` en `workspace/discovery.py`.
+
+    Fallback a `f"{runtime.id}-{id(agent)}"` (identidad de objeto Python,
+    con `runtime.id` como prefijo para no colisionar entre runtimes
+    distintos sobre el mismo agente) cuando `agent` no tiene `.name` —
+    conservado por compatibilidad con tests de FB-004 anteriores a FB-005
+    que pasan un `object()` de prueba sin ese atributo (no se asumía
+    ningún modelo de agente concreto en ese punto del roadmap)."""
+    agent_name = getattr(agent, "name", None)
+    role_source = agent_name if agent_name else f"{runtime.id}-{id(agent)}"
+    project_name = Path(project_path).name if project_path else ""
+
+    role_part = sanitize_session_name_part(str(role_source))
+    project_part = sanitize_session_name_part(project_name)
+
+    if not project_part:
+        return role_part
+    return f"{role_part}-{project_part}"
+
+
+@dataclass(frozen=True)
+class ParsedSessionName:
+    """Resultado de `parse_session_name`: a qué rol y proyecto pertenece
+    un nombre de sesión tmux normalizado (FB-030), y su número de
+    instancia si el rol es multi-instancia (Developer). `instance` es
+    `None` para roles de instancia única (Arquitecto y análogos) — no `1`
+    ni ningún otro valor por defecto, para que el caller pueda distinguir
+    "no aplica" de "instancia 1" sin ambigüedad."""
+
+    role: str
+    project_name: str
+    instance: int | None
+
+
+def parse_session_name(name: str) -> ParsedSessionName | None:
+    """Función inversa de `session_name_for` (FB-031/US-FB031-02): dado un
+    nombre de sesión tmux, reconoce si sigue el patrón normalizado
+    `<rol>-<proyecto>` o `<rol>-<n>-<proyecto>` y extrae rol/proyecto/
+    instancia — o devuelve `None` si no coincide con ningún patrón
+    (sesión tmux ajena al sistema, o de la generación anterior al nombre
+    determinista, `f"{runtime.id}-{agent.id}"`). Nunca lanza excepción:
+    "no reconocido" es un resultado válido y esperado, no un error.
+
+    ## Estrategia de desambiguación (criterio explícito de la Task)
+
+    `project_name` puede contener guiones internos (nombres reales del
+    workspace, p. ej. `PROD-006-factory-brain`), así que no basta con
+    partir `name` por `-` y asumir posiciones fijas: hace falta saber
+    dónde termina el rol/número de instancia y empieza el proyecto.
+    Se resuelve así, en vez de separación posicional ingenua:
+
+    1. Lista CERRADA de roles válidos conocidos — `brain.agents.list_roles()`,
+       el mismo registro dinámico que ya puebla `agents/developer.py` y
+       `agents/arquitecto.py` vía `register_role` (import perezoso, dentro
+       de la función: `runtime/generic.py` no puede importar `brain.agents`
+       a nivel de módulo sin crear un ciclo, ya que `agents/developer.py`
+       y `agents/arquitecto.py` ya importan `brain.runtime` para
+       `RuntimeInstance`). Si el primer segmento de `name` no está en esa
+       lista, `name` no es un nombre normalizado — se devuelve `None` de
+       inmediato, sin intentar ningún otro patrón.
+    2. Con el rol identificado como primer segmento, el segundo segmento
+       decide entre los dos patrones: si es un entero puro (`\\d+`), es el
+       patrón multi-instancia (`<rol>-<n>-<proyecto>`) y el resto de
+       segmentos (desde el tercero) es `project_name`; si no lo es, es el
+       patrón de instancia única (`<rol>-<proyecto>`) y el resto de
+       segmentos (desde el segundo) es `project_name`.
+    3. Esto es seguro porque un `project_name` real, tal como lo sanitiza
+       `sanitize_session_name_part`, nunca puede EMPEZAR por un segmento
+       que sea un entero puro seguido de un guion y solo eso — sería
+       indistinguible en el propio nombre del proyecto real de un
+       workspace (p. ej. un proyecto llamado literalmente "2"), caso no
+       observado en el workspace actual y aceptado como limitación
+       conocida, igual que otras heurísticas de nombre de este proyecto
+       (ver `_next_developer_name`, `agents/developer.py`).
+    4. `project_name` puede quedar vacío (cadena vacía) si `name` es
+       exactamente un rol válido sin ningún segmento más — refleja el caso
+       degenerado ya contemplado en `session_name_for` cuando
+       `project_path` está vacío (devuelve solo `role_part`, sin proyecto).
+    """
+    from brain.agents import list_roles
+
+    valid_roles = set(list_roles())
+    parts = name.split("-")
+    if not parts or parts[0] not in valid_roles:
+        return None
+
+    role = parts[0]
+    remainder = parts[1:]
+
+    if remainder and remainder[0].isdigit():
+        instance = int(remainder[0])
+        project_name = "-".join(remainder[1:])
+        return ParsedSessionName(role=role, project_name=project_name, instance=instance)
+
+    project_name = "-".join(remainder)
+    return ParsedSessionName(role=role, project_name=project_name, instance=None)
 
 
 def start_runtime(
@@ -93,7 +215,7 @@ def start_runtime(
     genéricos, p. ej. `test_runtime_generic.py`), el comportamiento es
     exactamente el mismo que antes de esta Task — no se añade ningún
     argumento de prompt."""
-    session_name = session_name_for(runtime, agent)
+    session_name = session_name_for(runtime, agent, project_path)
 
     command_parts = [runtime.command, *runtime.args]
 

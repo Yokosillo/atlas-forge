@@ -16,6 +16,7 @@ DOS capas, ambas decididas por Factory Brain antes de arrancar el agente:
 
 import time
 import uuid
+from pathlib import Path
 
 import libtmux
 import pytest
@@ -35,6 +36,7 @@ from brain.agents import (
 from brain.agents.governance import (
     GOVERNANCE_DIRNAME,
     METODOLOGIA_FILENAME,
+    project_identity_instruction,
 )
 from brain.agents.roles import get_governance_filename_for_role
 from brain.core import activate
@@ -162,6 +164,38 @@ def test_decision_is_taken_in_python_using_path_exists(monkeypatch) -> None:
 
 
 # ---------------------------------------------------------------------------
+# T-FB005-US01-07: identidad del proyecto activo, siempre presente
+# ---------------------------------------------------------------------------
+
+
+def test_project_identity_instruction_names_the_project_explicitly(tmp_path) -> None:
+    project = tmp_path / "mi-proyecto-real"
+    project.mkdir()
+    instruction = project_identity_instruction(str(project))
+
+    assert "mi-proyecto-real" in instruction
+    assert str(project) in instruction
+
+
+def test_project_identity_instruction_is_never_empty_for_a_real_project_path(
+    tmp_path,
+) -> None:
+    """A diferencia de `project_governance_instruction` (condicional: ''
+    si no hay gobierno), la identidad del proyecto se inyecta SIEMPRE que
+    hay un `project_path` real — no hay caso en el que deba faltar."""
+    assert project_identity_instruction(str(tmp_path)) != ""
+
+
+def test_project_identity_instruction_does_not_reintroduce_conditional_pattern() -> None:
+    """Punto 4 de la Task: no se reintroduce ningún patrón condicional
+    textual ('si estás en el proyecto X...') — se inyecta siempre, de
+    forma determinista."""
+    instruction = project_identity_instruction("/cualquier/proyecto")
+    assert "si estás" not in instruction.lower()
+    assert "si el proyecto" not in instruction.lower()
+
+
+# ---------------------------------------------------------------------------
 # Rol base: no se reintroduce la condición textual "si existen, léelos"
 # ---------------------------------------------------------------------------
 
@@ -197,24 +231,34 @@ def test_base_prompts_contain_the_generic_reporting_protocol() -> None:
 
 
 def test_arquitecto_prompt_without_governance_is_exactly_the_base_role(tmp_path) -> None:
-    assert build_arquitecto_prompt(str(tmp_path)) == ARQUITECTO_PROMPT
+    """T-FB005-US01-07: el prompt sin gobierno ya no es exactamente el rol
+    base a secas — la capa de identidad del proyecto (T-FB005-US01-07,
+    siempre presente, sin condición) se añade igual con o sin gobierno."""
+    assert build_arquitecto_prompt(str(tmp_path)) == (
+        ARQUITECTO_PROMPT + project_identity_instruction(str(tmp_path))
+    )
 
 
 def test_developer_prompt_without_governance_is_exactly_the_base_role(tmp_path) -> None:
-    assert build_developer_prompt(str(tmp_path)) == DEVELOPER_PROMPT
+    assert build_developer_prompt(str(tmp_path)) == (
+        DEVELOPER_PROMPT + project_identity_instruction(str(tmp_path))
+    )
 
 
 def test_arquitecto_prompt_with_governance_is_base_plus_explicit_instruction(
     tmp_path,
 ) -> None:
     project = _create_governance_project(tmp_path, "arquitecto")
+    identity = project_identity_instruction(project)
     instruction = project_governance_instruction(project, ARQUITECTO_ROLE)
     prompt = build_arquitecto_prompt(project)
 
-    # Concatenación exacta: rol base + capa de gobierno específico.
-    assert prompt == ARQUITECTO_PROMPT + instruction
+    # Concatenación exacta: rol base + identidad de proyecto + gobierno.
+    assert prompt == ARQUITECTO_PROMPT + identity + instruction
     # El rol base sigue íntegro (no degradado).
     assert prompt.startswith(ARQUITECTO_PROMPT)
+    # El nombre del proyecto es explícito y legible (T-FB005-US01-07).
+    assert Path(project).name in prompt
     # La instrucción de lectura es EXPLÍCITA y determinista.
     assert "00-gobierno/ARQUITECTO.md" in prompt
     assert "00-gobierno/METODOLOGIA.md" in prompt
@@ -224,17 +268,19 @@ def test_developer_prompt_with_governance_is_base_plus_explicit_instruction(
     tmp_path,
 ) -> None:
     project = _create_governance_project(tmp_path, "developer")
+    identity = project_identity_instruction(project)
     instruction = project_governance_instruction(project, DEVELOPER_ROLE)
     prompt = build_developer_prompt(project)
 
-    assert prompt == DEVELOPER_PROMPT + instruction
+    assert prompt == DEVELOPER_PROMPT + identity + instruction
     assert prompt.startswith(DEVELOPER_PROMPT)
+    assert Path(project).name in prompt
     assert "00-gobierno/DEVELOPER.md" in prompt
     assert "00-gobierno/METODOLOGIA.md" in prompt
 
 
 # ---------------------------------------------------------------------------
-# Integración: el registro usa el prompt en dos capas (end-to-end)
+# Integración: el registro usa el prompt en capas (end-to-end)
 # ---------------------------------------------------------------------------
 
 
@@ -248,9 +294,12 @@ def test_register_developer_with_governance_project_builds_two_layer_prompt(
     time.sleep(0.3)
     try:
         assert agent.prompt == build_developer_prompt(project)
-        assert agent.prompt == DEVELOPER_PROMPT + project_governance_instruction(
-            project, DEVELOPER_ROLE
+        assert agent.prompt == (
+            DEVELOPER_PROMPT
+            + project_identity_instruction(project)
+            + project_governance_instruction(project, DEVELOPER_ROLE)
         )
+        assert Path(project).name in agent.prompt
         assert "00-gobierno/DEVELOPER.md" in agent.prompt
     finally:
         from brain.runtime import stop_runtime
@@ -261,13 +310,19 @@ def test_register_developer_with_governance_project_builds_two_layer_prompt(
 def test_register_arquitecto_without_governance_gets_only_base_role(
     isolated_socket: str, tmp_path
 ) -> None:
+    """Sin gobierno, el prompt sigue siendo solo rol base + identidad de
+    proyecto (sin capa de gobierno) — la capa de identidad
+    (T-FB005-US01-07) no depende de que exista gobierno específico."""
     agent, instance = register_arquitecto(
         _active_session(), _test_runtime(), str(tmp_path), socket_name=isolated_socket
     )
     time.sleep(0.3)
     try:
-        assert agent.prompt == ARQUITECTO_PROMPT
+        assert agent.prompt == (
+            ARQUITECTO_PROMPT + project_identity_instruction(str(tmp_path))
+        )
         assert agent.prompt == build_arquitecto_prompt(str(tmp_path))
+        assert Path(tmp_path).name in agent.prompt
     finally:
         from brain.runtime import stop_runtime
 

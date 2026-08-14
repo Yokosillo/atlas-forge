@@ -1,6 +1,9 @@
 from pathlib import Path
 
-from brain.agents.governance import project_governance_instruction
+from brain.agents.governance import (
+    project_governance_instruction,
+    project_identity_instruction,
+)
 from brain.agents.registry import register_agent
 from brain.agents.roles import RoleConfig, register_role
 from brain.core.session_lifecycle import list_agents
@@ -42,15 +45,18 @@ DEVELOPER_PROMPT = (
 
 
 def build_developer_prompt(project_path: str) -> str:
-    """CAPA 2 — prompt en dos capas para Developer: rol base
-    (`DEVELOPER_PROMPT`) + gobierno específico del proyecto si aplica
-    (`project_governance_instruction`, solo si existen
+    """Prompt en TRES capas para Developer: rol base (`DEVELOPER_PROMPT`)
+    + identidad del proyecto activo (`project_identity_instruction`,
+    T-FB005-US01-07, siempre presente) + gobierno específico del
+    proyecto si aplica (`project_governance_instruction`, solo si existen
     `00-gobierno/DEVELOPER.md` y `00-gobierno/METODOLOGIA.md` en
     `project_path`). La decisión de incluir la capa de gobierno se toma
     AQUÍ en Python, antes de construir el string final — el agente solo
     recibe la instrucción ya decidida."""
-    return DEVELOPER_PROMPT + project_governance_instruction(
-        project_path, DEVELOPER_ROLE
+    return (
+        DEVELOPER_PROMPT
+        + project_identity_instruction(project_path)
+        + project_governance_instruction(project_path, DEVELOPER_ROLE)
     )
 
 
@@ -94,10 +100,11 @@ def register_developer(
     misma sesión (límite real detectado en uso: antes, lanzar "Developer"
     dos veces devolvía siempre el mismo agente).
 
-    `session_name_for` (`brain/runtime/generic.py`) ya construye el
-    nombre de la sesión tmux a partir de `runtime.id` + `agent.id` (UUID
-    único por instancia) — no necesita ningún cambio para evitar
-    colisiones entre Developers distintos, verificado con test explícito.
+    `session_name_for` (`brain/runtime/generic.py`, FB-030) construye el
+    nombre de la sesión tmux a partir de `agent.name` ("Developer-N",
+    número ya asignado arriba por `_next_developer_name`) + el nombre del
+    proyecto — no colisiona entre Developers distintos del mismo proyecto
+    porque cada uno recibe un N distinto, verificado con test explícito.
 
     T-FB022-US06-02: rechaza explícitamente un intento de superar el
     límite configurado en `session` con feedback claro — no falla en

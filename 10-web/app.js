@@ -115,7 +115,6 @@
     sections: { agents: null, jobs: null, plan: null, scripts: null, backlog: null, models: null, roles: null, configuracion: null },
     showPicker: false,
     pickerReason: "initial", // "initial" (onboarding) | "change" (voluntario)
-    pendingSelection: null,
     pendingBacklogCount: 0, // T-FB024-US01-02: numero de Epics/US con TODO>0
   };
 
@@ -529,7 +528,6 @@
     } else {
       renderOperational();
     }
-    renderPendingWarning();
   }
 
   // --------------------------------------------- paso 1: sin backend (US02-01)
@@ -1244,11 +1242,12 @@
       // en texto (criterio 4).
       statusRow.appendChild(h("span", "status-text", "Estado: " + agent.status));
       card.appendChild(statusRow);
-      if (agent.model) {
-        card.appendChild(h("div", "agent-model", "Modelo: " + agent.model));
-      } else {
-        card.appendChild(h("div", "agent-model", "Modelo: " + runtimeDisplayName(agent.runtime_id)));
-      }
+      card.appendChild(
+        h("div", "agent-runtime", "Runtime: " + runtimeDisplayName(agent.runtime_id))
+      );
+      card.appendChild(
+        h("div", "agent-model", "Modelo: " + (agent.model || "sin modelo"))
+      );
       card.appendChild(renderAgentActions(agent));
       wrap.appendChild(card);
     });
@@ -4300,7 +4299,6 @@
     var isStopped = agent.status === "stopped";
     var isUnregistered = agent.status === "unregistered";
     var isUnavailable = agent.status === "unavailable";
-    var isLive = agent.id && !isStopped && !isUnregistered && !isUnavailable;
     var isArquitecto = agent.role === "arquitecto";
     var isSyntheticArquitecto = agent._synthetic && isArquitecto;
 
@@ -4335,12 +4333,17 @@
     // 3. Tiempo desde la última orden
     info.appendChild(h("div", "agent-model", formatLastCommand(agent.last_command_at)));
 
-    // 4. Modelo actual
+    // 4. Runtime (siempre, cuando se conoce) y Modelo (T-FB024-US11-01:
+    // dos campos separados — antes se mezclaba el nombre del runtime bajo
+    // la etiqueta "Modelo" cuando no había modelo real, p. ej. "Modelo:
+    // Claude Code" para un runtime que nunca reporta modelo).
+    info.appendChild(
+      h("div", "agent-runtime", "Runtime: " + runtimeDisplayName(agent.runtime_id))
+    );
+
     var modelLabel;
     if (agent.model) {
       modelLabel = agent.model;
-    } else if (isLive) {
-      modelLabel = runtimeDisplayName(agent.runtime_id);
     } else if (isSyntheticArquitecto) {
       modelLabel = rolesSection.defaults.arquitecto || "sin modelo";
     } else {
@@ -4522,7 +4525,7 @@
 
   function renderCopiarComandoBtn(agent) {
     var isLive = agent.id && agent.status !== "stopped" && agent.status !== "unregistered" && agent.status !== "unavailable";
-    var canCopy = isLive && agent.runtime_id;
+    var canCopy = isLive && agent.session_name;
 
     var btn = button(rolesSection.detalleCopied && rolesSection.detalleAgent === agent ? "Copiado ✓" : "Copiar comando de conexión");
     btn.disabled = !canCopy;
@@ -4530,7 +4533,7 @@
       btn.title = "no disponible: el agente no tiene sesión activa";
       return btn;
     }
-    var comando = "tmux -L factory-brain attach -t " + agent.runtime_id + "-" + agent.id;
+    var comando = "tmux -L factory-brain attach -t " + agent.session_name;
     btn.addEventListener("click", function () {
       if (rolesSection.detalleCopied) return;
       if (navigator.clipboard && navigator.clipboard.writeText) {
@@ -4561,7 +4564,7 @@
   function renderDetalleFallbackModal(wrap) {
     var agent = rolesSection.detalleAgent;
     if (!agent) return;
-    var comando = "tmux -L factory-brain attach -t " + agent.runtime_id + "-" + agent.id;
+    var comando = "tmux -L factory-brain attach -t " + agent.session_name;
 
     var overlay = h("div", "modal-overlay");
     var box = h("div", "modal");
@@ -5213,64 +5216,7 @@
 
   // -------------------------------------------------- seleccionar proyecto
   function requestSelectProject(project) {
-    state.pendingSelection = null;
-    BackendClient.getAgents()
-      .then(function (agents) {
-        var stillRunning = (agents || []).filter(function (a) {
-          return a.status !== "stopped";
-        }).length;
-        if (stillRunning > 0) {
-          // El aviso se dibuja sobre la vista operativa (contexto resuelto),
-          // por eso se cierra el selector antes de mostrar el modal.
-          state.showPicker = false;
-          state.pendingSelection = { project: project, activeAgentsCount: stillRunning };
-          render();
-        } else {
-          selectProject(project);
-        }
-      })
-      .catch(function (error) {
-        showError(buildErrorMessage(error), loadContext);
-      });
-  }
-
-  function confirmPendingSelection() {
-    var pending = state.pendingSelection;
-    state.pendingSelection = null;
-    if (pending) selectProject(pending.project);
-  }
-
-  function cancelPendingSelection() {
-    state.pendingSelection = null;
-    render();
-  }
-
-  function renderPendingWarning() {
-    if (!state.pendingSelection) return;
-    var overlay = document.createElement("div");
-    overlay.className = "modal-overlay";
-    var box = h("div", "modal");
-    box.appendChild(h("h3", null, "Cambiar de proyecto"));
-    var count = state.pendingSelection.activeAgentsCount;
-    box.appendChild(
-      h(
-        "p",
-        null,
-        "Hay " + count + " agente(s) activo(s) en la sesión actual. Cambiar a '" +
-          state.pendingSelection.project.name +
-          "' los detendrá. ¿Continuar?"
-      )
-    );
-    var ok = button("Cambiar de todos modos");
-    ok.addEventListener("click", confirmPendingSelection);
-    var cancel = button("Cancelar");
-    cancel.addEventListener("click", cancelPendingSelection);
-    var actions = h("div", "modal-actions");
-    actions.appendChild(cancel);
-    actions.appendChild(ok);
-    box.appendChild(actions);
-    overlay.appendChild(box);
-    ROOT.appendChild(overlay);
+    selectProject(project);
   }
 
   function selectProject(project) {
@@ -5280,7 +5226,6 @@
     BackendClient.selectProject(project.id)
       .then(function () {
         state.showPicker = false;
-        state.pendingSelection = null;
         // Al cambiar de proyecto se resetea el contexto; las secciones
         // operativas se vuelven a cargar para la nueva sesión (sus datos
         // dependen del proyecto activo).
@@ -5289,11 +5234,7 @@
       })
       .catch(function (error) {
         state.showPicker = false;
-        state.pendingSelection = null;
-        showError(buildErrorMessage(error), function () {
-          state.pendingSelection = null;
-          render();
-        });
+        showError(buildErrorMessage(error), loadContext);
       });
   }
 

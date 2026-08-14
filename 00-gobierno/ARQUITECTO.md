@@ -93,6 +93,93 @@ Criterios de la autoauditoría:
 
 Cuando revisa el trabajo de otro agente (Developer):
 
+### Mecanismo real de despacho de un Job (cómo llega el trabajo al Developer)
+
+Antes de leer "Cómo llega el aviso de que hay algo que revisar" hace falta
+entender qué ocurre por debajo cuando se despacha un Job, sea quien sea
+quien lo dispare.
+
+**El mecanismo es el mismo sin importar el emisor.** `POST /jobs`
+(`CreateJobRequest`: `agent_id`, `description`, `previous_job_id`
+opcional) no distingue si la llamada la origina el humano desde la
+TUI/web pulsando un botón, o el Arquitecto despachándolo por su cuenta
+(vía Plan o directamente) a partir de una orden conversacional del
+humano. El modelo `Job` no tiene ningún campo de "emisor" — es
+literalmente la misma función de dominio (`create_and_record_job` +
+`dispatch_job`) en ambos casos. La única diferencia real entre ambos
+caminos ocurre *antes* de esa llamada (quién construye la descripción del
+Job), nunca en lo que pasa después.
+
+**`POST /jobs` es bloqueante.** La petición HTTP no responde hasta que
+el Job termina (`completed`/`failed`/`cancelled`) — no es un "fire and
+forget"; quien lo despacha espera activamente el resultado.
+
+**Cómo llega el texto al Developer — auto-reporte cooperativo, no una
+shell.** La sesión tmux del Developer no se trata como una shell con
+prompt (no se espera un marcador de fin de shell). La instrucción se
+teclea directamente en su pane (mismo mecanismo `send-keys` de la regla
+de texto plano — evitar backticks/`$()`/pipes sin necesidad real, ver
+más abajo), añadiendo al final una petición explícita: que el Developer
+escriba su resultado completo en un fichero temporal único de ese Job
+(`/tmp/factory-brain-job-<uuid>.txt`) y cierre con la línea marcador
+`___FACTORY_BRAIN_JOB_DONE___`.
+
+**Cómo se detecta que terminó — polling de fichero, no captura de
+pane.** El backend vigila ese fichero por polling simple (cada 0.2s,
+timeout 30s por defecto) esperando el marcador — no usa `capture-pane`
+ni heurísticas de "el pane dejó de cambiar" (descartadas: dan falsos
+positivos con un LLM real, cuyo tiempo de "pensar" entre líneas de salida
+no tiene límite superior predecible). **El timeout de 30s no es
+exclusivo de Jobs cortos: ningún caller de `dispatch_job` en el código
+(`job_plan_dispatch.py`, `architect_verdict_queue.py`,
+`api/routes.py`, `actions/transversal.py`) pasa un `timeout_seconds`
+distinto** — verificado por grep antes de escribir esta sección, no es
+una suposición. Un Job de Task real hacia el Developer por el flujo de
+Plan comparte el mismo timeout de 30s que cualquier `POST /jobs` suelto.
+Si un Developer real tarda más de 30s en escribir su fichero de
+resultado (habitual para una Task no trivial), este mecanismo de
+`dispatch_job` marcaría el Job como `failed` por timeout. **Esto ya no
+es una incertidumbre — resuelto por `FB-030` (2026-08-14):** el ciclo
+real de una Task de Developer (trabajo largo, no un Job corto/
+determinista) no depende de `dispatch_job` ni de su timeout de 30s en
+absoluto — usa la **cola de cierre hacia el Arquitecto** (`FB-030`, ver
+"Cómo llega el aviso de que hay algo que revisar" más abajo), que no
+tiene ningún timeout porque no es una espera síncrona: el Developer
+escribe una entrada y sigue con su flujo, sin bloquear ni esperar
+respuesta. El mecanismo legado que se sospechaba (`worker_output.txt` +
+`### STORY_DONE ###`, vigilado por `watch_worker.sh`) existió como
+script de shell en la raíz del repo, pero queda sustituido para este
+caso por la cola. **Retirado (T-FB030-US03-03, 2026-08-14):**
+`watch_worker.sh` ya no existe en el repo — ningún proceso remanente
+dependía de él (verificado, no corría activo), y su única función
+(avisar al Arquitecto de un cierre) la cubre en exclusiva la cola de
+`FB-030` desde entonces. `watch_critic.sh` NO se retiró: cubre la
+dirección contraria (Arquitecto/Critic → Developer, reenvío de
+`SIGUIENTE_PROMPT_PARA_WORKER` vigilando `critic_output.txt`), un caso
+que esta Epic no sustituye — sigue siendo el mecanismo activo para ese
+flujo.
+
+`dispatch_job`/`POST /jobs` **sigue vigente sin cambios** para su propio
+caso de uso: Jobs cortos/deterministas donde esperar síncronamente una
+respuesta breve sigue siendo razonable (órdenes puntuales, no el
+trabajo real de una Task completa). La cola de `FB-030` no lo sustituye
+para ese caso — son dos mecanismos complementarios, cada uno para un
+tipo de trabajo distinto.
+
+**Qué pasa al terminar:** éxito → `Job.status = completed` con el
+resultado leído del fichero (sin el marcador); timeout → `failed`;
+cancelado (`POST /jobs/{id}/cancel`) → `cancelled` sin matar el proceso
+tmux del Developer (cancelar solo deja de esperar el resultado, no
+interrumpe lo que el Developer siga "pensando" o escribiendo). En
+cualquier caso el agente vuelve siempre a `idle`, nunca queda bloqueado
+en `working`.
+
+**Encadenamiento manual (`previous_job_id`):** pasa el resultado de un
+Job ya completado como entrada literal del nuevo Job (caso de uso
+principal: encadenar el resultado de un Developer hacia un Critic/el
+Arquitecto). Única regla dura: el resultado de un Developer no puede
+encadenarse a otro Developer.
+
 ### Cómo llega el aviso de que hay algo que revisar
 
 **Camino automático hoy vigente — flujo de Plan** (`POST /plans` →
@@ -113,20 +200,63 @@ solo** — si el humano pide revisar el resultado de un Job suelto, hay que
 tratarlo igual que si fuera el aviso automático (mismos criterios de
 "Qué hacer al validar" más abajo), sin esperar a que llegue por la cola.
 
+**Camino automático de `FB-030` — cola de cierre de Task + push tmux:**
+cuando un Developer (u otro agente que cierre una Task siguiendo su
+propio gobierno) termina una Task individual, anota el cierre en
+`<project_root>/.claude/state/<project_name>/architect_queue.jsonl`
+(`append_to_architect_queue`, `brain.dispatcher.architect_queue`,
+`T-FB030-US02-01`/`T-FB030-US02-02`) sin esperar respuesta. Un watcher
+por proyecto (`architect_queue_watcher.sh`, raíz del repo,
+`T-FB030-US03-01`) vigila esa escritura con `inotifywait` y, al
+detectarla, calcula el nombre de sesión tmux del Arquitecto de ESE mismo
+proyecto por convención determinista (`arquitecto-<project_name>`,
+`T-FB030-US01-01`, sin fichero de suscripción) y envía un aviso simple
+por `tmux send-keys` ("Tienes una entrada nueva en tu cola de cierres
+pendientes, revísala") — nunca el contenido de la entrada ni el informe
+de cierre completo. Cada entrada de la cola trae `agente`, `task_id`,
+`informe` (ruta del informe de cierre ya escrito) y `ts`.
+
+Si recibes este aviso: lee `architect_queue.jsonl` de tu propio proyecto
+(`read_architect_queue`, mismo módulo) y procesa cualquier entrada cuyo
+`task_id` no hayas validado todavía en esta conversación — el mecanismo
+de "atendida" es tu propio historial de veredictos ya emitidos dentro de
+la sesión, no un marcador escrito en el fichero (la cola es append-only
+y no se purga en v1 de `FB-030`, ver "Diferido a v2" de la Epic); si ya
+emitiste veredicto sobre un `task_id` concreto, ignora esa entrada
+aunque siga apareciendo en la lectura completa del fichero.
+
+**Revisión periódica cada 10 minutos, como respaldo del push
+(`T-FB030-US03-02`):** el push tmux puede fallar (sesión no lista para
+recibir teclas, watcher caído, evento perdido) — mientras estés activo
+en una sesión de trabajo, revisa por tu cuenta
+`architect_queue.jsonl` de tu proyecto cada 10 minutos, sin esperar a
+que llegue el aviso. Al encontrar una entrada con `task_id` que no
+hayas validado todavía (mismo criterio de "atendida" del párrafo
+anterior), trátala exactamente igual que si hubiera llegado por el push
+— mismos criterios de "Qué hacer al validar" más abajo. Si no hay
+entradas nuevas, no hay nada que hacer hasta la siguiente revisión —
+esta comprobación no sustituye ni compite con el push, es la red de
+seguridad para cuando el push no llegó.
+
 **Mecanismo legado (previo a la sesión de desarrollo de Factory Brain,
 todavía válido si aplica):** marcador `### STORY_DONE ###` en
 `worker_output.txt` — actuar solo cuando el Developer señale un cierre
 explícito; si `worker_output.txt` refleja trabajo en curso o progreso
-parcial sin cierre explícito, no intervenir.
+parcial sin cierre explícito, no intervenir. `FB-030` sustituye este
+mecanismo como camino principal para el cierre de Tasks (ver "Mecanismo
+real de despacho de un Job" más arriba) — se conserva aquí solo por si
+alguna sesión de trabajo todavía no migrada lo usa.
 
 ### Cuándo actuar
 
 - **NO** validar cada paso intermedio, cada commit, cada función o cada
   archivo tocado. El Developer trabaja de forma autónoma en su ciclo normal.
-- Actuar cuando llega el aviso de cierre por el camino automático (cola
-  FIFO), cuando el humano pide revisar un Job suelto (hueco sin cubrir
-  todavía, ver arriba), o por el marcador `### STORY_DONE ###` del
-  mecanismo legado.
+- Actuar cuando llega el aviso de cierre por el camino automático del
+  flujo de Plan (cola FIFO de veredicto), por el push de la cola de
+  cierre de `FB-030` (o por tu propia revisión periódica cada 10 minutos
+  si el push no llegó), cuando el humano pide revisar un Job suelto
+  (hueco sin cubrir todavía, ver arriba), o por el marcador
+  `### STORY_DONE ###` del mecanismo legado.
 
 ### Qué hacer al validar
 

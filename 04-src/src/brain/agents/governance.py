@@ -45,6 +45,41 @@ def project_has_governance(project_path: str, role: str) -> bool:
     return role_file.exists() and metodologia_file.exists()
 
 
+def project_identity_instruction(project_path: str) -> str:
+    """Instrucción explícita con el nombre y la ruta del proyecto activo
+    (T-FB005-US01-07): el `cwd` real del proceso ya arranca en
+    `project_path` (`create_session`), pero el TEXTO del prompt nunca
+    decía qué proyecto era — solo genérico ("en la raíz de este
+    proyecto"), obligando al agente a inferirlo con `pwd`/`git remote`
+    por su cuenta. Mismo criterio que el resto del prompt en dos capas:
+    Factory Brain construye el contexto en Python, el agente nunca lo
+    infiere.
+
+    El nombre se resuelve puntualmente aquí a partir de `project_path`
+    (`Path(project_path).name`, mismo criterio que `Project.name` en
+    `workspace/discovery.py` y que `session_name_for`,
+    `runtime/generic.py`) en vez de exigir que `Project`/`Project.name`
+    viaje explícito por toda la cadena `launch_agent` →
+    `register_agent_for_role` → `build_<rol>_prompt` — evaluado y
+    descartado: encadenar un parámetro nuevo por 4+ funciones intermedias
+    que hoy solo pasan `project_path` (verificado antes de escribir esta
+    Task) introduciría más acoplamiento que resolver el nombre aquí, en
+    el único punto que realmente lo necesita, con la misma fuente de
+    verdad que ya usan `FB-030`/`FB-031` para el mismo dato.
+
+    Siempre presente, nunca condicional — a diferencia de
+    `project_governance_instruction` (que sí depende de si el proyecto
+    declara gobierno propio), la identidad del proyecto activo aplica
+    siempre que hay un `project_path` real, así que no hay decisión
+    "incluir o no" que tomar aquí."""
+    project_name = Path(project_path).name if project_path else project_path
+    return (
+        f"\n\nEstás trabajando en el proyecto '{project_name}' "
+        f"(ruta: {project_path}). Todo tu trabajo debe realizarse dentro "
+        "de este proyecto."
+    )
+
+
 def project_governance_instruction(project_path: str, role: str) -> str:
     """Construye la capa de gobierno específico del proyecto: instrucción
     explícita de leer `00-gobierno/<rol>.md` y

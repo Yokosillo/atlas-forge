@@ -1,5 +1,6 @@
 import time
 import uuid
+from pathlib import Path
 
 import libtmux
 import pytest
@@ -59,7 +60,11 @@ def test_developer_registers_with_fixed_role_and_prompt(
     )
 
     assert agent.role == DEVELOPER_ROLE
-    assert agent.prompt == DEVELOPER_PROMPT
+    # T-FB005-US01-07: el prompt ya no es exactamente DEVELOPER_PROMPT —
+    # incluye siempre la capa de identidad del proyecto activo a
+    # continuación.
+    assert agent.prompt.startswith(DEVELOPER_PROMPT)
+    assert tmp_path.name in agent.prompt
 
 
 def test_developer_associated_with_runtime_and_active_session(
@@ -162,30 +167,42 @@ def test_each_developer_instance_has_a_distinguishable_name(
 def test_session_name_for_does_not_collide_between_multiple_developers(
     isolated_socket: str, tmp_path
 ) -> None:
-    """Criterio de aceptación explícito: verificar que `session_name_for`
-    sigue generando nombres de sesión tmux únicos para cada Developer
-    nuevo — no requiere ningún cambio (ya usa `runtime.id` + `agent.id`,
-    y cada `register_agent` genera un `agent.id` con UUID nuevo), pero se
-    confirma aquí explícitamente en vez de asumirlo."""
+    """Criterio de aceptación explícito (T-FB030-US01-01): verificar que
+    `session_name_for` sigue generando nombres de sesión tmux únicos para
+    cada Developer nuevo del mismo proyecto bajo el esquema nuevo
+    (determinista `developer-N-<project_name>`, no el UUID opaco
+    anterior) — el número de instancia visible en `agent.name`
+    ("Developer-1"/"Developer-2"/"Developer-3") es lo que garantiza la
+    ausencia de colisión aquí, verificado explícitamente en vez de
+    asumirlo."""
     from brain.runtime import session_name_for
 
     session = _active_session()
     runtime = _test_runtime()
+    project_path = str(tmp_path)
 
     agents_and_instances = [
-        register_developer(session, runtime, str(tmp_path), socket_name=isolated_socket)
+        register_developer(session, runtime, project_path, socket_name=isolated_socket)
         for _ in range(3)
     ]
 
     session_names = {
-        session_name_for(runtime, agent) for agent, _instance in agents_and_instances
+        session_name_for(runtime, agent, project_path)
+        for agent, _instance in agents_and_instances
     }
     assert len(session_names) == 3  # las 3 llamadas a session_name_for son únicas
 
     # Coincide exactamente con el session_name real que start_runtime ya
     # asignó a cada RuntimeInstance devuelto.
     for agent, instance in agents_and_instances:
-        assert session_name_for(runtime, agent) == instance.session_name
+        assert session_name_for(runtime, agent, project_path) == instance.session_name
+
+    # Esquema nuevo: cada nombre incluye el número visible en agent.name y
+    # el nombre del proyecto (T-FB030-US01-01, criterio 3 de US-FB030-01).
+    project_name = Path(project_path).name.lower()
+    for agent, instance in agents_and_instances:
+        expected_role_part = agent.name.lower()
+        assert instance.session_name == f"{expected_role_part}-{project_name}"
 
 
 def test_register_developer_rejects_when_limit_exceeded(

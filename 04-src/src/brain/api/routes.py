@@ -36,11 +36,7 @@ from brain.architect.us_pipeline import run_us_pipeline
 from brain.backlog.parser import load_backlog
 from brain.backlog.report import build_backlog_report
 from brain.core.session_lifecycle import SessionNotActiveError, list_agents
-from brain.core.session_registry import (
-    get_current_session,
-    resolve_startup_session,
-    shutdown_current_session,
-)
+from brain.core.session_registry import focus_project_session, get_current_session
 from brain.agents.agent_options import list_available_agent_options
 from brain.agents.launch import (
     AgentLaunchError,
@@ -240,29 +236,28 @@ def get_projects() -> list[dict]:
 @router.post("/project")
 def post_project(body: SelectProjectRequest) -> dict:
     """Selecciona un proyecto de `GET /projects` como activo
-    (`select_active_project`, FB-001) y re-arranca la sesión de
-    desarrollo del proceso para él (T-FB016-US01-11, mismo mecanismo de
-    `resolve_startup_session` que T-FB016-US01-10 ya usa al arrancar el
-    proceso — aquí aplicado también al cambio de proyecto en caliente).
+    (`select_active_project`, FB-001) y le da el foco de sesión de
+    desarrollo del proceso (T-FB029-US01-02, `focus_project_session`):
+    si el proyecto ya tenía una sesión viva la reutiliza tal cual
+    (mismo `session.id`, mismos agentes, sin relanzar nada); si no, la
+    crea igual que el arranque del proceso (`resolve_startup_session`).
 
-    ## Qué pasa con los agentes de la sesión anterior (criterio de
-    aceptación explícito de la Task)
+    ## Qué pasa con los agentes de la sesión anterior (FB-029)
 
-    Antes de descartar la sesión anterior (si había una activa, de otro
-    proyecto), se detiene cada uno de sus agentes todavía no `stopped`
-    (`stop_agent`, T-FB016-US01-03: detiene la sesión tmux real y
-    transiciona el agente). Sin este paso, esos agentes seguirían con su
-    proceso tmux real corriendo pero dejarían de ser alcanzables desde
-    cualquier endpoint (`GET /agents`/`POST /agents/{id}/stop` solo
-    consultan `session.agents` de la sesión ACTUAL, ver
-    `brain.core.session_lifecycle.list_agents`) — quedarían huérfanos: un
-    proceso real vivo que ninguna interfaz puede ya ver ni detener. Un
-    fallo al detener un agente concreto (p. ej. su runtime ya había
-    muerto externamente) no bloquea el cambio de proyecto — se ignora
-    ese fallo puntual y se continúa con el resto, porque el objetivo de
-    este paso es evitar huérfanos evitables, no bloquear una operación
-    del usuario por el estado de un agente que de todos modos ya no
-    sirve una vez cambiada la sesión.
+    Nada: los agentes del proyecto que pierde el foco no se tocan ni se
+    detienen. Siguen vivos en su propia sesión (`_SessionRegistry`,
+    `brain.core.session_registry`) y vuelven a ser alcanzables por
+    `GET /agents`/`POST /agents/{id}/stop` en cuanto su proyecto
+    recupera el foco — ya no hace falta detenerlos para evitarlo, porque
+    dejaron de quedar huérfanos: antes de esta Epic solo existía una
+    sesión global, así que un agente de un proyecto sin foco quedaba
+    fuera de `session.agents` de la única sesión existente; con el
+    registro multi-sesión de FB-029 cada proyecto tiene su propia sesión
+    viva en paralelo, alcanzable por su `project_id`. Comportamiento
+    anterior (detener explícitamente cada agente no `stopped` antes de
+    descartar la sesión) documentado y sustituido por esta Epic — ver
+    `02-backlog/epics/FB-016-api-backend.md`, sección "Cambio de
+    proyecto activo en caliente", y `02-backlog/epics/FB-029-sesiones-proyecto-simultaneas.md`.
     """
     discovered = discover_projects(_resolve_workspace_root(), state_dir=_STATE_DIR)
     selected = next(
@@ -287,18 +282,7 @@ def post_project(body: SelectProjectRequest) -> dict:
     invalidate_discovery_cache()
     invalidate_project_scripts_cache()
 
-    previous_session = get_current_session()
-    if previous_session is not None:
-        for agent in list_agents(previous_session):
-            if agent.status == "stopped":
-                continue
-            try:
-                stop_agent(agent, socket_name=_SOCKET_NAME)
-            except AgentRuntimeNotFoundError:
-                pass
-        shutdown_current_session()
-
-    resolve_startup_session(workspace_root=_WORKSPACE_ROOT, state_dir=_STATE_DIR)
+    focus_project_session(selected.id)
 
     return _serialize_project(selected)
 
@@ -389,6 +373,9 @@ def _serialize_agent(agent: Agent) -> dict:
         if runtime_instance is not None
         else None
     )
+    session_name = (
+        runtime_instance.session_name if runtime_instance is not None else None
+    )
     return {
         "id": agent.id,
         "name": agent.name,
@@ -396,6 +383,7 @@ def _serialize_agent(agent: Agent) -> dict:
         "status": agent.status,
         "runtime_id": agent.runtime_id,
         "model": model,
+        "session_name": session_name,
         "last_command_at": getattr(agent, "last_command_at", None) or None,
     }
 

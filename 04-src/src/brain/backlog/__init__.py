@@ -27,6 +27,7 @@ from brain.backlog.parser import (
     load_backlog,
     parse_backlog_item,
 )
+from brain.backlog.ready_tasks import find_ready_tasks
 from brain.backlog.report import (
     BACKLOG_STATUS_NO_DATA_TEXT,
     build_backlog_report,
@@ -48,6 +49,7 @@ __all__ = [
     "classify_todo_items",
     "compute_topological_levels",
     "find_max_leverage_chain",
+    "find_ready_tasks",
     "format_human_report",
     "format_thread_analysis_markdown",
     "generate_reparto_recommendation",

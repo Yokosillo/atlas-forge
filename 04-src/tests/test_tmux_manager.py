@@ -4,7 +4,13 @@ import uuid
 import libtmux
 import pytest
 
-from brain.tmux.manager import create_session, is_alive, kill_session, run_command
+from brain.tmux.manager import (
+    create_session,
+    is_alive,
+    kill_session,
+    list_sessions,
+    run_command,
+)
 
 
 @pytest.fixture
@@ -66,3 +72,39 @@ def test_kill_session_makes_is_alive_false(socket_name: str, tmp_path) -> None:
 def test_kill_session_is_safe_when_session_does_not_exist(socket_name: str) -> None:
     # No debe lanzar excepción aunque la sesión nunca haya existido.
     kill_session("does-not-exist", socket_name=socket_name)
+
+
+def test_list_sessions_empty_socket_returns_empty_list_without_raising(
+    socket_name: str,
+) -> None:
+    """T-FB031-US01-01: socket sin ninguna sesión creada todavía — no debe
+    lanzar excepción, y la lista debe estar vacía (criterio 2 de
+    aceptación explícito)."""
+    assert list_sessions(socket_name=socket_name) == []
+
+
+def test_list_sessions_returns_exactly_the_real_sessions_created(
+    socket_name: str, tmp_path
+) -> None:
+    """Criterio de aceptación explícito: crear varias sesiones tmux
+    reales en un socket aislado y confirmar que `list_sessions` las
+    devuelve todas, ni más ni menos — no requiere conocer los nombres de
+    antemano."""
+    create_session("session-a", str(tmp_path), socket_name=socket_name)
+    create_session("session-b", str(tmp_path), socket_name=socket_name)
+    create_session("session-c", str(tmp_path), socket_name=socket_name)
+
+    assert set(list_sessions(socket_name=socket_name)) == {
+        "session-a",
+        "session-b",
+        "session-c",
+    }
+
+
+def test_list_sessions_reflects_kill_session(socket_name: str, tmp_path) -> None:
+    create_session("session-a", str(tmp_path), socket_name=socket_name)
+    create_session("session-b", str(tmp_path), socket_name=socket_name)
+
+    kill_session("session-a", socket_name=socket_name)
+
+    assert list_sessions(socket_name=socket_name) == ["session-b"]

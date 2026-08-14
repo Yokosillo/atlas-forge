@@ -155,7 +155,8 @@ body {
   font-weight: 600;
 }
 
-.agent-model {
+.agent-model,
+.agent-runtime {
   font-size: 13px;
   color: #444;
   margin-top: 2px;
@@ -208,24 +209,32 @@ body {
 /* FB-021 · Acciones por agente (T-FB021-US03-02)                      */
 /* ------------------------------------------------------------------ */
 
-/* Fila de acciones dentro de agent-card: flex horizontal, botones centrados
-   verticalmente entre si y sin margen superior (el gap de agent-card lo
-   gestiona). Se encoge lo necesario para no desbordar. */
+/* Fila de acciones dentro de agent-card (T-FB024-US11-02): columnas de
+   ancho FIJO por posición (1a Cambiar modelo, 2a Lanzar/Detener, 3a
+   Copiar comando, 4a Revisar si esta bloqueado cuando aplica), no flex
+   con min-width variable — con flex, el texto mas largo de un boton en
+   una fila concreta (p. ej. "Detener" vs "Lanzar") desplazaba
+   horizontalmente los botones siguientes de ESA fila, rompiendo la
+   alineacion vertical con las demas filas. Con grid, cada columna
+   reserva siempre el mismo ancho sin importar el texto del boton que
+   caiga en ella en cada fila; una fila con menos de 4 botones (sin
+   "Revisar si esta bloqueado") simplemente no ocupa la 4a columna, sin
+   afectar el ancho de las 3 anteriores. */
 .agent-actions {
-  display: flex;
-  justify-content: flex-end;
+  display: grid;
+  grid-template-columns: repeat(4, 10em);
+  justify-content: end;
   align-items: center;
   gap: 8px;
-  flex-wrap: wrap;
   flex-shrink: 0;
 }
 
 .agent-actions button {
-  min-width: 10em;
+  width: 100%;
+  min-width: 0;
 }
 
 .agent-actions .agent-stop {
-  min-width: 12em;
   max-width: 100%;
   white-space: normal;
   line-height: 1.25;
