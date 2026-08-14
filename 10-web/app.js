@@ -5597,6 +5597,19 @@
       });
   }
 
+  // T-FB021-US02-04: enlace "Factory Brain" de la cabecera hacia la
+  // sección de inicio (backlog). Listener registrado una sola vez aquí
+  // (fuera de renderOperational, que se re-ejecuta en cada cambio de
+  // sección) porque el elemento vive en index.html, no en el árbol
+  // gestionado por app.js.
+  var brainHomeLink = document.getElementById("brain-home-link");
+  if (brainHomeLink) {
+    brainHomeLink.addEventListener("click", function (event) {
+      event.preventDefault();
+      switchSection("backlog");
+    });
+  }
+
   document.addEventListener("DOMContentLoaded", function () {
     checkConnectivity();
   });
