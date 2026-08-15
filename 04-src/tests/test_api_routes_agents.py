@@ -10,6 +10,7 @@ import brain.api.routes as routes_module
 import brain.agents.launch as launch_module
 from brain.api import create_app
 from brain.core import resolve_startup_session
+from brain.core.session_lifecycle import list_agents
 from brain.core.session_registry import _reset_registry_for_tests
 from brain.dispatcher.job_history_registry import (
     _reset_registry_for_tests as _reset_job_history,
@@ -410,6 +411,42 @@ def test_post_agents_with_unrecognized_role_returns_400_with_domain_message(
     assert response.json()["detail"] == expected_message
 
 
+def test_post_agents_over_developer_limit_returns_400_not_500(
+    tmp_path: Path, isolated_socket: str, monkeypatch
+) -> None:
+    """T-FB024-US12-01: superar el límite de Developer simultáneos lanza
+    `RuntimeError` desde `register_developer` (`agents/developer.py:124`),
+    que antes se propagaba sin capturar y FastAPI lo convertía en un 500
+    genérico. Debe traducirse a 400 con el mismo mensaje explícito del
+    dominio, igual que el resto de rechazos de esta ruta."""
+    from brain.agents.developer import MAX_SIMULTANEOUS_DEVELOPERS
+
+    _project, session = _active_project_and_session(tmp_path, monkeypatch)
+    client = TestClient(create_app())
+
+    launched = []
+    for _ in range(MAX_SIMULTANEOUS_DEVELOPERS):
+        response = client.post(
+            "/agents",
+            json={"role": "developer", "runtime_type": "claude-code"},
+        )
+        assert response.status_code == 201
+        launched.append(response.json())
+
+    response = client.post(
+        "/agents",
+        json={"role": "developer", "runtime_type": "claude-code"},
+    )
+
+    assert response.status_code == 400
+    assert "No se puede lanzar otro Developer" in response.json()["detail"]
+
+    for agent in launched:
+        instance = get_runtime_instance_for_agent(agent["id"])
+        if instance is not None:
+            stop_runtime(instance, socket_name=isolated_socket)
+
+
 def test_post_agents_with_model_on_claude_code_returns_400_with_domain_message(
     tmp_path: Path, monkeypatch
 ) -> None:
@@ -497,12 +534,17 @@ def test_get_agents_does_not_rewrite_a_stopped_agent_to_unavailable(
 ) -> None:
     """Criterio de aceptación explícito: un agente detenido a propósito
     (`stopped`, T-FB016-US01-03) no se ve afectado por la verificación de
-    liveness — sigue `stopped`, nunca se reescribe a `unavailable`."""
+    liveness — sigue `stopped`, nunca se reescribe a `unavailable`.
+
+    Rol no-Developer (Arquitecto) a propósito: con Developer
+    (T-FB024-US12-02), detener elimina el agente por completo de
+    `session.agents`, y este test dejaría de poder comprobar que sigue
+    `stopped` en `GET /agents` — sencillamente ya no aparecería."""
     _project, _session = _active_project_and_session(tmp_path, monkeypatch)
     client = TestClient(create_app())
 
     launched = client.post(
-        "/agents", json={"role": "developer", "runtime_type": "claude-code"}
+        "/agents", json={"role": "arquitecto", "runtime_type": "claude-code"}
     ).json()
 
     stop_response = client.post(f"/agents/{launched['id']}/stop")
@@ -514,6 +556,54 @@ def test_get_agents_does_not_rewrite_a_stopped_agent_to_unavailable(
     assert response.status_code == 200
     refreshed = next(a for a in response.json() if a["id"] == launched["id"])
     assert refreshed["status"] == "stopped"
+
+
+def test_stopping_a_developer_removes_it_from_get_agents_and_frees_the_limit(
+    tmp_path: Path, isolated_socket: str, monkeypatch
+) -> None:
+    """T-FB024-US12-02, criterios 1 y 2: "Detener" sobre un Developer
+    elimina el `Agent` por completo (`GET /agents` deja de listarlo), y el
+    límite de Developer simultáneos se libera de inmediato — lanzar uno
+    nuevo justo después nunca falla por límite alcanzado con instancias
+    fantasma."""
+    from brain.agents.developer import MAX_SIMULTANEOUS_DEVELOPERS
+
+    _project, _session = _active_project_and_session(tmp_path, monkeypatch)
+    client = TestClient(create_app())
+
+    launched = []
+    for _ in range(MAX_SIMULTANEOUS_DEVELOPERS):
+        response = client.post(
+            "/agents", json={"role": "developer", "runtime_type": "claude-code"}
+        )
+        assert response.status_code == 201
+        launched.append(response.json())
+
+    # Límite alcanzado: lanzar uno más falla.
+    over_limit = client.post(
+        "/agents", json={"role": "developer", "runtime_type": "claude-code"}
+    )
+    assert over_limit.status_code == 400
+
+    # Detener uno cualquiera de los ya lanzados.
+    stop_response = client.post(f"/agents/{launched[0]['id']}/stop")
+    assert stop_response.status_code == 200
+
+    get_response = client.get("/agents")
+    assert get_response.status_code == 200
+    remaining_ids = {a["id"] for a in get_response.json()}
+    assert launched[0]["id"] not in remaining_ids
+
+    # El límite ya está libre: lanzar uno nuevo funciona sin error.
+    relaunch = client.post(
+        "/agents", json={"role": "developer", "runtime_type": "claude-code"}
+    )
+    assert relaunch.status_code == 201
+
+    for agent in launched[1:] + [relaunch.json()]:
+        instance = get_runtime_instance_for_agent(agent["id"])
+        if instance is not None:
+            stop_runtime(instance, socket_name=isolated_socket)
 
 
 def test_get_agents_options_returns_the_full_unfiltered_catalog(
@@ -761,3 +851,90 @@ def test_get_agent_available_models_returns_empty_for_non_opencode(
     assert body["agent_id"] == agent_id
     assert body["supports_model"] is False
     assert body["models"] == []
+
+
+def test_get_agent_status_model_returns_404_when_no_session(monkeypatch) -> None:
+    monkeypatch.setattr(routes_module, "get_current_session", lambda **_kwargs: None)
+    client = TestClient(create_app())
+
+    response = client.get("/agents/any-id/status-model")
+
+    assert response.status_code == 404
+
+
+def test_get_agent_status_model_returns_404_when_agent_does_not_exist(
+    tmp_path: Path, monkeypatch
+) -> None:
+    _project, _session = _active_project_and_session(tmp_path, monkeypatch)
+    client = TestClient(create_app())
+
+    response = client.get("/agents/does-not-exist/status-model")
+
+    assert response.status_code == 404
+    assert "no existe" in response.json()["detail"].lower()
+
+
+def test_get_agent_status_model_returns_400_when_agent_is_working(
+    tmp_path: Path, monkeypatch, isolated_socket,
+) -> None:
+    """T-FB024-US11-05, criterio de aceptación 2: nunca interactúa con el
+    pane de un agente `working` — rechazo explícito con motivo, no un
+    intento silencioso ni un None ambiguo."""
+    from brain.agents.lifecycle import mark_working
+
+    _project, session = _active_project_and_session(tmp_path, monkeypatch)
+    client = TestClient(create_app())
+
+    resp = client.post("/agents", json={"role": "developer", "runtime_type": "claude-code"})
+    assert resp.status_code in (200, 201)
+    agent_id = resp.json()["id"]
+
+    agent = next(a for a in list_agents(session) if a.id == agent_id)
+    mark_working(agent)
+
+    response = client.get(f"/agents/{agent_id}/status-model")
+
+    assert response.status_code == 400
+    assert "working" in response.json()["detail"].lower()
+
+
+def test_get_agent_status_model_returns_null_for_non_claude_code_agent(
+    tmp_path: Path, monkeypatch, isolated_socket,
+) -> None:
+    """Agente OpenCode (idle) → GET /agents/{id}/status-model devuelve
+    model: null (get_active_model_claude_code solo actúa sobre Claude
+    Code) — nunca envía /status a un runtime que no lo entiende."""
+    _project, _session = _active_project_and_session(tmp_path, monkeypatch)
+    client = TestClient(create_app())
+
+    resp = client.post("/agents", json={"role": "developer", "runtime_type": "opencode"})
+    assert resp.status_code in (200, 201)
+    agent_id = resp.json()["id"]
+
+    resp = client.get(f"/agents/{agent_id}/status-model")
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["agent_id"] == agent_id
+    assert body["model"] is None
+
+
+def test_get_agent_status_model_returns_null_when_idle_claude_code_pane_has_no_status_panel(
+    tmp_path: Path, monkeypatch, isolated_socket,
+) -> None:
+    """Agente Claude Code `idle` (con `sleep` como binario de prueba, mismo
+    patrón que el resto de tests de esta suite): el endpoint envía
+    /status sin fallar, pero como `sleep` no entiende el comando ni
+    imprime un panel real, el parseo no encuentra el patrón "Model:" y
+    devuelve null — no inventa un valor."""
+    _project, _session = _active_project_and_session(tmp_path, monkeypatch)
+    client = TestClient(create_app())
+
+    resp = client.post("/agents", json={"role": "developer", "runtime_type": "claude-code"})
+    assert resp.status_code in (200, 201)
+    agent_id = resp.json()["id"]
+
+    resp = client.get(f"/agents/{agent_id}/status-model")
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["agent_id"] == agent_id
+    assert body["model"] is None

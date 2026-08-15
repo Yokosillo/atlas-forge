@@ -150,17 +150,43 @@
     pollTimer: null,
     actionMessage: null,
     // Edición del modelo por defecto (inline). editingRole guarda el rol
-    // (lo consume saveRoleModel); editingAgentId identifica la fila exacta
-    // que abrió el editor, para no abrirlo en todas las filas del mismo rol
-    // en roles multi-instancia (Developer) — ver US-FB024-11 criterio 11.
+    // (lo consume saveRoleModel); editingRowKey identifica la fila exacta
+    // que abrió el editor — para instancias reales es el id del agente,
+    // para filas sintéticas (id null) es "synthetic:<role>:<name>", de
+    // modo que Developer-1/2/3 no abran el editor a la vez (US-FB024-11
+    // criterio 11 y T-FB024-US11-03).
     editingRole: null,
-    editingAgentId: null,
+    editingRowKey: null,
     modelIndex: 0,
+    // T-FB024-US11-07: true en cuanto el usuario dispara `change` sobre el
+    // <select> del editor abierto — mientras sea false, cualquier
+    // reconstrucción del DOM (incluido un tick de polling) debe seguir
+    // reflejando `defaultModel` (todavía no ha elegido nada distinto);
+    // en cuanto es true, debe reflejar `modelIndex` (su elección en
+    // curso), nunca volver a `defaultModel` aunque el polling reconstruya
+    // el <select> mientras tanto.
+    modelIndexDirty: false,
+    // T-FB024-US12-02: agent_id de Developer con confirmación de
+    // "Eliminar" pendiente (doble pulsación) | null. Mismo patrón que
+    // `agentsSection.stopPendingFor`/`plansSection.cancelPendingFor`: el
+    // aviso crece en la etiqueta del propio botón, sin desplazar el resto
+    // del layout entre el primer y el segundo clic.
+    devStopPendingFor: null,
     saving: false,
     saveError: null,
     // Modal fallback de "Copiar comando de conexión" si clipboard.writeText falla.
     detalleAgent: null,
     detalleCopied: false,
+    // T-FB024-US11-05: agent_id en curso de "Consultar modelo" (Claude
+    // Code, bajo demanda vía /status) | null — mientras está en curso, el
+    // botón de esa fila muestra "Consultando…" y queda deshabilitado
+    // (single-flight, misma acción no puede dispararse dos veces
+    // solapada). statusModelByAgentId guarda el último resultado
+    // consultado por agent_id ({model, error}), mostrado bajo el botón
+    // tras la respuesta — nunca se dispara automáticamente ni se limpia
+    // por polling, solo por una nueva consulta explícita.
+    statusModelQueryPendingFor: null,
+    statusModelByAgentId: {},
     // Límite de Developer simultáneos (US-FB024-12, GET /system/preferences)
     // — null hasta que responda el backend, buildUnifiedRows usa el default
     // local mientras tanto (ver DEFAULT_MAX_SIMULTANEOUS_DEVELOPERS).
@@ -746,13 +772,17 @@
     if (key !== state.section && state.section === "roles") {
       stopRolesPolling();
       rolesSection.editingRole = null;
-      rolesSection.editingAgentId = null;
+      rolesSection.editingRowKey = null;
       rolesSection.modelIndex = 0;
+      rolesSection.modelIndexDirty = false;
       rolesSection.saveError = null;
       rolesSection.detalleAgent = null;
       rolesSection.detalleCopied = false;
       rolesSection.reviewingBlockedAgentId = null;
       rolesSection.reviewBlockedError = null;
+      rolesSection.devStopPendingFor = null;
+      rolesSection.statusModelQueryPendingFor = null;
+      rolesSection.statusModelByAgentId = {};
     }
     if (key !== state.section && state.section === "jobs") {
       // Al salir de la pestaña Jobs se cierra el WebSocket (no se mantiene
@@ -4287,9 +4317,31 @@
       role: role,
       status: status || "unregistered",
       runtime_id: null,
-      model: null,
+      // T-FB024-US11-03: la fila sintética refleja el default del rol
+      // (compartido por todas sus instancias) en vez de hardcodear null,
+      // para que "Guardar modelo" sea visible de inmediato.
+      model: defaultModelLabelFor(role),
       last_command_at: null,
     };
+  }
+
+  // Clave única y estable por fila. Para instancias reales, el id del
+  // agente; para filas sintéticas (id null), la posición
+  // "synthetic:<role>:<name>" — de modo que Developer-1/2/3 sean filas
+  // distintas aunque compartan id null (T-FB024-US11-03).
+  function rowKeyFor(agent) {
+    if (agent && agent.id) return "agent:" + agent.id;
+    return "synthetic:" + agent.role + ":" + agent.name;
+  }
+
+  // Nombre visible del modelo por defecto del rol (a partir del model_id
+  // guardado en default_model_by_role), o null si no hay default o el id
+  // ya no está en el catálogo.
+  function defaultModelLabelFor(role) {
+    var modelId = rolesSection.defaults && rolesSection.defaults[role];
+    if (!modelId) return null;
+    var match = (rolesSection.models || []).filter(function (m) { return m.id === modelId; })[0];
+    return match ? match.name : modelId;
   }
 
   // ── renderizado de UNA fila unificada ───────────────────────────────────
@@ -4299,8 +4351,6 @@
     var isStopped = agent.status === "stopped";
     var isUnregistered = agent.status === "unregistered";
     var isUnavailable = agent.status === "unavailable";
-    var isArquitecto = agent.role === "arquitecto";
-    var isSyntheticArquitecto = agent._synthetic && isArquitecto;
 
     var card = h("div", "agent-card");
 
@@ -4341,14 +4391,7 @@
       h("div", "agent-runtime", "Runtime: " + runtimeDisplayName(agent.runtime_id))
     );
 
-    var modelLabel;
-    if (agent.model) {
-      modelLabel = agent.model;
-    } else if (isSyntheticArquitecto) {
-      modelLabel = rolesSection.defaults.arquitecto || "sin modelo";
-    } else {
-      modelLabel = "sin modelo";
-    }
+    var modelLabel = agent.model || "sin modelo";
     info.appendChild(h("div", "agent-model", "Modelo: " + modelLabel));
 
     card.appendChild(info);
@@ -4373,13 +4416,32 @@
     // (e) Ver log en vivo (T-FB032-US02-01)
     actions.appendChild(renderVerLogEnVivoBtn(agent));
 
+    // (f) Consultar modelo (T-FB024-US11-05) — solo filas Claude Code,
+    // única forma de leer su modelo real (sin lectura pasiva posible).
+    if (agent.runtime_id === "claude-code") {
+      actions.appendChild(renderConsultarModeloBtn(agent));
+    }
+
     card.appendChild(actions);
 
     // Editor inline de modelo por defecto (fila completa debajo)
-    if (rolesSection.editingRole === agent.role && rolesSection.editingAgentId === agent.id) {
+    if (rolesSection.editingRole === agent.role && rolesSection.editingRowKey === rowKeyFor(agent)) {
       var editorWrap = h("div", "agent-editor-row");
       card.appendChild(editorWrap);
       renderDefaultModelEditorInline(editorWrap, agent.role);
+    }
+
+    // Resultado de la última consulta de modelo (T-FB024-US11-05), si la
+    // hubo para esta fila — fuera del grid de acciones, fila completa
+    // debajo, mismo patrón que el editor de modelo inline.
+    if (agent.id && rolesSection.statusModelByAgentId[agent.id]) {
+      var statusResult = rolesSection.statusModelByAgentId[agent.id];
+      var statusText = statusResult.error
+        ? "Consultar modelo: " + statusResult.error
+        : statusResult.model
+          ? "Modelo real: " + statusResult.model
+          : "Modelo real: no se pudo leer (el agente no imprimió el panel esperado).";
+      card.appendChild(h("div", statusResult.error ? "agent-error" : "agent-model", statusText));
     }
 
     wrap.appendChild(card);
@@ -4425,8 +4487,9 @@
       // el editor de modelo por defecto del rol para esa fila concreta.
       b.addEventListener("click", function () {
         rolesSection.editingRole = agent.role;
-        rolesSection.editingAgentId = agent.id;
+        rolesSection.editingRowKey = rowKeyFor(agent);
         rolesSection.modelIndex = 0;
+        rolesSection.modelIndexDirty = false;
         rolesSection.saveError = null;
         renderRolesBody();
       });
@@ -4454,7 +4517,7 @@
           stopConfirm.addEventListener("click", stopArquitecto);
           return stopConfirm;
         }
-        var stopBtn = button("Detener", "arq-btn-stop");
+        var stopBtn = button("Detener", "agent-stop");
         stopBtn.addEventListener("click", stopArquitecto);
         return stopBtn;
       }
@@ -4473,10 +4536,23 @@
       return launchBtn;
     }
 
-    // Developer: Detener directo (con confirmación inline si activo) o Lanzar.
+    // Developer (T-FB024-US12-02): "Detener" elimina la instancia por
+    // completo (no pausa) — el botón se renombra a "Eliminar" para no
+    // dejar "Detener" con significado cambiado en silencio, y exige
+    // confirmación de doble pulsación (mismo idioma que el resto de
+    // acciones bloqueantes de esta pantalla: el aviso crece en la
+    // etiqueta del propio botón).
     if (showDetener) {
-      var devStop = button("Detener", "agent-stop");
-      devStop.addEventListener("click", function () { stopDevAgent(agent); });
+      if (rolesSection.devStopPendingFor === agent.id) {
+        var devStopConfirm = button("¿Seguro? Confirmar eliminar", "agent-stop");
+        devStopConfirm.addEventListener("click", function () { stopDevAgent(agent); });
+        return devStopConfirm;
+      }
+      var devStop = button("Eliminar", "agent-stop");
+      devStop.addEventListener("click", function () {
+        rolesSection.devStopPendingFor = agent.id;
+        renderRolesBody();
+      });
       return devStop;
     }
 
@@ -4495,10 +4571,12 @@
     if (!agent.id) return;
     BackendClient.stopAgent(agent.id)
       .then(function () {
-        rolesSection.actionMessage = agent.name + " detenido.";
+        rolesSection.devStopPendingFor = null;
+        rolesSection.actionMessage = agent.name + " eliminado.";
         return pollRolesAgents();
       })
       .catch(function (error) {
+        rolesSection.devStopPendingFor = null;
         rolesSection.actionMessage = buildErrorMessage(error);
         renderRolesBody();
       });
@@ -4513,8 +4591,19 @@
     } else {
       payload.runtime_type = "opencode";
     }
-    BackendClient.launchAgent(payload)
-      .then(function (result) {
+    // T-FB024-US11-06: el nombre de la fila sintética ("Developer-N") es
+    // solo una etiqueta visual por posición — el backend decide el nombre
+    // real por conteo de Developer ya registrados en ese instante
+    // (`_next_developer_name`, `agents/developer.py`), nunca por lo que
+    // envía este payload. Si `rolesSection.agentsList` está desactualizado
+    // (polling de 3s), la posición N pulsada puede no coincidir con la
+    // instancia real creada. Se refresca la lista justo antes de lanzar
+    // para reducir esa ventana al mínimo — el nombre real siempre se
+    // confirma después con `launchFeedbackMessageFor(result)`, nunca se
+    // asume el de la fila.
+    pollRolesAgents().then(function () {
+      return BackendClient.launchAgent(payload);
+    }).then(function (result) {
         rolesSection.actionMessage = launchFeedbackMessageFor(result);
         return pollRolesAgents();
       })
@@ -4620,6 +4709,60 @@
     return btn;
   }
 
+  // ── botón Consultar modelo (Claude Code, T-FB024-US11-05) ──────────────
+  //
+  // Única forma de leer el modelo real de un agente Claude Code — no hay
+  // lectura pasiva posible (a diferencia de OpenCode), así que la consulta
+  // es EXCLUSIVAMENTE bajo demanda: nunca se dispara desde el polling de
+  // 3s de esta pantalla ni desde ningún otro ciclo automático (criterio de
+  // aceptación 1). El backend interactúa con el pane real (/status +
+  // Enter, captura, Escape) — por eso el botón queda deshabilitado con
+  // motivo explícito mientras el agente esté `working` (criterio 2): no
+  // se debe interrumpir su salida activa, ni siquiera bajo demanda.
+
+  function renderConsultarModeloBtn(agent) {
+    var isWorking = agent.status === "working";
+    var isQuerying = rolesSection.statusModelQueryPendingFor === agent.id;
+    var label = isQuerying ? "Consultando…" : "Consultar modelo";
+    var btn = button(label, "agent-model-change");
+
+    if (!agent.id) {
+      btn.disabled = true;
+      btn.title = "no disponible: la instancia no está lanzada todavía";
+      return btn;
+    }
+    if (isWorking) {
+      btn.disabled = true;
+      btn.title = "no se puede consultar el modelo mientras el agente está trabajando: interrumpiría su pane en marcha";
+      return btn;
+    }
+    if (isQuerying) {
+      btn.disabled = true;
+      return btn;
+    }
+
+    btn.addEventListener("click", function () { consultarModeloClaudeCode(agent); });
+    return btn;
+  }
+
+  function consultarModeloClaudeCode(agent) {
+    if (rolesSection.statusModelQueryPendingFor !== null) return; // single-flight
+    rolesSection.statusModelQueryPendingFor = agent.id;
+    renderRolesBody();
+
+    BackendClient.getAgentStatusModel(agent.id)
+      .then(function (result) {
+        rolesSection.statusModelQueryPendingFor = null;
+        rolesSection.statusModelByAgentId[agent.id] = { model: result.model, error: null };
+        renderRolesBody();
+      })
+      .catch(function (error) {
+        rolesSection.statusModelQueryPendingFor = null;
+        rolesSection.statusModelByAgentId[agent.id] = { model: null, error: buildErrorMessage(error) };
+        renderRolesBody();
+      });
+  }
+
   // ── botón Revisar si está bloqueado ─────────────────────────────────────
 
   function renderRevisarBloqueadoBtn(agent) {
@@ -4678,6 +4821,9 @@
     var enabledModels = rolesSection.models.filter(function (m) { return m.enabled; });
     var defaultModel = rolesSection.defaults[role];
 
+    wrap.appendChild(h("p", "section-note",
+      "Modelo por defecto del rol " + role + " (compartido por todas sus instancias al lanzarlas)."));
+
     var sel = document.createElement("select");
     sel.className = "clickable launch-select";
     sel.style.margin = "6px 0";
@@ -4685,15 +4831,27 @@
     noneOpt.value = "";
     noneOpt.textContent = "— sin default —";
     sel.appendChild(noneOpt);
+    // T-FB024-US11-07: mientras el usuario no haya interactuado con el
+    // <select> (`modelIndexDirty` false), cada reconstrucción refleja el
+    // default real del backend, igual que antes. En cuanto interactúa,
+    // cualquier reconstrucción posterior (incluido un tick de polling con
+    // el editor todavía abierto) debe reflejar `modelIndex` — su elección
+    // en curso — y no volver a saltar al default aunque no haya pulsado
+    // "Guardar modelo" todavía.
     enabledModels.forEach(function (model, idx) {
       var o = document.createElement("option");
       o.value = String(idx);
       o.textContent = model.name + " (" + model.runtime + ")";
-      if (defaultModel === model.id) o.selected = true;
+      if (rolesSection.modelIndexDirty) {
+        if (rolesSection.modelIndex === idx) o.selected = true;
+      } else if (defaultModel === model.id) {
+        o.selected = true;
+      }
       sel.appendChild(o);
     });
     sel.addEventListener("change", function () {
       rolesSection.modelIndex = parseInt(sel.value, 10) || 0;
+      rolesSection.modelIndexDirty = true;
     });
     wrap.appendChild(sel);
 
@@ -4707,7 +4865,9 @@
     var cancelBtn = button("Cancelar", "agent-model-change");
     cancelBtn.addEventListener("click", function () {
       rolesSection.editingRole = null;
+      rolesSection.editingRowKey = null;
       rolesSection.modelIndex = 0;
+      rolesSection.modelIndexDirty = false;
       rolesSection.saveError = null;
       renderRolesBody();
     });
@@ -4748,6 +4908,9 @@
       .then(function (result) {
         rolesSection.saving = false;
         rolesSection.editingRole = null;
+        rolesSection.editingRowKey = null;
+        rolesSection.modelIndex = 0;
+        rolesSection.modelIndexDirty = false;
         rolesSection.defaults = result.default_model_by_role || {};
         // Si se cambió el default del Arquitecto, sincronizar la barra
         // superior y el botón "Lanzar" para que reflejen el cambio

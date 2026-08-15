@@ -10,8 +10,8 @@ Factory Brain uses a **centralized role registry** (`brain/agents/roles.py`) whe
 
 | Role | Governance | Behavior |
 |---|---|---|
-| **`developer`** | `developer.md` | Implements User Stories. Always creates a new instance (parallelism allowed, max **3** simultaneous Developers); self-named `Developer-1`, `Developer-2`… |
-| **`arquitecto`** | `ARQUITECTO.md` | Reusable, **triple-function** role: lands the backlog (generates Epic→US→Task in standard format), issues structured **verdicts** (`APROBADO` / `APROBADO_CON_OBSERVACIONES` / `RECHAZADO`) on Developer work, and converses with the human about existing Epics (read-only on the backlog). Predecessor of two now-merged roles: Critic (FB-022 renamed Critic→Architect) and Director (merged into Architect 2026-08-09). |
+| **`developer`** | `developer.md` | Implements User Stories. Persistent and human-managed (not ephemeral — keeps conversation context across successive Jobs). Always creates a new instance when launched (never reused), self-named `Developer-1`, `Developer-2`… up to a configurable simultaneous limit (default **3**, `GET`/`PUT /system/preferences`). "Stop" deletes the instance outright and frees its slot immediately — there is no paused/reusable Developer to relaunch. |
+| **`arquitecto`** | `ARQUITECTO.md` | Reusable, **triple-function** role: lands the backlog (generates Epic→US→Task in standard format), issues structured **verdicts** (`APROBADO` / `APROBADO_CON_OBSERVACIONES` / `RECHAZADO`) on Developer work, and converses with the human about existing Epics (read-only on the backlog). |
 
 !!! note "Tester"
     The **Tester role is not yet registered** in the backend (there is no `agents/tester.py`). Its *input/output contract* does exist (`dispatcher/tester_input.py`: packages acceptance criteria + code diff for a Tester Job) and it appears in the web role configuration with a default model. Registering the Tester agent is future work.
@@ -35,26 +35,35 @@ With `initial_job_description`, besides launching, an initial blocking Job is cr
 stateDiagram-v2
     [*] --> idle
     idle --> working: Job in flight
-    idle --> stopped: stop_agent
+    idle --> stopped: stop_agent (non-Developer)
     idle --> unavailable: dead runtime (liveness)
     working --> idle: Job finishes
-    working --> stopped: stop_agent
+    working --> stopped: stop_agent (non-Developer)
     working --> unavailable: dead runtime
     unavailable --> idle: revived/relaunched
     stopped --> [*]
+    idle --> [*]: stop_agent (Developer, deleted outright)
+    working --> [*]: stop_agent (Developer, deleted outright)
 ```
 
-- `stopped` = intentional human stop (terminal; must relaunch).
+- `stopped` = intentional human stop (terminal; must relaunch). Applies to Architect and any other single-instance reusable role.
+- **Developer never reaches `stopped`**: `stop_agent` deletes it from the session outright, freeing its slot in the simultaneous-Developer limit immediately. This is a deliberate exception — see `stop_agent`/`agents/stop.py` docstring for the reasoning.
 - `unavailable` = unsolicited failure (dead runtime).
+- On finishing a Job (success or failure), an agent **always** returns to `idle` — it is never left stuck `working`, and is not destroyed automatically. It stays alive, reusable for the next Job regardless of which Epic/User Story it came from, until the human stops/deletes it explicitly.
 - **Liveness is checked lazily** when querying `GET /agents` (`refresh_agent_liveness`): if the runtime is dead and the state was `idle`/`working`, it transitions to `unavailable`. No background polling.
 
 ## Reuse
 
-`register_agent_with_reuse` looks for an existing agent of the same role in the session. Reuse applies to Architect (persistent, reused across conversation and verdict Jobs); the Developer always creates a new instance (up to 3 simultaneous). Reason: `_find_agent_by_role` picks the first agent of a role — substitution (not coexistence) avoids a stopped agent of a role blocking routing.
+`register_agent_with_reuse` looks for an existing agent of the same role in the session. Reuse applies to Architect (persistent, reused across conversation and verdict Jobs); the Developer always creates a new instance when launched (up to the configured simultaneous limit, default 3, `GET`/`PUT /system/preferences`) — never reused on launch. Reason: `_find_agent_by_role` picks the first agent of a role — substitution (not coexistence) avoids a stopped agent of a role blocking routing.
 
 ## Runtime↔agent registry
 
-`agent_runtime_registry` maps `agent_id → RuntimeInstance` (process-scoped). Launching registers it; `stop_agent` and liveness consult it. `stop_agent` first kills the tmux session and then transitions to `stopped` (never to `unavailable`).
+`agent_runtime_registry` maps `agent_id → RuntimeInstance` (process-scoped). Launching registers it; `stop_agent` and liveness consult it. `stop_agent` first kills the tmux session, then either transitions to `stopped` (non-Developer roles) or removes the agent from the session entirely (Developer) — never to `unavailable` in either case, that state is reserved for unsolicited failures.
+
+## Reading the active model
+
+- **OpenCode**: `GET /agents/{id}/model` reads the model **passively** from the runtime's status bar (`capture_pane_lines`) — safe to call on every `GET /agents`/poll, never interacts with the pane.
+- **Claude Code**: there is no passive source (its status bar does not print the model). `GET /agents/{id}/status-model` reads it **on demand** by sending `/status` to the pane, capturing the resulting panel, and closing it with `Escape` — this is active interaction, so it is **never** triggered automatically, and returns 400 if the agent is `working` (to avoid interfering with output in progress).
 
 ## Launch options catalog
 
@@ -66,7 +75,6 @@ stateDiagram-v2
 
 ## Planned (not implemented)
 
-- **`persistent` flag per role** (FB-023): Director/Architect persistent; Developer/Tester die when finished. Not yet in the `Agent` model.
-- **Stuck-agent detection and automatic recovery** (FB-023): pending.
+- **Stuck-agent detection and automatic recovery** (FB-023): a human-triggered "review if stuck" action exists in the web (dispatches a real Job asking the Architect to judge the agent's pane) — automatic background detection is not implemented.
 - **Tester role** (FB-022/23): pending registration.
 - **Agent capability declaration** (US-FB005-03): blocked until the Capability Engine (FB-010).

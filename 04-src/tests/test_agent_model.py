@@ -10,8 +10,10 @@ import pytest
 from brain.agent_model import (
     _find_model_index,
     _model_names_match,
+    _parse_model_from_claude_code_status,
     _parse_model_from_pane,
     get_active_model,
+    get_active_model_claude_code,
     set_active_model,
 )
 
@@ -150,6 +152,132 @@ def test_get_active_model_handles_capture_exception() -> None:
               side_effect=RuntimeError("tmux caido")),
     ):
         assert get_active_model("opencode-agent") is None  # no exception
+
+
+# -- _parse_model_from_claude_code_status -----------------------------------
+
+
+@pytest.mark.parametrize(
+    "lines,expected",
+    [
+        (
+            ["Model:            Default (Sonnet 5 · Efficient for routine tasks)"],
+            "Default (Sonnet 5 · Efficient for routine tasks)",
+        ),
+        (
+            ["otras lineas", "Model: Opus 5", "mas lineas del panel"],
+            "Opus 5",
+        ),
+        (["sin panel de status"], None),
+        ([], None),
+        (["Model:"], None),
+        (["Model:   "], None),
+    ],
+)
+def test_parse_model_from_claude_code_status(
+    lines: list[str], expected: str | None
+) -> None:
+    assert _parse_model_from_claude_code_status(lines) == expected
+
+
+# -- get_active_model_claude_code --------------------------------------------
+
+
+def test_get_active_model_claude_code_returns_none_when_no_runtime_registered() -> None:
+    with patch("brain.agent_model.get_runtime_instance_for_agent", return_value=None):
+        assert get_active_model_claude_code("agente-inexistente") is None
+
+
+def test_get_active_model_claude_code_returns_none_for_non_claude_code_runtime() -> None:
+    with patch("brain.agent_model.get_runtime_instance_for_agent",
+               return_value=_FakeRuntimeInstance(rt_type="opencode")):
+        assert get_active_model_claude_code("opencode-agent") is None
+
+
+def test_get_active_model_claude_code_returns_none_when_session_not_alive() -> None:
+    with (
+        patch("brain.agent_model.get_runtime_instance_for_agent",
+              return_value=_FakeRuntimeInstance(rt_type="claude-code")),
+        patch("brain.agent_model.is_alive", return_value=False),
+    ):
+        assert get_active_model_claude_code("claude-agent") is None
+
+
+def test_get_active_model_claude_code_sends_status_and_parses_panel() -> None:
+    with (
+        patch("brain.agent_model.get_runtime_instance_for_agent",
+              return_value=_FakeRuntimeInstance(rt_type="claude-code")),
+        patch("brain.agent_model.is_alive", return_value=True),
+        patch("brain.agent_model.run_command") as mock_run_command,
+        patch("brain.agent_model.capture_pane_lines",
+              return_value=["Model:  Default (Sonnet 5 · Efficient for routine tasks)"]),
+        patch("brain.agent_model.send_keys_literal") as mock_send_keys,
+        patch("brain.agent_model.time.sleep"),
+    ):
+        result = get_active_model_claude_code("claude-agent")
+        assert result == "Default (Sonnet 5 · Efficient for routine tasks)"
+        # Envía exactamente "/status" al pane (mismo mecanismo que lanzar
+        # el prompt inicial: run_command ya añade Enter por defecto).
+        mock_run_command.assert_called_once_with(
+            "test-session", "/status", socket_name="factory-brain"
+        )
+        # Cierra el panel con Escape tras leer, sin dejar residuo.
+        mock_send_keys.assert_called_once_with(
+            "test-session", "Escape", socket_name="factory-brain"
+        )
+
+
+def test_get_active_model_claude_code_returns_none_when_pattern_not_found() -> None:
+    with (
+        patch("brain.agent_model.get_runtime_instance_for_agent",
+              return_value=_FakeRuntimeInstance(rt_type="claude-code")),
+        patch("brain.agent_model.is_alive", return_value=True),
+        patch("brain.agent_model.run_command"),
+        patch("brain.agent_model.capture_pane_lines", return_value=["otra cosa"]),
+        patch("brain.agent_model.send_keys_literal") as mock_send_keys,
+        patch("brain.agent_model.time.sleep"),
+    ):
+        assert get_active_model_claude_code("claude-agent") is None
+        # Escape se envía igual, aunque el parseo falle (criterio de
+        # aceptación 4: nunca deja el pane en un estado distinto).
+        mock_send_keys.assert_called_once()
+
+
+def test_get_active_model_claude_code_closes_status_panel_even_if_capture_fails() -> None:
+    """Criterio de aceptación 4: el panel se cierra con Escape incluso si
+    `capture_pane_lines` lanza una excepción — nunca se propaga, nunca se
+    deja el pane sin cerrar."""
+    with (
+        patch("brain.agent_model.get_runtime_instance_for_agent",
+              return_value=_FakeRuntimeInstance(rt_type="claude-code")),
+        patch("brain.agent_model.is_alive", return_value=True),
+        patch("brain.agent_model.run_command"),
+        patch("brain.agent_model.capture_pane_lines",
+              side_effect=RuntimeError("tmux caido")),
+        patch("brain.agent_model.send_keys_literal") as mock_send_keys,
+        patch("brain.agent_model.time.sleep"),
+    ):
+        assert get_active_model_claude_code("claude-agent") is None  # no exception
+        mock_send_keys.assert_called_once_with(
+            "test-session", "Escape", socket_name="factory-brain"
+        )
+
+
+def test_get_active_model_claude_code_closes_status_panel_even_if_run_command_fails() -> None:
+    """Mismo criterio, cubriendo también el fallo al ENVIAR /status (no
+    solo al capturar después)."""
+    with (
+        patch("brain.agent_model.get_runtime_instance_for_agent",
+              return_value=_FakeRuntimeInstance(rt_type="claude-code")),
+        patch("brain.agent_model.is_alive", return_value=True),
+        patch("brain.agent_model.run_command", side_effect=RuntimeError("tmux caido")),
+        patch("brain.agent_model.send_keys_literal") as mock_send_keys,
+        patch("brain.agent_model.time.sleep"),
+    ):
+        assert get_active_model_claude_code("claude-agent") is None  # no exception
+        mock_send_keys.assert_called_once_with(
+            "test-session", "Escape", socket_name="factory-brain"
+        )
 
 
 # -- set_active_model ------------------------------------------------------

@@ -115,7 +115,7 @@ Registered roles (4): `developer`, `critic`, `director`, `arquitecto`. Each role
 ### Dispatcher (`brain/dispatcher/`)
 
 - **Job**: `create → running → {completed | failed | cancelled}`. Result reporting is **cooperative**: the agent writes its result to a temp file plus a final marker; the dispatcher waits for that file.
-- **Chaining**: `previous_job` injects the previous Job's result literally into the next Job's description. Developer→Developer is blocked (must go through Critic/Architect).
+- **Chaining**: `previous_job` injects the previous Job's result literally into the next Job's description. Developer→Developer is blocked (must go through the Architect).
 - **Plan**: the Architect proposes a sequence of steps (`proposed`), the human approves once (`approved`) and it is dispatched end to end. States: `proposed → {approved, rejected}`, `approved → {blocked, cancelled}`.
 - **Automatic Scribe**: the dispatcher decides to invoke Scribe (by description size > 4000 chars or ≥ 10 consecutive Jobs) to pre-process context, saving remote runtime tokens.
 - **Verdict**: after dispatching a plan, a verdict Job is queued to the Architect (FIFO queue, one worker) that emits `APROBADO` / `APROBADO_CON_OBSERVACIONES` / `RECHAZADO` and, if approved, marks the Tasks as `DONE`.

@@ -23,9 +23,9 @@ The session keeps: the active project, launched agents, the Job history and cont
 
 An instance of a **role** running on a **runtime** in a tmux session. It is not a language model nor a generic process: it is role + prompt + runtime + state.
 
-- Roles: `developer`, `critic`, `director`, `arquitecto` (see [Agents](agents.md)).
-- States: `idle` → `working` / `unavailable` / `stopped`; `unavailable → idle`; `stopped` is terminal (must relaunch).
-- Reuse: when launching a reusable role (Critic/Director/Architect), the existing live agent of that role is reused instead of duplicating.
+- Roles: `developer`, `arquitecto`, plus `auditor_oss`/`ux`/`tester` (declared in the role registry, not yet backend-registered — see [Agents](agents.md)).
+- States: `idle` → `working` / `unavailable` / `stopped`; `unavailable → idle`; `stopped` is terminal (must relaunch) — except Developer, which never reaches `stopped`: stopping it deletes the instance outright instead of pausing it.
+- Reuse: when launching the reusable Architect role, the existing live agent is reused instead of duplicating. Developer always creates a new instance on launch (up to a configurable simultaneous limit), never reused.
 
 ## Runtime
 
@@ -92,5 +92,4 @@ sequenceDiagram
 | **Plan** | Sequence of steps from the Architect |
 | **Scribe** | Local summarization/indexing via Ollama |
 | **Developer** | Implements User Stories |
-| **Critic / Architect** | Reviews/validates work, proposes plans and issues verdicts |
-| **Director** | Converses about existing Epics (does not modify the backlog) |
+| **Architect** | Lands the backlog (Epic→US→Task), reviews/validates Developer work and issues verdicts, and converses about existing Epics (read-only) |

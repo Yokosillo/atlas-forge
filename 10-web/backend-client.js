@@ -259,6 +259,15 @@
     return request("GET", "/agents/" + encodeURIComponent(agentId) + "/available-models");
   }
 
+  /** `GET /agents/{agent_id}/status-model` — modelo activo real de un
+   * agente Claude Code, leído bajo demanda vía /status del pane
+   * (T-FB024-US11-05). A diferencia de getAgentModel (OpenCode, lectura
+   * pasiva), el backend rechaza esta llamada con 400 si el agente está
+   * `working` — nunca se debe invocar automáticamente. */
+  async function getAgentStatusModel(agentId) {
+    return request("GET", "/agents/" + encodeURIComponent(agentId) + "/status-model");
+  }
+
   /* ------------------------------------------------------------------ */
   /* Modelos — preferencias (T-FB022-US10-01)                           */
   /* ------------------------------------------------------------------ */
@@ -440,6 +449,7 @@
     stopAgent: stopAgent,
     getAgentPane: getAgentPane,
     getAgentModel: getAgentModel,
+    getAgentStatusModel: getAgentStatusModel,
     setAgentModel: setAgentModel,
     getAgentAvailableModels: getAgentAvailableModels,
     getModelsPreferences: getModelsPreferences,

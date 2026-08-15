@@ -17,7 +17,7 @@ The current navigation bar contains: **Roles, Plan, Scripts, Backlog, Models, Ac
 
 ### Roles
 
-Configuration of the **4 roles** (Director, Architect, Developer, Tester) with their description and default model. "Change model" opens an inline selector and saves via `PUT /models/preferences` (`default_model_by_role`).
+Unified screen listing every governance role (Architect, Developer, Auditor-OSS, UX, Tester) with the same fields and buttons regardless of role. Architect is single-instance and reusable (pauses to `stopped` on "Stop"); Developer is multi-instance, persistent and human-managed (up to a configurable simultaneous limit — "Stop" deletes the instance and frees its slot instead of pausing it). Auditor-OSS, UX and Tester are listed with "Launch" disabled and an explicit reason while they remain unregistered in the backend. "Change model" opens an inline editor of the role's default model and saves via `PUT /models/preferences` (`default_model_by_role`) — disabled while an instance is live, to avoid interacting with a running agent's pane.
 
 ### Plan
 

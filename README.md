@@ -11,8 +11,8 @@ Developing with AI today requires maintaining several Claude Code sessions, laun
 Factory Brain centralizes that flow:
 
 - **Discovers** the Git repositories in your workspace automatically.
-- **Coordinates** specialized agents (Developer, Critic, Director, Architect) on real runtimes (Claude Code, OpenCode) in persistent tmux sessions.
-- **Sends Jobs** to agents and **chains** results (Developer → Critic/Architect).
+- **Coordinates** specialized agents (Developer, Architect, and other governance roles) on real runtimes (Claude Code, OpenCode) in persistent tmux sessions.
+- **Sends Jobs** to agents and **chains** results (Developer → Architect).
 - **Proposes and executes** work plans with a single human approval.
 - **Automates the repetitive** with deterministic scripts before spending tokens on a model.
 - **Delegates reads/summaries to a local model** (Scribe + Ollama) to reduce remote token consumption.
@@ -27,7 +27,7 @@ Factory Brain centralizes that flow:
 
 ## Current status
 
-Factory Brain has completed Phases 0.1–0.4 and the bulk of Phase 1.0 of the roadmap: Workspace, Session, Runtime, Agents, Dispatcher (Jobs/plans/cancellation), Scribe, backend API, Android app, generic scripts, TUI, backlog management, web interface, backlog-centric pipeline (Director/Architect roles, Epic→US→Task generators, verdicts) and web UX improvements. Context Engine, Knowledge Engine, Capability Engine, Plugin System and Automation Engine remain in the backlog unimplemented.
+Factory Brain has completed Phases 0.1–0.4 and the bulk of Phase 1.0 of the roadmap: Workspace, Session, Runtime, Agents, Dispatcher (Jobs/plans/cancellation), Scribe, backend API, Android app, generic scripts, TUI, backlog management, web interface, backlog-centric pipeline (Architect role, Epic→US→Task generators, verdicts, structured backlog format), simultaneous multi-project sessions, agent reconciliation on backend restart, live agent log in the web, and web UX improvements. Context Engine, Knowledge Engine, Capability Engine, Plugin System and Automation Engine remain in the backlog unimplemented.
 
 See the [full roadmap](docs/roadmap.md) and the [status by Epic](docs/roadmap.md#estado-por-epic) for details.
 

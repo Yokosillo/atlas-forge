@@ -10,7 +10,7 @@ Real state of Factory Brain contrasted against `02-backlog/` (canonical states) 
 | **0.2** | Multi-runtime/multi-model and token saving: unified TUI, Scribe, automatic Scribe triggering | ✅ Complete |
 | **0.3** | Critical-dispatcher and remote access: Architect plan with single approval, backend API, Android app, Job/Plan cancellation, confirmations | ✅ Complete |
 | **0.4** | Generic and project scripts: 7-script catalog, Scribe indexing | ✅ Complete |
-| **1.0** | Backlog-centric pipeline: Director/Architect roles, Epic→US→Task generators, validator, verdicts, web UX improvements, cross-cutting actions | 🔶 In progress |
+| **1.0** | Backlog-centric pipeline: Architect role, Epic→US→Task generators, validator, verdicts, structured backlog format, web UX improvements, cross-cutting actions, multi-project sessions, agent reconciliation on startup, live agent log | 🔶 In progress |
 | **0.5–0.9** | Dispatcher v2, Capabilities, Context, Knowledge, Automation, Plugins, remaining Dashboard | ⬜ Planned |
 | — | Config Management (FB-013) | ⏸️ On hold (backlog hold) |
 
@@ -41,9 +41,14 @@ Source: the `state` frontmatter field of each Epic in `02-backlog/epics/` (canon
 
 | Epic | Tasks | What it provides |
 |---|---|---|
-| **FB-022** Backlog-centric Pipeline | 34/34 DONE (US-FB022-13, 3 Tasks, still TODO) | Director/Architect roles, Epic→US→Task generators with validator+self-audit, verdicts, FIFO queue, file model catalog, Tester contract. |
-| **FB-024** Web UX improvements | 23/23 DONE | DONE/TODO visual differentiation, badge, dependency blocking, Phase field, heat map, roles screen, US-detail history. |
+| **FB-022** Backlog-centric Pipeline | 34/34 DONE (US-FB022-13, 3 Tasks, still TODO) | Architect role, Epic→US→Task generators with validator+self-audit, verdicts, FIFO queue, file model catalog, Tester contract. |
+| **FB-024** Web UX improvements | Ongoing (23+ Tasks DONE across multiple User Stories, more added as real usage surfaces gaps) | DONE/TODO visual differentiation, badge, dependency blocking, Phase field, heat map, unified Roles/Agents screen (same fields/buttons per role, Developer "stop" deletes the instance instead of pausing it), configurable simultaneous-Developer limit, US-detail history. |
 | **FB-025** Cross-cutting actions | 10/12 DONE (US01–07) | Web actions: document, analyze-architecture, suggest-ideas, test, audit-ux, index. |
+| **FB-027** Structured backlog format | 3/3 DONE | YAML frontmatter + Markdown body for every Epic/User Story/Task, replacing free-text `**ID**` bold-pattern parsing. Full migration of the existing backlog completed. |
+| **FB-029** Simultaneous project sessions | 4/4 DONE | Multiple live sessions in parallel, one per project; switching the active project in the web no longer stops any agent — the previously-focused project's agents stay alive in their own session and become reachable again once it regains focus. |
+| **FB-030** Closing queue to the Architect | DONE | Append-only per-project file where a Developer/other role enqueues Task-closing notices for the Architect; deterministic tmux session naming (`<role>-<project>` / `<role>-N-<project>`) plus an `inotifywait` watcher that pushes into the Architect's pane, with a periodic fallback check. |
+| **FB-031** Agent reconciliation on startup | DONE | On `brain-api` startup, lists real tmux sessions on the socket and recognizes them by their deterministic name (depends on FB-030), re-registering them as `idle` agents without relaunching their runtime — a backend restart no longer loses live agents. |
+| **FB-032** Live agent log in the web | DONE | `WS /ws/agents/{agent_id}/pane`: one channel per connection, server-side poller that only publishes on change, stops on disconnect. One agent at a time, read-only, separate tab/window. |
 
 !!! note "FB-025 pending"
     `US-FB025-08` (audit OSS, 2 Tasks) is **TODO**: not implemented. The decision on `US-FB025-05` (Commit button) was **not to expose it**: commit already exists as a generic script.
@@ -59,7 +64,8 @@ Source: the `state` frontmatter field of each Epic in `02-backlog/epics/` (canon
 | **FB-011** Plugin System | No Tasks. **There is no plugin system nor MCP.** Planned (Phase 0.8). |
 | **FB-012** Development Automations | No Tasks. Planned (Phase 0.7). |
 | **FB-013** Configuration Management | **On hold** (backlog hold): reviewed when a real multi-user configuration need appears. |
-| **FB-023** Lifecycle supervision | Not a priority (2026-08-05 decision). `persistent` flag, stuck detection, headless `opencode serve`. |
+| **FB-023** Lifecycle supervision | Not a priority (2026-08-05 decision). A human-triggered "review if stuck" action exists (FB-024/US-FB024-11); automatic background stuck-detection and headless `opencode serve` remain unimplemented. |
+| **FB-028** Persistent control bar for critical agents | Only 2 User Stories defined, no Tasks yet — not started. |
 
 ### Postponed / discarded
 
@@ -70,7 +76,7 @@ Source: the `state` frontmatter field of each Epic in `02-backlog/epics/` (canon
 ## Technical debt and relevant decisions
 
 - **TUI/Android pause** (2026-08-04): all new functionality is exposed on the web. Active-model Tasks in the TUI (`T-FB019-US02-01`) and Android (`T-FB017-US07-01`) marked `POSTERGADA`.
-- **In-memory state**: session, agents and Jobs live in the memory of the `brain-api` process. Session recovery after restart (`US-FB003-02`) is planned, not implemented.
+- **In-memory state**: session, agents and Jobs live in the memory of the `brain-api` process. On restart, live tmux sessions are re-recognized by their deterministic name and re-registered as `idle` agents (FB-031) — but Job/plan history and any other in-memory state are still lost; full session recovery (`US-FB003-02`) remains planned, not implemented.
 - **Observability** (structured logging, metrics, tracing): no assigned phase, on backlog hold.
 
 ## Functionality criterion

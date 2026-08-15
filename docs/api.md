@@ -40,7 +40,9 @@ Active project.
 Lists the Git repositories discovered in the workspace (candidates for active project).
 
 ### `POST /project`
-Selects the active project and **hot-restarts the development session** (stops not-stopped agents, invalidates caches, starts a new session).
+Selects a project from `GET /projects` and gives it the process's session focus. If the project already had a live session, it is reused as-is (same `session.id`, same agents, nothing relaunched); otherwise a new one is created.
+
+**Agents of the previously focused project are never touched or stopped.** Each project keeps its own live session in parallel (multi-session registry); switching focus back to it makes its agents reachable again through `GET /agents`/`POST /agents/{id}/stop`.
 
 ```json
 {"project_id": "..."}
@@ -71,7 +73,7 @@ Agents launched in the active session, with `model` resolved from the real runti
 404 without a session.
 
 ### `GET /agents/options`
-Catalog of launchable role×model combinations: Cartesian product of roles × enabled models with resolved runtime. Critic+OpenCode combinations are filtered.
+Catalog of launchable role×model combinations: Cartesian product of roles × enabled models with resolved runtime. No active session required.
 
 ```json
 [{"agent_role": "developer", "model_id": "opencode-go/deepseek-v4-flash", "model_name": "DeepSeek V4 Flash", "runtime_type": "opencode", "runtime_name": "OpenCode", "supports_model": true}]
@@ -92,7 +94,7 @@ Launches an agent. Body:
 `model` is a legacy alias of `model_id`. Without `initial_job_description` it returns the agent; with it, it returns `{agent, job}` (the Job may end up `failed` with the reason in `job.result`). Errors: 404 without session/project; 400 invalid runtime/model or `AgentLaunchError`.
 
 ### `POST /agents/{agent_id}/stop`
-Stops an agent: kills its tmux session and transitions it to `stopped`.
+Kills the agent's tmux session. **For any role except Developer**, transitions it to `stopped` — it remains in the session, reusable/queryable. **For Developer**, the agent is removed from the session entirely (its slot in the simultaneous-Developer limit is freed immediately) — there is no `stopped` Developer to relaunch, "stop" means delete. The response always reflects the state right after the action.
 
 ### `GET /agents/{agent_id}/pane`
 Current textual content of the agent's tmux pane (read-only view).
@@ -101,8 +103,18 @@ Current textual content of the agent's tmux pane (read-only view).
 {"agent_id": "...", "content": "..."}
 ```
 
+### `WS /ws/agents/{agent_id}/pane`
+Live stream of the agent's tmux pane content (one channel per connection). Server-side poller publishes only when the content changes; stops polling when the client disconnects. Read-only, one agent at a time per connection.
+
 ### `GET /agents/{agent_id}/model`
-Active model of the agent (OpenCode only). `null` for non-OpenCode runtimes or a failed read — never an HTTP error.
+Active model of the agent (OpenCode only, **passive** read from its status bar — safe to call on every poll). `null` for non-OpenCode runtimes or a failed read — never an HTTP error.
+
+### `GET /agents/{agent_id}/status-model`
+Active model of a **Claude Code** agent, read on demand by sending `/status` to its pane and parsing the result (**active interaction**, unlike `GET /agents/{agent_id}/model`). Only ever called explicitly by the human — never from `GET /agents` or any polling loop, to avoid interfering with a working agent's output. 400 if the agent is `working`.
+
+```json
+{"agent_id": "...", "model": "Default (Sonnet 5 · Efficient for routine tasks)"}
+```
 
 ### `PUT /agents/{agent_id}/model`
 Changes the active model of a running OpenCode agent.
@@ -136,6 +148,22 @@ Updates preferences (partial: only the fields sent).
 
 ```json
 {"enabled_model_ids": ["..."], "default_model_by_role": {"developer": "..."}}
+```
+
+## System preferences
+
+### `GET /system/preferences`
+System-wide configuration values, persisted independently of any single project.
+
+```json
+{"max_simultaneous_developers": 3}
+```
+
+### `PUT /system/preferences`
+Updates a system preference (partial). `max_simultaneous_developers` must be a positive integer; an invalid value is rejected with an explicit reason, never silently persisted.
+
+```json
+{"max_simultaneous_developers": 4}
 ```
 
 ## Jobs
@@ -240,11 +268,13 @@ Events `{"event": "plan_progress", plan_id, goal, status, steps, already_decided
 - On approval/rejection/cancellation.
 - During dispatch, after each step state change.
 
+See also `WS /ws/agents/{agent_id}/pane` above (live tmux pane content, not a `job_status`/`plan_progress` event).
+
 ## States (summary)
 
 | Entity | States |
 |---|---|
-| Agent | `idle`, `working`, `unavailable`, `stopped` |
+| Agent | `idle`, `working`, `unavailable`, `stopped` (Developer never reaches `stopped` — stopping a Developer deletes it instead) |
 | Job | `created`, `running`, `completed`, `failed`, `cancelled` |
 | Plan | `proposed`, `approved`, `rejected`, `blocked`, `cancelled` |
 | Step | `pending`, `running`, `completed`, `failed`, `cancelled` |

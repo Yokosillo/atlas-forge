@@ -274,7 +274,12 @@ async def test_stopping_an_agent_from_the_tui_is_reflected_via_the_api(
     T-FB016-US01-03) lo refleja como `stopped` también si se consulta
     desde la API — verificado aquí con OTRO `BackendClient` apuntando al
     mismo backend de prueba, simulando un cliente HTTP externo (`curl`,
-    la app Android)."""
+    la app Android).
+
+    Rol no-Developer (Arquitecto) a propósito: con Developer
+    (T-FB024-US12-02), detener elimina el agente por completo de la
+    sesión — este test comprueba específicamente el reflejo de `stopped`
+    tras detener, que ya no aplica a Developer."""
     workspace_root = tmp_path / "workspace"
     state_dir = tmp_path / "state"
     _select_project_and_start_backend_session(workspace_root, state_dir)
@@ -290,7 +295,7 @@ async def test_stopping_an_agent_from_the_tui_is_reflected_via_the_api(
         await pilot.pause()
 
         select_widget = agents_screen.query_one("#agent-choice", Select)
-        _select_option(select_widget, DEVELOPER_ROLE, "claude-code")
+        _select_option(select_widget, ARQUITECTO_ROLE, "claude-code")
         await pilot.click("#launch-agent")
         await pilot.pause()
 

@@ -11,7 +11,7 @@ It is not an IDE. It is not an agent framework. It does not replace the develope
 1. **Discovers** the Git repositories in your workspace automatically.
 2. **Selects** an active project (a single development session per project).
 3. **Uses the backlog as the control panel**: work is deployed from the backlog (Epic → User Story → Task → Implement) with buttons, not by writing Markdown by hand or talking to each agent separately.
-4. **Runs the pipeline**: the Director converses about Epics, the Architect decomposes them into User Stories and Tasks and emits verdicts, and the Developer implements them. A single human approval dispatches a whole sequence of Jobs.
+4. **Runs the pipeline**: the Architect converses about Epics, decomposes them into User Stories and Tasks, emits verdicts, and the Developer implements them. A single human approval dispatches a whole sequence of Jobs.
 5. **Sends Jobs** to an agent and **chains** results (Developer → Architect); you can also **cancel** in-flight work.
 6. **Automates the repetitive** with deterministic scripts (commit, push, tests, backlog status) and delegates reads/summaries to **Scribe**, a local model (Ollama) that does not consume tokens from your remote runtimes.
 
@@ -39,8 +39,8 @@ Factory Brain centralizes that flow: the active project, the live session, the l
 See the [roadmap](roadmap.md) for full detail.
 
 - **Phases 0.1 to 0.4: complete.** Workspace, Session, Runtime (Claude Code and OpenCode), Agents, manual Dispatcher (Jobs, chaining, plans, cancellation), Scribe, backend API, Android app, generic scripts, TUI, backlog management and web interface.
-- **Phase 1.0 (backlog-centric pipeline): in progress.** Director/Architect roles, Epic→US→Task generators, cross-cutting actions (FB-025) and parallelizable thread analysis (FB-026) are implemented and in production.
-- **Planned, not implemented:** Context Engine (FB-006), Knowledge Engine (FB-007), Capability Engine (FB-010), Plugin System (FB-011), Automation Engine (FB-009/012), Config Management (FB-013), lifecycle supervision (FB-023). **There is no plugin system or MCP yet.**
+- **Phase 1.0 (backlog-centric pipeline): in progress.** Architect role, Epic→US→Task generators, structured backlog format, cross-cutting actions (FB-025), parallelizable thread analysis (FB-026), simultaneous multi-project sessions, agent reconciliation on backend restart, and live agent log in the web are implemented and in production.
+- **Planned, not implemented:** Context Engine (FB-006), Knowledge Engine (FB-007), Capability Engine (FB-010), Plugin System (FB-011), Automation Engine (FB-009/012), Config Management (FB-013), automatic stuck-agent detection (FB-023), persistent control bar for critical agents (FB-028). **There is no plugin system or MCP yet.**
 
 ## Getting started
 

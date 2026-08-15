@@ -1,10 +1,23 @@
 """Lectura y cambio del modelo activo de un agente OpenCode en ejecucion
-(T-FB004-US05-01).
+(T-FB004-US05-01), y lectura bajo demanda del modelo activo de un agente
+Claude Code (T-FB024-US11-05).
 
 `get_active_model` lee el modelo actual desde la barra de estado de
-OpenCode via `capture_pane_lines`. `set_active_model` lo cambia mediante
-atajos de teclado (Ctrl+P, Ctrl+X, navegacion con flechas, Enter) con
-verificacion del estado de la interfaz entre cada paso.
+OpenCode via `capture_pane_lines` — lectura PASIVA, sin interactuar con
+el pane, segura de invocar en cada `GET /agents`/polling.
+`set_active_model` lo cambia mediante atajos de teclado (Ctrl+P, Ctrl+X,
+navegacion con flechas, Enter) con verificacion del estado de la interfaz
+entre cada paso.
+
+`get_active_model_claude_code` lee el modelo activo de un agente Claude
+Code enviando `/status` al pane (T-FB024-US11-05) — a diferencia de
+OpenCode, Claude Code no tiene lectura pasiva posible (su barra de estado
+no imprime el modelo, verificado en vivo). Por eso esta función NUNCA se
+invoca automáticamente (ni desde `extract_model_from_runtime`, ni desde
+`GET /agents`, ni desde ningún polling) — solo bajo demanda explícita del
+humano (`GET /agents/{id}/status-model`), y solo si el agente está
+`idle` (nunca interactúa con el pane de un agente `working`, mismo
+criterio ya fijado para `set_active_model`/criterio 9 de `US-FB024-11`).
 
 Ninguna funcion lanza una excepcion no controlada ante un runtime no
 soportado o un parseo fallido — devuelven None/False respectivamente.
@@ -20,6 +33,20 @@ Este patron es fragil: depende del texto literal que OpenCode decida
 mostrar en su barra de estado, que puede cambiar entre versiones del
 binario sin previo aviso. Si el patron deja de coincidir, el sistema
 devuelve `None` sin fallar — no hay heuristica de respaldo.
+
+## Patron de texto del panel `/status` de Claude Code (documentado por
+## fragilidad, mismo criterio que la barra de estado de OpenCode)
+
+Verificado en vivo (`00-gobierno`, T-FB024-US11-05, captura real contra
+el pane del Arquitecto) que `/status` + Enter abre un panel modal con una
+línea `"Model:            Default (Sonnet 5 · Efficient for routine
+tasks)"` — el parseo busca la línea que empieza por `"Model:"` (tras
+strip) y devuelve el resto tras los dos puntos, con espacios colapsados.
+Este patrón depende del texto/formato literal que Claude Code decida
+mostrar en ese panel, que puede cambiar entre versiones de la CLI sin
+previo aviso — igual de frágil que el patrón `"Build · "` de OpenCode, y
+con el mismo criterio: si el patrón deja de coincidir, se devuelve `None`
+sin fallar, sin heurística de respaldo.
 """
 
 from __future__ import annotations
@@ -34,13 +61,17 @@ from brain.tmux import (
     DEFAULT_SOCKET_NAME,
     capture_pane_lines,
     is_alive,
+    run_command,
     send_keys_literal,
 )
 
 _MODEL_STATUS_PATTERN = "Build · "
+_CLAUDE_CODE_STATUS_MODEL_PATTERN = "Model:"
 
 _STEP_SLEEP_S = 0.3
 _VERIFY_SLEEP_S = 2.0
+_STATUS_PANEL_OPEN_WAIT_S = 2.0
+_STATUS_PANEL_CLOSE_WAIT_S = 0.3
 
 def get_available_models(catalog_path: Path | None = None) -> list[str]:
     """Identificadores de modelos disponibles (solo IDs), leidos del fichero
@@ -138,6 +169,84 @@ def _parse_model_from_pane(lines: list[str]) -> str | None:
     for line in reversed(lines):
         if _MODEL_STATUS_PATTERN in line:
             rest = line.split(_MODEL_STATUS_PATTERN, 1)[1].strip()
+            if rest:
+                return rest
+    return None
+
+
+def get_active_model_claude_code(
+    agent_id: str, *, socket_name: str | None = None
+) -> str | None:
+    """Lee el modelo activo de un agente Claude Code enviando `/status` al
+    pane (T-FB024-US11-05) — INTERACCIÓN ACTIVA, a diferencia de
+    `get_active_model` (OpenCode, lectura pasiva). Por eso esta función
+    NUNCA debe invocarse automáticamente: quien la llame (la ruta HTTP
+    bajo demanda) es responsable de comprobar que el agente está `idle`
+    ANTES de invocarla — esta función no conoce `Agent.status` (vive en
+    `brain.models`, una capa por encima de este módulo, que solo conoce
+    `RuntimeInstance`/tmux), así que no puede hacer esa comprobación por
+    su cuenta.
+
+    Devuelve el texto tras `"Model:"` en el panel de `/status` (nombre +
+    detalle entre paréntesis, tal cual lo muestra Claude Code), o `None`
+    si:
+    - El runtime no es Claude Code.
+    - El agente no tiene runtime registrado.
+    - La sesión tmux no está viva.
+    - El patrón `"Model:"` no aparece en el panel tras esperar a que abra.
+    - Cualquier excepción inesperada (atrapada, nunca se propaga).
+
+    Flujo (verificado en vivo, ver docstring del módulo): envía `/status`
+    + Enter (`run_command`, mismo mecanismo ya usado para lanzar el
+    prompt inicial de un agente — `send_keys` con `enter=True` por
+    defecto), espera a que el panel abra, captura el pane, cierra el
+    panel con `Escape` (`send_keys_literal`) SIEMPRE — incluso si el
+    parseo falla — para no dejar el pane del agente en un estado distinto
+    al que tenía antes de consultar (criterio de aceptación 4 de la
+    Task)."""
+    rt = get_runtime_instance_for_agent(agent_id)
+    if rt is None:
+        return None
+    if rt.runtime.type != "claude-code":
+        return None
+
+    session_name = rt.session_name
+    sock = socket_name or DEFAULT_SOCKET_NAME
+
+    if not is_alive(session_name, socket_name=sock):
+        return None
+
+    try:
+        run_command(session_name, "/status", socket_name=sock)
+        time.sleep(_STATUS_PANEL_OPEN_WAIT_S)
+        lines = capture_pane_lines(session_name, socket_name=sock)
+        model = _parse_model_from_claude_code_status(lines)
+    except Exception:
+        model = None
+    finally:
+        # Cerrar el panel pase lo que pase (parseo ok, fallido, o
+        # excepción) — el pane nunca debe quedar en un estado distinto al
+        # que tenía antes de consultar.
+        try:
+            send_keys_literal(session_name, "Escape", socket_name=sock)
+            time.sleep(_STATUS_PANEL_CLOSE_WAIT_S)
+        except Exception:
+            pass
+
+    return model
+
+
+def _parse_model_from_claude_code_status(lines: list[str]) -> str | None:
+    """Extrae el modelo del panel `/status` de Claude Code.
+
+    Busca la última línea que, tras `strip()`, empiece por `"Model:"` y
+    devuelve el resto tras los dos puntos, con espacios exteriores e
+    interiores colapsados. `None` si no se encuentra o el resto está
+    vacío."""
+    for line in reversed(lines):
+        stripped = line.strip()
+        if stripped.startswith(_CLAUDE_CODE_STATUS_MODEL_PATTERN):
+            rest = stripped[len(_CLAUDE_CODE_STATUS_MODEL_PATTERN):].strip()
             if rest:
                 return rest
     return None

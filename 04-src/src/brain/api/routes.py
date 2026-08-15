@@ -70,6 +70,7 @@ from brain.runtime.agent_runtime_registry import get_runtime_instance_for_agent
 from brain.runtime.generic import extract_model_from_runtime, is_runtime_alive
 from brain.agent_model import (
     get_active_model as agent_model_get_active_model,
+    get_active_model_claude_code as agent_model_get_active_model_claude_code,
     get_available_model_entries as agent_model_get_available_model_entries,
     get_available_models as agent_model_get_available_models,
     set_active_model as agent_model_set_active_model,
@@ -494,7 +495,12 @@ def post_agents(body: LaunchAgentRequest) -> dict:
             initial_job_description=body.initial_job_description,
             socket_name=_SOCKET_NAME,
         )
-    except (AgentLaunchError, SessionNotActiveError, JobCreationError) as error:
+    except (
+        AgentLaunchError,
+        SessionNotActiveError,
+        JobCreationError,
+        RuntimeError,
+    ) as error:
         raise HTTPException(status_code=400, detail=str(error)) from error
 
     jobs_hub.publish({"event": "job_status", **_serialize_job(job)})
@@ -516,10 +522,16 @@ def _find_agent_by_id(session, agent_id: str) -> Agent | None:
 @router.post("/agents/{agent_id}/stop")
 def post_agent_stop(agent_id: str) -> dict:
     """Detiene el agente `agent_id` de la sesión activa (`stop_agent`,
-    T-FB016-US01-03): detiene su sesión tmux real y lo transiciona a
-    `stopped` — nunca a `unavailable`. Devuelve el estado ya actualizado,
-    reflejado inmediatamente en `GET /agents` después (criterio de
-    aceptación explícito de la Task)."""
+    T-FB016-US01-03): detiene su sesión tmux real. Para la mayoría de
+    roles (incluido Arquitecto) lo transiciona a `stopped` — nunca a
+    `unavailable` — y permanece consultable en `GET /agents` después. Para
+    Developer (T-FB024-US12-02, decisión de producto), en cambio, el
+    `Agent` se elimina por completo de la sesión: deja de listarse en
+    `GET /agents` y libera de inmediato su plaza del límite de Developer
+    simultáneos — ver docstring de `stop_agent` para el detalle completo.
+    La respuesta siempre devuelve el estado del agente justo tras la
+    acción (con `status: stopped` también en el caso Developer, aunque ya
+    no sea consultable después)."""
     session = get_current_session()
     if session is None:
         raise HTTPException(
@@ -533,7 +545,7 @@ def post_agent_stop(agent_id: str) -> dict:
         )
 
     try:
-        stop_agent(agent, socket_name=_SOCKET_NAME)
+        stop_agent(agent, session, socket_name=_SOCKET_NAME)
     except (AgentRuntimeNotFoundError, InvalidAgentTransitionError) as error:
         raise HTTPException(status_code=400, detail=str(error)) from error
 
@@ -606,6 +618,51 @@ def get_agent_model(agent_id: str) -> dict:
             status_code=404, detail=f"No existe ningún agente con id '{agent_id}'."
         )
     model = agent_model_get_active_model(agent_id, socket_name=_SOCKET_NAME)
+    return {"agent_id": agent_id, "model": model}
+
+
+@router.get("/agents/{agent_id}/status-model")
+def get_agent_status_model(agent_id: str) -> dict:
+    """Modelo activo real del agente `agent_id`, leído bajo demanda vía
+    `/status` del pane (T-FB024-US11-05, `get_active_model_claude_code`)
+    — a diferencia de `GET /agents/{id}/model` (OpenCode, lectura pasiva
+    de la barra de estado), esta ruta interactúa activamente con el pane
+    (envía `/status` + Enter, espera, captura, cierra con Escape).
+
+    Por eso, y por decisión de producto ya cerrada (nunca automático, solo
+    bajo demanda explícita del humano — ver `agent_model.py`), esta ruta:
+    - Devuelve `400` explícito si el agente está `working` — nunca se
+      interactúa con el pane de un agente trabajando activamente
+      (criterio de aceptación 2 de la Task), no solo cuando se dispara
+      automáticamente.
+    - Solo tiene sentido para agentes Claude Code; para cualquier otro
+      runtime `get_active_model_claude_code` ya devuelve `None` sin
+      fallar (mismo criterio del resto de endpoints de modelo: la
+      ausencia de dato es un dato en sí mismo, no un error HTTP).
+
+    Devuelve `{agent_id, model: str | null}`. 404 solo si no hay sesión
+    activa o el agente no existe en ella."""
+    session = get_current_session()
+    if session is None:
+        raise HTTPException(
+            status_code=404, detail="No hay ninguna sesión de desarrollo activa."
+        )
+    agent = _find_agent_by_id(session, agent_id)
+    if agent is None:
+        raise HTTPException(
+            status_code=404, detail=f"No existe ningún agente con id '{agent_id}'."
+        )
+    if agent.status == "working":
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"No se puede consultar el modelo del agente '{agent.name}': "
+                "está 'working'. Consultar el modelo requiere interactuar "
+                "con su pane (/status), lo que interrumpiría su trabajo en "
+                "curso — espera a que quede 'idle' antes de consultar."
+            ),
+        )
+    model = agent_model_get_active_model_claude_code(agent_id, socket_name=_SOCKET_NAME)
     return {"agent_id": agent_id, "model": model}
 
 

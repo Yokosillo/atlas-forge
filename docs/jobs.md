@@ -38,8 +38,8 @@ Before sending, `_resolve_job_description` may enrich the description with Scrib
 Chaining is **manual and explicit** (v1; there is no declarative pipeline):
 
 - When creating a Job with `previous_job_id`, the previous Job's result (must be `completed` and with a non-empty result) is injected **literally** into the new Job's description.
-- **Role guard**: Developer→Developer is blocked — "a Developer result must be chained to a Critic" (Architect). All other combinations are allowed.
-- Primary use: Developer produces → chained to Critic/Architect for review.
+- **Role guard**: Developer→Developer is blocked — a Developer result must be chained to the Architect for review. All other combinations are allowed.
+- Primary use: Developer produces → chained to the Architect for review.
 
 ## History and reports
 

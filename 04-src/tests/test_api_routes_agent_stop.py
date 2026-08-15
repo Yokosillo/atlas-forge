@@ -71,10 +71,15 @@ def test_post_agent_stop_reflects_in_get_agents_immediately(
     tmp_path: Path, isolated_socket: str, monkeypatch
 ) -> None:
     """Criterio de aceptación: POST /agents/{agent_id}/stop refleja el
-    cambio en GET /agents inmediatamente después."""
+    cambio en GET /agents inmediatamente después.
+
+    Rol no-Developer (Arquitecto) a propósito: con Developer
+    (T-FB024-US12-02), detener elimina el agente por completo — ver
+    `test_post_agent_stop_removes_a_developer_entirely` más abajo para ese
+    caso específico."""
     _project, session = _active_project_and_session(tmp_path, monkeypatch)
     agent, runtime_instance = launch_agent(
-        "developer", "claude-code", None, session, str(tmp_path), socket_name=isolated_socket
+        "arquitecto", "claude-code", None, session, str(tmp_path), socket_name=isolated_socket
     )
     assert is_runtime_alive(runtime_instance, socket_name=isolated_socket) is True
 
@@ -99,6 +104,29 @@ def test_post_agent_stop_reflects_in_get_agents_immediately(
             "last_command_at": None,
         }
     ]
+
+
+def test_post_agent_stop_removes_a_developer_entirely(
+    tmp_path: Path, isolated_socket: str, monkeypatch
+) -> None:
+    """T-FB024-US12-02: para Developer, POST /agents/{agent_id}/stop
+    elimina el Agent por completo — GET /agents deja de listarlo, a
+    diferencia del resto de roles (ver test de arriba)."""
+    _project, session = _active_project_and_session(tmp_path, monkeypatch)
+    agent, runtime_instance = launch_agent(
+        "developer", "claude-code", None, session, str(tmp_path), socket_name=isolated_socket
+    )
+    assert is_runtime_alive(runtime_instance, socket_name=isolated_socket) is True
+
+    client = TestClient(create_app())
+
+    response = client.post(f"/agents/{agent.id}/stop")
+
+    assert response.status_code == 200
+    assert response.json()["status"] == "stopped"
+    assert is_runtime_alive(runtime_instance, socket_name=isolated_socket) is False
+
+    assert client.get("/agents").json() == []
 
 
 def test_post_agent_stop_returns_404_for_unknown_agent_id(
