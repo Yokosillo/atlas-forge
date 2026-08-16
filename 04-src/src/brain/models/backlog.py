@@ -39,8 +39,13 @@ class BacklogItem:
     valor literal de la sección `## Prioridad` (p. ej. `Alta.`, `Media.`,
     `Baja — ...`) o `None` si el fichero no la declara — es un campo
     OPcional, no un error de parseo (un backlog recién creado puede tener
-    items sin prioridad aún asignada); `path` es la ruta del fichero del que
-    se leyó (para reportar errores de parseo de ese fichero concreto)."""
+    items sin prioridad aún asignada); `user_story` es el valor del campo
+    `user_story:` del frontmatter YAML de una Task (la US a la que
+    pertenece, p. ej. `US-FB020-01`) o `None` para Epics/User Stories, que
+    no lo declaran — es la relación real Task→US (T-FB008-US04-05:
+    `dependencies` NUNCA se usó para esto, pese a que `build_item_detail`
+    lo asumía); `path` es la ruta del fichero del que se leyó (para
+    reportar errores de parseo de ese fichero concreto)."""
 
     id: str
     kind: str
@@ -50,6 +55,7 @@ class BacklogItem:
     priority: str | None
     fase: str | None
     path: Path
+    user_story: str | None = None
 
 
 @dataclass(frozen=True)

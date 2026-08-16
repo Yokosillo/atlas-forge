@@ -201,12 +201,25 @@ Solo detecta drift: `--check` no escribe nada; `--apply` escribe las
 promociones. Ambos son **deterministas e idempotentes** — no interviene ningún
 agente LLM en la decisión, coherente con "automatización determinista primero".
 
+**Drift inverso** (`T-FB022-US13-04`, `detect_reopened_drift`/
+`detect_reopened_drift_in_graph` en `brain/backlog/promote.py`): el mismo
+`--check` detecta también el caso contrario — una US/Epic marcada `DONE`
+que tiene un hijo directo (Task/US) reabierto a `TODO`/`IN_PROGRESS`/
+`REVIEW`. A diferencia de la promoción, este caso **solo se detecta, nunca
+se corrige automáticamente** (`--apply` no lo toca) — revertir `DONE` sin
+intervención humana tiene más impacto que promocionar hacia `DONE`. La
+misma detección se reutiliza en modo lectura por `GET /backlog`/
+`GET /backlog/{item_id}` (`T-FB022-US13-05`, `brain/backlog/report.py`/
+`detail.py`) para que la web nunca sirva un padre `DONE` con un hijo
+pendiente, sin esperar al siguiente commit.
+
 ## Cuándo se ejecuta
 
 - **Pre-commit hook** (local, en cada commit): `promote_states.py --check`
-  corre con `git commit` y **bloquea el commit** si hay drift (US/Epic con
-  todos sus hijos `DONE` pero el padre no); es el único mecanismo de reporte
-  en el proyecto (no hay pipeline de CI remoto) — siempre que el gancho esté
+  corre con `git commit` y **bloquea el commit** si hay drift (de promoción
+  o inverso); es uno de los dos chequeos del hook (ver también "Chequeo de
+  formato de backlog" más abajo) — no hay pipeline de CI remoto, así que
+  el hook local es el único mecanismo de reporte, siempre que esté
   instalado.
 - **Síncrono en el pipeline** (`brain/dispatcher/job_plan_dispatch.py`):
   `_mark_story_tasks_done` invoca `promote_backlog` justo después de marcar
@@ -236,6 +249,61 @@ git add 02-backlog/ && git commit
 Como el chequeo es idempotente, ejecutar `--apply` sobre un backlog ya
 consistente no cambia nada — por lo que se puede entrelazar con `--check`
 sin miedo.
+
+---
+
+# Chequeo de formato de backlog
+
+Segundo control técnico del mismo pre-commit hook (`T-FB022-US13-06`),
+independiente del chequeo de reconciliación de estado de arriba — uno
+valida FORMATO (esquema de campos del frontmatter YAML), el otro valida
+COHERENCIA de estado entre padres e hijos. Ambos deben pasar para poder
+comitear; que uno pase no exime del otro. Mismo principio que el
+chequeo de estado: control técnico real vía git, no una norma que
+depende de que quien escribe backlog se acuerde de ejecutar el
+validador manualmente.
+
+## Quién lo ejecuta
+
+`04-src/scripts/validate_backlog.py` (Python determinista, sin LLM),
+que reutiliza `validate_backlog_file_v2`
+(`brain/backlog/validator_v2.py`) — el mismo validador que ya usa el
+Arquitecto al generar backlog, sin una segunda lógica de validación
+paralela. Dos modos:
+
+- **Por defecto** (uso del hook): valida solo los ficheros de
+  `02-backlog/{epics,user-stories,tasks}/*.md` staged en el commit
+  actual (`git diff --cached --name-only`), no el backlog completo en
+  cada commit.
+- **`--batch <directorio>`** (`T-FB022-US13-07`): valida todos los
+  `.md` de un directorio arbitrario — no requiere estar dentro de un
+  repositorio git ni que el directorio sea `02-backlog/` de un proyecto
+  activo. Pensado para revisar de antemano un lote de migración
+  (backlog externo ya convertido al esquema de Factory Brain, p. ej.
+  desde Jira u otro Markdown) antes de moverlo al repositorio real, sin
+  depender de comitear y toparse con el hook fichero a fichero. Reporte
+  agregado (total / válidos / inválidos con su error exacto). Solo
+  lectura — nunca modifica ni mueve ningún fichero. **No incluye ningún
+  conversor de formato externo** (Jira, otro Markdown, CSV/JSON) al
+  esquema de Factory Brain — eso queda fuera de alcance hasta que exista
+  un caso real de migración concreto.
+
+## Cuándo se ejecuta
+
+Pre-commit hook (local, en cada commit), instalado junto al chequeo de
+reconciliación de estado por el mismo `install_git_hooks.sh` (ver
+instalación arriba) — un único hook, dos chequeos independientes.
+
+## Nota sobre el backlog real de este proyecto (verificado 2026-08-16)
+
+Existe también `brain/backlog/validator.py` (validador v1, formato
+Markdown antiguo con negrita) además de `validator_v2.py` (YAML
+frontmatter, `FB-027`, vigente) — este hook usa exclusivamente
+`validator_v2`. Verificado explícitamente sobre los ~444 ficheros reales
+de `02-backlog/` (`epics/`, `user-stories/`, `tasks/`): **todos pasan
+`validate_backlog_file_v2` sin excepción**, no hay ningún fichero legado
+en formato v1 en el backlog real — no ha hecho falta ninguna lista de
+exclusión para ficheros históricos.
 
 ---
 

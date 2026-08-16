@@ -65,11 +65,24 @@ def _select_project_and_start_backend_session(workspace_root: Path, state_dir: P
 
 
 def _write_epic_file(path: Path, epic_id: str, *, objetivo: str = "Objetivo de la Epic.") -> None:
-    """Fiel al formato real de `02-backlog/epics/*.md` (mismo fixture que
-    `test_api_routes_backlog.py`, tras la corrección del hallazgo del
-    Crítico en T-FB020-US01-01): secciones internas en `#`, no `##`."""
+    """Fiel al formato real VIGENTE de `02-backlog/epics/*.md`
+    (frontmatter YAML, `FB-027`, 2026-08-06) — actualizado en
+    `T-FB018-US02-06`: antes usaba el formato Markdown antiguo
+    (`# FB-xxx Título` como primera línea, sin frontmatter), que dejó de
+    reflejar el backlog real tras `FB-027` y nunca se actualizó, hasta
+    que `_epic_label_from_file` empezó a leer el campo `title` del
+    frontmatter (esta Task) — con el fixture antiguo, el título esperado
+    por `test_epic_list_shows_epics_with_their_user_story_and_task_counts`
+    dejaba de aparecer."""
     path.write_text(
-        f"# {epic_id} Epic de prueba\n\n"
+        "---\n"
+        f"id: {epic_id}\n"
+        "type: epic\n"
+        f"title: {epic_id} Epic de prueba\n"
+        "state: TODO\n"
+        "dependencies: []\n"
+        "---\n\n"
+        f"# {epic_id} · Epic de prueba\n\n"
         f"## Objetivo\n\n{objetivo}\n\n"
         "---\n\n"
         "# Contexto\n\nInvestigación previa.\n",
@@ -342,14 +355,52 @@ async def test_expanding_an_epic_shows_its_state_breakdown_in_place(tmp_path, ba
         assert len(backlog_screen.query("#open-epic-0").nodes) == 1
 
 
+def _seed_backlog_yaml_tasks(repo_path: Path) -> None:
+    """Igual que `_seed_backlog`, pero con las Tasks en el formato YAML
+    frontmatter VIGENTE (FB-027) — necesario para los tests que verifican
+    el listado de Tasks de una User Story: esa relación se deriva del
+    campo `user_story:` (T-FB008-US04-05), ausente en el formato Markdown
+    legacy que usa `_seed_backlog`/`_write_task` de este fichero."""
+    backlog = repo_path / "02-backlog"
+    (backlog / "epics").mkdir(parents=True)
+    (backlog / "user-stories").mkdir(parents=True)
+    (backlog / "tasks").mkdir(parents=True)
+
+    _write_epic_file(backlog / "epics" / "FB-999-epic-de-prueba.md", "FB-999")
+    _write_user_story(
+        backlog / "user-stories" / "US-FB999-01.md",
+        "US-FB999-01",
+        epic="FB-999 · Epic de prueba",
+        state="TODO",
+    )
+    (backlog / "tasks" / "T-FB999-US01-01.md").write_text(
+        "---\nid: T-FB999-US01-01\ntype: task\ntitle: Primera\nstate: DONE\n"
+        "dependencies: []\nepic: FB-999\nuser_story: US-FB999-01\npriority: Alta\n"
+        "---\n\n# T-FB999-US01-01 · Primera\n\n## Objetivo\n\nObjetivo.\n\n"
+        "## Criterios de aceptación\n\n- Criterio único.\n",
+        encoding="utf-8",
+    )
+    (backlog / "tasks" / "T-FB999-US01-02.md").write_text(
+        "---\nid: T-FB999-US01-02\ntype: task\ntitle: Segunda\nstate: TODO\n"
+        "dependencies: []\nepic: FB-999\nuser_story: US-FB999-01\npriority: Alta\n"
+        "---\n\n# T-FB999-US01-02 · Segunda\n\n## Objetivo\n\nObjetivo.\n\n"
+        "## Criterios de aceptación\n\n- Criterio único.\n",
+        encoding="utf-8",
+    )
+
+
 async def test_task_and_user_story_states_are_color_coded(tmp_path, backend) -> None:
     # Criterio de aceptación 1: "Cada fila de Epic/User Story/Task en
     # ambos clientes muestra un indicador de color junto a su texto de
     # estado... equivalente semántico en TUI."
+    # T-FB008-US04-05 (2026-08-16): usa Tasks en formato YAML — la
+    # relación Task→US se deriva de `user_story:`, no de `## Dependencias`
+    # (formato legacy de `_seed_backlog`, que ya no refleja ninguna Task
+    # real del backlog vigente).
     workspace_root = tmp_path / "workspace"
     state_dir = tmp_path / "state"
     repo_path = _select_project_and_start_backend_session(workspace_root, state_dir)
-    _seed_backlog(repo_path)
+    _seed_backlog_yaml_tasks(repo_path)
 
     app = FactoryBrainApp(
         workspace_root=workspace_root, state_dir=state_dir, backend_client=backend
@@ -417,10 +468,11 @@ async def test_selecting_a_user_story_shows_objective_criteria_and_its_tasks(
     # Criterio de aceptación 3: "Tocar/seleccionar una User Story muestra
     # su detalle completo: objetivo, criterios de aceptación, Tasks con
     # estado."
+    # T-FB008-US04-05 (2026-08-16): idem test anterior, Tasks en YAML.
     workspace_root = tmp_path / "workspace"
     state_dir = tmp_path / "state"
     repo_path = _select_project_and_start_backend_session(workspace_root, state_dir)
-    _seed_backlog(repo_path)
+    _seed_backlog_yaml_tasks(repo_path)
 
     app = FactoryBrainApp(
         workspace_root=workspace_root, state_dir=state_dir, backend_client=backend
@@ -442,8 +494,8 @@ async def test_selecting_a_user_story_shows_objective_criteria_and_its_tasks(
         assert "US-FB999-01" in text
         assert "Como usuario quiero X para lograr Y." in text
         assert "Criterio uno." in text
-        # Sus dos Tasks (una DONE, una TODO), ambas declaran esta US en
-        # `## Dependencias` — derivado del grafo, sin releer ficheros.
+        # Sus dos Tasks (una DONE, una TODO), ambas declaran esta US en su
+        # campo `user_story:` — derivado del grafo, sin releer ficheros.
         assert "T-FB999-US01-01" in text
         assert "T-FB999-US01-02" in text
         # T-FB020-US03-01: el estado va coloreado con marcado Rich

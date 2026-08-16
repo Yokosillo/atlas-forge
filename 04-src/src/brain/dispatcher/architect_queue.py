@@ -26,11 +26,21 @@ from __future__ import annotations
 
 import json
 import re
+import subprocess
 import threading
 from datetime import datetime, timezone
 from pathlib import Path
 
 _QUEUE_FILENAME = "architect_queue.jsonl"
+
+# T-FB030-US03-04: ruta del script vigilante, raíz del repo (mismo patrón
+# que `WEB_ROOT` en `brain.api.app`: ancla a `__file__`, no al cwd, para
+# funcionar igual se lance `brain-api` desde la raíz del repo o desde
+# dentro de `04-src/`). `architect_queue.py` vive en
+# `04-src/src/brain/dispatcher/`, cuatro niveles por debajo de la raíz.
+_WATCHER_SCRIPT_PATH = (
+    Path(__file__).resolve().parents[4] / "architect_queue_watcher.sh"
+)
 
 # Serializa los `append` concurrentes DENTRO de este mismo proceso — no
 # evita colisión entre procesos distintos (el modo `"a"` del sistema de
@@ -97,6 +107,57 @@ def append_to_architect_queue(
             handle.write(line)
 
     return path
+
+
+def _watcher_already_running(project_root: Path | str, project_name: str) -> bool:
+    """`True` si ya hay un proceso `architect_queue_watcher.sh` vivo para
+    este mismo `(project_root, project_name)` (T-FB030-US03-04, criterio 3
+    — no lanzar un segundo watcher duplicado, mismo problema de fondo que
+    `FB-037`). Busca por línea de comandos completa (`pgrep -f`) con los
+    mismos argumentos sin sanear que recibiría el propio lanzamiento —
+    coincide exactamente con lo que `subprocess.Popen` invocaría a
+    continuación, así que no hace falta un registro de PID propio."""
+    pattern = f"{_WATCHER_SCRIPT_PATH} {project_root} {project_name}"
+    try:
+        result = subprocess.run(
+            ["pgrep", "-f", re.escape(pattern)],
+            capture_output=True,
+            timeout=5,
+        )
+    except (FileNotFoundError, subprocess.TimeoutExpired):
+        # Sin `pgrep` disponible (o si tarda de forma anómala), no se puede
+        # verificar duplicado — se prefiere arriesgar un watcher duplicado
+        # (mismo efecto observable, solo un proceso de más) antes que
+        # bloquear el arranque de `brain-api` por esta comprobación.
+        return False
+    return result.returncode == 0
+
+
+def launch_architect_queue_watcher(
+    project_root: Path | str, project_name: str
+) -> subprocess.Popen | None:
+    """Lanza `architect_queue_watcher.sh <project_root> <project_name>`
+    como subproceso independiente en segundo plano (T-FB030-US03-04), para
+    que el aviso al Arquitecto de un cierre de Task funcione sin que nadie
+    tenga que ejecutar el script a mano en una terminal aparte.
+
+    No bloquea: `subprocess.Popen` devuelve el control inmediatamente,
+    dejando el proceso corriendo de forma indefinida (nunca termina en
+    operación normal). `start_new_session=True` lo desacopla del proceso
+    padre (`brain-api`) — no debe morir si `brain-api` recibe una señal
+    que no le llega directamente a él.
+
+    Devuelve `None` sin lanzar nada si ya hay un watcher vivo para el
+    mismo proyecto (`_watcher_already_running`) — idempotente ante
+    reinicios de `brain-api` (criterio de aceptación 3)."""
+    if _watcher_already_running(project_root, project_name):
+        return None
+    return subprocess.Popen(
+        [str(_WATCHER_SCRIPT_PATH), str(project_root), project_name],
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        start_new_session=True,
+    )
 
 
 def read_architect_queue(project_root: Path | str, project_name: str) -> list[dict]:

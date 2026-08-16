@@ -18,6 +18,32 @@ Toda la interacción con los proyectos deberá realizarse desde Factory Brain.
 
 ---
 
+## Qué es Factory Brain realmente (análisis estratégico, 2026-08-16)
+
+Factory Brain es una **capa de coordinación entre el trabajo definido y los agentes que lo ejecutan**. La frase clave de la propia visión es la mejor definición que existe del producto: "Factory Brain automatiza la ejecución del trabajo, no las decisiones sobre qué trabajo realizar."
+
+El concepto central no es el backlog ni los agentes — es la **sesión de desarrollo persistente**: agentes que sobreviven entre trabajos, con contexto acumulado, coordinados por un dispatcher, sobre runtimes intercambiables. El backlog (Epic→US→Task) es el lenguaje con el que se describe el trabajo; los Jobs/pipelines son el mecanismo con el que se ejecuta.
+
+**Diferencia con un gestor de proyectos tradicional:** Jira describe trabajo para que humanos lo hagan. Aquí el backlog es ejecutable — una Task puede pasar de fichero Markdown a código verificado sin que ningún humano escriba una línea, con el sistema actualizando el estado del propio backlog al cerrar.
+
+**Diferencia con un coding agent:** Claude Code hace el trabajo pero no sabe qué trabajo existe, no persiste entre sesiones por sí solo, no coordina con otros agentes, y no valida su propio resultado. Factory Brain es la capa que le falta a un coding agent para ser una fábrica en vez de una herramienta.
+
+### Dónde encaja
+
+- **No compite con Jira/Linear** — y no debería intentarlo. Su modelo de backlog en ficheros Markdown con validador es funcional pero es la parte menos diferencial del producto.
+- **No compite con Claude Code/Codex/OpenCode** — los consume como runtimes, que es exactamente la relación correcta.
+- Su vecino real más cercano es la categoría emergente de "orquestadores de coding agents" (Factory.ai, GitHub Copilot coding agent, GitLab Duo). La diferencia observable: esos son de un solo proveedor/runtime; Factory Brain es agnóstico de runtime por diseño, y añade la capa de veredicto/validación (el ciclo Developer→Arquitecto) que aquellos no tienen como concepto de primera clase.
+- Integración natural: con los gestores de trabajo (importar issues) hacia arriba, y con los runtimes hacia abajo. Hoy no existe ninguna integración hacia arriba — todo el backlog es propio.
+
+### Qué es realmente diferencial (con evidencia real, no solo intención de diseño)
+
+- **El ciclo de verificación adversarial**: Developer implementa → Arquitecto verifica de forma independiente (tests re-ejecutados, código leído, reproducción real) → veredicto estructurado. Este ciclo ha cazado bugs reales que el Developer no vio. Ningún producto de la comparación anterior tiene esto como mecanismo central.
+- **"Determinista primero"**: validador de formato, promoción de estados, pre-commit hooks — el sistema gasta LLM solo donde aporta. Es una disciplina operativa real verificada en uso diario, no un eslogan.
+
+*Origen: análisis estratégico conversacional del Arquitecto, contrastado contra la documentación y el backlog reales del proyecto (no una auditoría exhaustiva de código). Ver también `docs/index.md` (versión en inglés, cara pública del proyecto) para el mismo contenido con la comparación de mercado completa.*
+
+---
+
 # Problema
 
 Actualmente el desarrollo asistido por IA requiere utilizar múltiples herramientas independientes.

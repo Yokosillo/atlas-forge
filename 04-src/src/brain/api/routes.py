@@ -20,6 +20,13 @@ from brain.agents.stop import AgentRuntimeNotFoundError, stop_agent
 from brain.api.events import jobs_hub, plans_hub
 from brain.api.plan_registry import get_plan, get_plan_lock, list_plans, register_plan
 from brain.backlog.detail import build_epic_detail, build_item_detail, is_epic_item_id
+from brain.backlog.edit import (
+    BacklogValidationError,
+    InvalidFieldValueError,
+    set_item_priority,
+    set_item_state,
+)
+from brain.backlog.promote import promote_backlog
 from brain.backlog.dependency_graph import (
     analyze_epic_threads,
     format_thread_analysis_markdown,
@@ -34,7 +41,7 @@ from brain.architect.review_user_story import review_user_story_for_gaps
 from brain.architect.task_pipeline import run_task_pipeline
 from brain.architect.us_pipeline import run_us_pipeline
 from brain.backlog.parser import load_backlog
-from brain.backlog.report import build_backlog_report
+from brain.backlog.report import build_backlog_report, priority_rank
 from brain.core.session_lifecycle import SessionNotActiveError, list_agents
 from brain.core.session_registry import focus_project_session, get_current_session
 from brain.agents.agent_options import list_available_agent_options
@@ -47,11 +54,21 @@ from brain.dispatcher.job_cancellation import (
     JobCancellationRejectedError,
     request_cancellation,
 )
+from brain.dispatcher.dispatch_queue import (
+    STATUS_QUEUED,
+    TaskAlreadyDispatchedError,
+    TaskAlreadyQueuedError,
+    TaskNotQueuedError,
+    dequeue_task,
+    enqueue_task,
+    get_queue,
+)
 from brain.dispatcher.job_creation import JobCreationError
 from brain.dispatcher.job_dispatch import dispatch_job
 from brain.dispatcher.job_history_registry import list_jobs_for_session
 from brain.dispatcher.job_orchestration import create_and_record_job
 from brain.dispatcher.job_plan_approval import present_plan_for_approval
+from brain.dispatcher.job_report import write_job_report
 from brain.dispatcher.job_plan_builder import (
     _pending_task_files_for_story,
     _read_task_title,
@@ -62,10 +79,14 @@ from brain.dispatcher.job_plan_cancellation import (
     JobPlanCancellationRejectedError,
     request_cancellation as request_plan_cancellation,
 )
-from brain.dispatcher.job_plan_dispatch import dispatch_plan, get_plan_progress
+from brain.dispatcher.job_plan_dispatch import (
+    dispatch_plan,
+    get_plan_progress,
+    trigger_architect_verdict,
+)
 from brain.dispatcher.job_plan_lifecycle import InvalidJobPlanTransitionError
 from brain.models import Agent, Job
-from brain.models.backlog import ITEM_KIND_USER_STORY
+from brain.models.backlog import ITEM_KIND_TASK, ITEM_KIND_USER_STORY
 from brain.runtime.agent_runtime_registry import get_runtime_instance_for_agent
 from brain.runtime.generic import extract_model_from_runtime, is_runtime_alive
 from brain.agent_model import (
@@ -129,6 +150,14 @@ _BACKLOG_PROSE_TIMEOUT_SECONDS = 15.0
 _WORKSPACE_ROOT: Path | None = None
 _STATE_DIR: Path | None = None
 
+# T-FB008-US10-02: instancia del Dispatcher de fondo de la cola de
+# despacho, arrancada en `_lifespan` (`brain/api/app.py`) — variable de
+# módulo (mismo patrón que `_SOCKET_NAME`/`_STATE_DIR`) para que
+# `GET /backlog/queue` (o cualquier endpoint futuro) pueda inspeccionar
+# su estado si hiciera falta, y para que los tests puedan detenerlo
+# explícitamente entre casos sin depender del recolector de basura.
+_dispatch_queue_worker = None
+
 
 def _resolve_workspace_root() -> Path:
     return _WORKSPACE_ROOT if _WORKSPACE_ROOT is not None else Path.cwd()
@@ -163,6 +192,12 @@ class CreateJobRequest(BaseModel):
     agent_id: str
     description: str
     previous_job_id: str | None = None
+    # T-FB024-US15-01: Story a la que pertenece este Job suelto (sin pasar
+    # por dispatch_plan). Si se informa, al completarse el Job dispara el
+    # mismo ciclo de informe de cierre + veredicto automático que ya existe
+    # para el flujo de Plan (ver `post_jobs`). Sin él, comportamiento
+    # idéntico al actual.
+    story_id: str | None = None
 
 
 class LaunchDevelopmentRequest(BaseModel):
@@ -302,8 +337,10 @@ def post_project_action(action_id: str) -> dict:
     Acciones disponibles:
     - `documentar`, `analizar-arquitectura`, `sugerir-ideas`: despacha un
       Job al Arquitecto. Requiere sesión activa con un Arquitecto lanzado.
+    - `auditar-ux` (T-FB024-US13-03): despacha un Job a la instancia de UX
+      ya lanzada. Requiere sesión activa con un UX lanzado — si no hay
+      ninguno, informa explícitamente en vez de fallar en silencio.
     - `testear`: ejecuta `pytest` determinista. No requiere sesión.
-    - `auditar-ux`: opencode run --auto headless. No requiere sesión.
     - `indexar`: Scribe index_documents. No requiere sesión.
 
     Bloqueante: la respuesta HTTP llega cuando la acción termina."""
@@ -333,6 +370,12 @@ def post_project_action(action_id: str) -> dict:
         raise HTTPException(status_code=400, detail=str(error)) from error
     except ProjectNotDiscoveredError as error:
         raise HTTPException(status_code=404, detail=str(error)) from error
+    except JobCreationError as error:
+        # Defensa en profundidad (T-FB024-US13-03): `_find_agent_by_role`
+        # ya excluye agentes no `idle` antes de llegar aquí, pero un 500
+        # crudo por un agente en estado inesperado sigue siendo peor que
+        # un 400 explícito si algún camino nuevo llegara a esta excepción.
+        raise HTTPException(status_code=400, detail=str(error)) from error
 
     return result
 
@@ -909,9 +952,31 @@ def post_jobs(body: CreateJobRequest) -> dict:
     except JobCreationError as error:
         raise HTTPException(status_code=400, detail=str(error)) from error
 
+    if body.story_id is not None:
+        job.story_id = body.story_id
+
     jobs_hub.publish({"event": "job_status", **_serialize_job(job)})
 
     dispatch_job(job, agent, runtime_instance, socket_name=_SOCKET_NAME)
+
+    # T-FB024-US15-01: mismo ciclo de informe de cierre + veredicto
+    # automático que ya dispara `dispatch_plan` al completar todos sus
+    # pasos (ver `_dispatch_agent_step`/`trigger_architect_verdict` en
+    # `job_plan_dispatch.py`), ahora también para un Job suelto creado
+    # directamente con `POST /jobs` cuando viene asociado a una Story. Sin
+    # `story_id`, comportamiento idéntico al actual (nada de esto se
+    # ejecuta). Un Job `cancelled` no se reporta — mismo criterio que
+    # `_dispatch_agent_step` ("un paso cancelado no tiene información útil
+    # que persistir").
+    if job.story_id and job.status in ("completed", "failed"):
+        try:
+            write_job_report(job)
+        except Exception:
+            pass
+        try:
+            trigger_architect_verdict(job.story_id, session, socket_name=_SOCKET_NAME)
+        except Exception:
+            pass
 
     jobs_hub.publish({"event": "job_status", **_serialize_job(job)})
 
@@ -1254,6 +1319,283 @@ def get_backlog() -> dict:
 
     backlog_path = Path(project.path) / "02-backlog"
     return build_backlog_report(backlog_path)
+
+
+def _active_project_or_404():
+    project = get_active_project(state_dir=_STATE_DIR)
+    if project is None:
+        raise HTTPException(status_code=404, detail="No hay ningún proyecto activo.")
+    return project
+
+
+def _load_active_backlog_graph(project):
+    backlog_path = Path(project.path) / "02-backlog"
+    return load_backlog(backlog_path)
+
+
+@router.get("/backlog/queue")
+def get_dispatch_queue() -> dict:
+    """Estado completo de la cola de despacho (T-FB008-US10-01): qué
+    Tasks están `queued`/`dispatched`/`failed`, en qué orden por
+    prioridad (`Crítica` > `Alta` > `Media` > `Baja`/sin prioridad,
+    reutilizando `priority_rank` de `brain.backlog.report` — mismo
+    criterio de orden que el resto del backlog, sin un segundo cálculo
+    paralelo). Base del criterio 6 de `US-FB008-10` ("consultable desde
+    la pantalla Backlog sin necesitar la pantalla Plan ni Agentes").
+
+    Declarada ANTES de `GET /backlog/{item_id}` a propósito: FastAPI
+    resuelve las rutas en orden de declaración, y `/backlog/queue`
+    coincidiría con el parámetro `item_id="queue"` de esa ruta genérica
+    si se declarara después — mismo motivo por el que
+    `/backlog/{story_id}/launch-development` (con segmento fijo tras el
+    parámetro) no tiene este problema, pero un segmento fijo SIN
+    parámetro adicional antes sí lo tiene."""
+    project = _active_project_or_404()
+    entries = get_queue(project.path, project.name)
+
+    # Solo las `queued` se ordenan por prioridad (es el orden que le
+    # importa al Dispatcher, `T-FB008-US10-02`, para decidir cuál sacar
+    # primero) — las `dispatched`/`failed` ya no compiten por orden de
+    # despacho, se listan en su propio orden de inserción (histórico).
+    queued = sorted(
+        (e for e in entries if e.status == STATUS_QUEUED),
+        key=lambda e: (priority_rank(e.priority), e.task_id),
+    )
+    dispatched = [e for e in entries if e.status != STATUS_QUEUED]
+
+    def _serialize(entry) -> dict:
+        return {
+            "task_id": entry.task_id,
+            "us_id": entry.us_id,
+            "priority": entry.priority,
+            "status": entry.status,
+            "enqueued_at": entry.enqueued_at,
+            "agent_id": entry.agent_id,
+            "agent_name": entry.agent_name,
+            "result": entry.result,
+            "dispatched_at": entry.dispatched_at,
+        }
+
+    return {
+        "queued": [_serialize(e) for e in queued],
+        "dispatched": [_serialize(e) for e in dispatched if e.status != "failed"],
+        "failed": [_serialize(e) for e in dispatched if e.status == "failed"],
+    }
+
+
+def _find_task_item(graph, task_id: str):
+    item = graph.items.get(task_id)
+    if item is not None and item.kind == ITEM_KIND_TASK:
+        return item
+    return None
+
+
+@router.post("/backlog/{task_id}/enqueue", status_code=201)
+def post_enqueue_task(task_id: str) -> dict:
+    """Marca la Task `task_id` (debe estar en estado `TODO`) como
+    encolada para desarrollo (T-FB008-US10-01, criterio de aceptación 1
+    de `US-FB008-10`) — sin pasar por el flujo de Plan/aprobación.
+
+    404 si `task_id` no existe como Task en el backlog del proyecto
+    activo; 400 si existe pero no está en `TODO` (no tiene sentido
+    encolar algo ya `DONE`/`IN_PROGRESS`/`REVIEW`); 409 si ya estaba
+    encolada (evita duplicados silenciosos ante un doble clic)."""
+    project = _active_project_or_404()
+    graph = _load_active_backlog_graph(project)
+
+    item = _find_task_item(graph, task_id)
+    if item is None:
+        raise HTTPException(
+            status_code=404,
+            detail=f"No existe ninguna Task con id '{task_id}' en el backlog activo.",
+        )
+    if item.state != "TODO":
+        raise HTTPException(
+            status_code=400,
+            detail=f"La Task '{task_id}' no está en estado 'TODO' (estado real: '{item.state}') — no se puede encolar.",
+        )
+
+    try:
+        entry = enqueue_task(
+            project.path,
+            project.name,
+            task_id=item.id,
+            us_id=item.user_story,
+            priority=item.priority,
+        )
+    except TaskAlreadyQueuedError as error:
+        raise HTTPException(status_code=409, detail=str(error)) from error
+
+    return {
+        "task_id": entry.task_id,
+        "us_id": entry.us_id,
+        "priority": entry.priority,
+        "status": entry.status,
+        "enqueued_at": entry.enqueued_at,
+    }
+
+
+@router.post("/backlog/{us_id}/enqueue-all", status_code=201)
+def post_enqueue_all_tasks(us_id: str) -> dict:
+    """Encola de una sola llamada todas las Tasks `TODO` de la User
+    Story `us_id` (T-FB008-US10-01, criterio de aceptación 2 de
+    `US-FB008-10`) — equivalente funcional al lote que hoy ofrece un
+    Plan, pero sin el paso de aprobación explícita.
+
+    Filtra por el campo `item.user_story` real de cada Task (el valor
+    del `user_story:` del frontmatter YAML, T-FB008-US04-05), NUNCA por
+    prefijo del propio `task_id` — confirmado en `T-FB036-US01-04` que
+    esa convención de nombre de fichero no es universal en el backlog
+    real (hay Tasks reales cuyo id no coincide con su `user_story`
+    verdadero).
+
+    404 si `us_id` no existe como User Story en el backlog activo.
+    Idempotente ante Tasks ya encoladas: las salta en vez de fallar toda
+    la llamada por una ya en cola (un `enqueue-all` repetido sobre una
+    Story parcialmente encolada no debe romperse)."""
+    project = _active_project_or_404()
+    graph = _load_active_backlog_graph(project)
+
+    us_item = graph.items.get(us_id)
+    if us_item is None or us_item.kind != ITEM_KIND_USER_STORY:
+        raise HTTPException(
+            status_code=404,
+            detail=f"No existe ninguna User Story con id '{us_id}' en el backlog activo.",
+        )
+
+    pending_tasks = [
+        item
+        for item in graph.items.values()
+        if item.kind == ITEM_KIND_TASK and item.user_story == us_id and item.state == "TODO"
+    ]
+
+    enqueued = []
+    skipped_already_queued = []
+    for item in pending_tasks:
+        try:
+            entry = enqueue_task(
+                project.path,
+                project.name,
+                task_id=item.id,
+                us_id=item.user_story,
+                priority=item.priority,
+            )
+            enqueued.append(entry.task_id)
+        except TaskAlreadyQueuedError:
+            skipped_already_queued.append(item.id)
+
+    return {
+        "us_id": us_id,
+        "enqueued": enqueued,
+        "skipped_already_queued": skipped_already_queued,
+    }
+
+
+@router.delete("/backlog/{task_id}/enqueue")
+def delete_dequeue_task(task_id: str) -> dict:
+    """Retira `task_id` de la cola antes de que el Dispatcher
+    (`T-FB008-US10-02`) la haya tomado (T-FB008-US10-01, criterio de
+    aceptación 7 de `US-FB008-10`) — sin ningún efecto secundario, mismo
+    criterio de reversibilidad que "Cancelar" en el flujo de Plan
+    existente.
+
+    404 si `task_id` nunca se encoló (nada que desencolar); 409 si la
+    entrada existe pero ya no está `queued` (el Dispatcher ya la tomó —
+    desencolar algo ya despachado/fallido no tiene efecto real, se
+    señala explícito en vez de responder 200 en silencio)."""
+    project = _active_project_or_404()
+    try:
+        dequeue_task(project.path, project.name, task_id)
+    except TaskNotQueuedError as error:
+        raise HTTPException(status_code=404, detail=str(error)) from error
+    except TaskAlreadyDispatchedError as error:
+        raise HTTPException(status_code=409, detail=str(error)) from error
+
+    return {"task_id": task_id, "dequeued": True}
+
+
+def _resolve_editable_item(graph, item_id: str):
+    """Resuelve `item_id` contra el grafo para los endpoints de edición
+    en línea de `US-FB036-08`. Devuelve 404 si no existe como User
+    Story/Task, y 400 explícito si es una Epic — `priority`/`state` de
+    Epic quedan fuera por completo (`priority` no existe en su esquema,
+    `state` cambia solo por promoción automática, nunca desde aquí;
+    T-FB036-US08-01, criterio de aceptación 5)."""
+    if is_epic_item_id(item_id):
+        raise HTTPException(
+            status_code=400,
+            detail=f"'{item_id}' es una Epic — su prioridad/estado no se edita desde aquí (el estado de Epic solo cambia por promoción automática).",
+        )
+    item = graph.items.get(item_id)
+    if item is None:
+        raise HTTPException(
+            status_code=404,
+            detail=f"No existe ninguna User Story ni Task con id '{item_id}' en el backlog activo.",
+        )
+    return item
+
+
+@router.put("/backlog/{item_id}/priority")
+def put_backlog_item_priority(item_id: str, body: dict) -> dict:
+    """Cambia el campo `priority` del fichero real de una User Story/Task
+    (T-FB036-US08-01) desde su línea de título en el listado raíz, sin
+    desplegar el detalle — reutiliza `brain.backlog.edit.set_item_priority`,
+    que valida con el validador determinista antes de persistir.
+
+    Body: `{"priority": "Alta" | "Media" | "Baja" | "Crítica" | null}`.
+    400 si el valor no pertenece al conjunto cerrado, o si el contenido
+    resultante no pasa el validador — `detail` verbatim del validador en
+    este último caso (criterio de aceptación 3 de la Task)."""
+    project = _active_project_or_404()
+    graph = _load_active_backlog_graph(project)
+    item = _resolve_editable_item(graph, item_id)
+
+    new_priority = body.get("priority")
+    try:
+        set_item_priority(item.path, new_priority)
+    except InvalidFieldValueError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+    except BacklogValidationError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+
+    return {"item_id": item_id, "priority": new_priority}
+
+
+@router.put("/backlog/{item_id}/state")
+def put_backlog_item_state(item_id: str, body: dict) -> dict:
+    """Cambia el campo `state` del fichero real de una User Story/Task
+    (T-FB036-US08-01) desde su línea de título, sin desplegar el
+    detalle — reutiliza `brain.backlog.edit.set_item_state`, que valida
+    con el validador determinista antes de persistir.
+
+    Si el nuevo estado es `DONE` y el item es una User Story, dispara la
+    promoción automática ya existente (`promote_backlog`,
+    `promote_states.py`) por si esta Story deja a su Epic con todos los
+    hijos `DONE` — criterio de aceptación 2 de `US-FB036-08` y de la
+    propia Task, reutilizando el mecanismo sin duplicarlo.
+
+    Body: `{"state": "TODO" | "IN_PROGRESS" | "REVIEW" | "DONE"}`. 400 si
+    el valor no pertenece al conjunto cerrado, o si el contenido
+    resultante no pasa el validador — `detail` verbatim en este caso."""
+    project = _active_project_or_404()
+    backlog_path = Path(project.path) / "02-backlog"
+    graph = load_backlog(backlog_path)
+    item = _resolve_editable_item(graph, item_id)
+
+    new_state = body.get("state")
+    try:
+        set_item_state(item.path, new_state)
+    except InvalidFieldValueError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+    except BacklogValidationError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+
+    promoted_epics: list[str] = []
+    if new_state == "DONE" and item.kind == ITEM_KIND_USER_STORY:
+        promotion = promote_backlog(backlog_path)
+        promoted_epics = promotion.promoted_epics
+
+    return {"item_id": item_id, "state": new_state, "promoted_epics": promoted_epics}
 
 
 @router.get("/backlog/{item_id}")

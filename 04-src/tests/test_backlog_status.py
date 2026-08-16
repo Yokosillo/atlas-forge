@@ -170,6 +170,97 @@ def test_build_backlog_report_counts_by_epic_and_state(tmp_path: Path) -> None:
     ]
 
 
+# T-FB018-US02-06: `epic_label` debía devolver el título real de la Epic
+# (campo `title` del frontmatter YAML de su fichero), no el mismo `FB-NNN`
+# ya presente en el campo `epic` — `_epic_label_from_file` leía la
+# PRIMERA LÍNEA literal del fichero buscando `# Título`, formato Markdown
+# antiguo previo a la migración a frontmatter YAML (`FB-027`,
+# 2026-08-06); tras la migración esa primera línea es siempre `---`, así
+# que la función caía siempre a su fallback (`epic_id`).
+_EPIC_FRONTMATTER = (
+    "---\n"
+    "id: {epic_id}\n"
+    "type: epic\n"
+    "title: {title}\n"
+    "state: TODO\n"
+    "dependencies: []\n"
+    "---\n\n"
+    "# {epic_id} · {title}\n\n"
+    "## Objetivo\n\n{title} — objetivo de prueba.\n"
+)
+
+
+def test_epic_label_from_file_reads_title_from_yaml_frontmatter(tmp_path: Path) -> None:
+    # Criterio de aceptación 3: test de regresión con un fixture de Epic
+    # en formato frontmatter YAML real.
+    from brain.backlog.report import _epic_label_from_file
+
+    backlog = tmp_path / "backlog"
+    _write(
+        backlog,
+        "epics",
+        "FB-500-epic-de-prueba.md",
+        _EPIC_FRONTMATTER.format(epic_id="FB-500", title="Título Real De La Epic"),
+    )
+
+    assert _epic_label_from_file(backlog, "FB-500") == "Título Real De La Epic"
+
+
+def test_epic_label_from_file_falls_back_to_epic_id_without_epic_file(tmp_path: Path) -> None:
+    # Criterio de aceptación 2: Epic huérfana (sin fichero propio en
+    # `02-backlog/epics/`) sigue devolviendo el `epic_id` como fallback,
+    # sin lanzar.
+    from brain.backlog.report import _epic_label_from_file
+
+    backlog = tmp_path / "backlog"
+    backlog.mkdir(parents=True, exist_ok=True)
+
+    assert _epic_label_from_file(backlog, "FB-999") == "FB-999"
+
+
+def test_epic_label_from_file_falls_back_to_epic_id_when_title_missing(tmp_path: Path) -> None:
+    # Fichero de Epic real, con frontmatter válido, pero sin campo
+    # `title` — mismo criterio de robustez (nunca lanza).
+    from brain.backlog.report import _epic_label_from_file
+
+    backlog = tmp_path / "backlog"
+    _write(
+        backlog,
+        "epics",
+        "FB-501-sin-titulo.md",
+        "---\nid: FB-501\ntype: epic\nstate: TODO\ndependencies: []\n---\n\n## Objetivo\n\nSin título.\n",
+    )
+
+    assert _epic_label_from_file(backlog, "FB-501") == "FB-501"
+
+
+def test_build_backlog_report_by_epic_uses_real_title_from_frontmatter(
+    tmp_path: Path,
+) -> None:
+    # Verificación end-to-end (no solo `_epic_label_from_file` en
+    # aislamiento): `build_backlog_report` sobre un backlog sintético con
+    # una Epic real (fichero propio en frontmatter YAML) y una Epic
+    # huérfana (sin fichero) — confirma que `by_epic` refleja el título
+    # real para la primera y el fallback para la segunda.
+    from brain.backlog.report import build_backlog_report
+
+    backlog = _synthetic_backlog(tmp_path)
+    _write(
+        backlog,
+        "epics",
+        "FB-100-epic-real.md",
+        _EPIC_FRONTMATTER.format(epic_id="FB-100", title="Uno De Verdad"),
+    )
+
+    report = build_backlog_report(backlog)
+
+    by_epic = {entry["epic"]: entry["epic_label"] for entry in report["by_epic"]}
+    assert by_epic["FB-100"] == "Uno De Verdad"
+    # FB-101 sigue sin fichero propio de Epic (huérfana en este fixture
+    # sintético) — mismo fallback que antes de esta Task, sin cambios.
+    assert by_epic["FB-101"] == "FB-101"
+
+
 def test_build_backlog_report_lists_lista_sorted_by_priority(tmp_path: Path) -> None:
     report = build_backlog_report(_synthetic_backlog(tmp_path))
 
@@ -238,11 +329,17 @@ def test_cli_human_and_json_show_the_same_figures_on_the_real_backlog() -> None:
 
 def test_cli_json_output_is_structured_and_parseable() -> None:
     """Criterio 2: `--json` produce un dict estructurado (no el texto
-    formateado) con las mismas secciones que el informe."""
+    formateado) con las mismas secciones que el informe.
+
+    `drift` (T-FB022-US13-05) es opcional: solo aparece si el backlog
+    real tiene algún padre DONE con un hijo reabierto — condición real
+    hoy sobre `REAL_BACKLOG_PATH` (drift preexistente detectado en vivo,
+    2026-08-16), así que se acepta con o sin la clave en vez de fijar un
+    conjunto exacto que dependería del estado cambiante del backlog real."""
     _, json_text = _run_cli([str(REAL_BACKLOG_PATH), "--json"])
     parsed = json.loads(json_text)
 
-    assert set(parsed) == {
+    expected = {
         "backlog_path",
         "empty",
         "total",
@@ -252,6 +349,7 @@ def test_cli_json_output_is_structured_and_parseable() -> None:
         "max_leverage_chain",
         "errors",
     }
+    assert set(parsed) - {"drift"} == expected
 
 
 # ---------------------------------------------------------------------------
@@ -292,3 +390,70 @@ def test_human_and_json_render_from_the_same_report(tmp_path: Path) -> None:
     assert "FB-100 · Uno" in human
     assert "T-FB100-01 → T-FB101-01" in human
     assert json.loads(render_json_report(report)) == report
+
+
+# ---------------------------------------------------------------------------
+# T-FB022-US13-05: GET /backlog (via build_backlog_report) nunca sirve un
+# padre DONE con un hijo pendiente, sin escribir nada en disco.
+# ---------------------------------------------------------------------------
+
+
+def _yaml_us(path: Path, us_id: str, epic_id: str, state: str) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        f"---\nid: {us_id}\ntype: user_story\ntitle: {us_id}\nstate: {state}\n"
+        f"dependencies: []\nepic: {epic_id}\npriority: Alta\n---\n\n"
+        f"## Historia\n\nHistoria de prueba.\n\n## Criterios de aceptación\n\n- Uno.\n",
+        encoding="utf-8",
+    )
+
+
+def _yaml_task(path: Path, task_id: str, epic_id: str, us_id: str, state: str) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        f"---\nid: {task_id}\ntype: task\ntitle: {task_id}\nstate: {state}\n"
+        f"dependencies: []\nepic: {epic_id}\nuser_story: {us_id}\npriority: Alta\n---\n\n"
+        f"## Objetivo\n\nObjetivo de prueba.\n\n## Criterios de aceptación\n\n- Uno.\n",
+        encoding="utf-8",
+    )
+
+
+def test_build_backlog_report_reconciles_us_done_with_reopened_task(tmp_path: Path) -> None:
+    backlog = tmp_path / "02-backlog"
+    _yaml_us(backlog / "user-stories" / "US-FB900-01.md", "US-FB900-01", "FB-900", "DONE")
+    _yaml_task(backlog / "tasks" / "T-FB900-US01-01.md", "T-FB900-US01-01", "FB-900", "US-FB900-01", "DONE")
+    _yaml_task(backlog / "tasks" / "T-FB900-US01-02.md", "T-FB900-US01-02", "FB-900", "US-FB900-01", "TODO")
+
+    report = build_backlog_report(backlog)
+
+    # Ni el conteo agregado ni por-Epic cuentan la US como DONE (criterio 2).
+    assert report["total"]["user_stories"].get("DONE", 0) == 0
+    assert report["total"]["user_stories"]["IN_PROGRESS"] == 1
+    epic_entry = next(e for e in report["by_epic"] if e["epic"] == "FB-900")
+    assert epic_entry["user_stories"].get("DONE", 0) == 0
+    assert report["drift"] == ["US-FB900-01"]
+
+
+def test_build_backlog_report_no_drift_field_when_backlog_consistent(tmp_path: Path) -> None:
+    backlog = tmp_path / "02-backlog"
+    _yaml_us(backlog / "user-stories" / "US-FB900-01.md", "US-FB900-01", "FB-900", "DONE")
+    _yaml_task(backlog / "tasks" / "T-FB900-US01-01.md", "T-FB900-US01-01", "FB-900", "US-FB900-01", "DONE")
+
+    report = build_backlog_report(backlog)
+
+    # Criterio 3: sin drift, no aparece el campo — mismo formato que antes.
+    assert "drift" not in report
+
+
+def test_build_backlog_report_does_not_write_any_file(tmp_path: Path) -> None:
+    backlog = tmp_path / "02-backlog"
+    us_path = backlog / "user-stories" / "US-FB900-01.md"
+    _yaml_us(us_path, "US-FB900-01", "FB-900", "DONE")
+    _yaml_task(backlog / "tasks" / "T-FB900-US01-01.md", "T-FB900-US01-01", "FB-900", "US-FB900-01", "TODO")
+
+    before = us_path.read_text(encoding="utf-8")
+    build_backlog_report(backlog)
+    after = us_path.read_text(encoding="utf-8")
+
+    assert before == after
+    assert "state: DONE" in after

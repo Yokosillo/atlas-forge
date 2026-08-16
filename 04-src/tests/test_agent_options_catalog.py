@@ -26,8 +26,9 @@ class TestCatalogRolModelo:
                   return_value=_mock_preferences_all_enabled()),
         ):
             options = list_available_agent_options()
-            # 2 roles x 2 modelos = 4 opciones.
-            assert len(options) == 4
+            # 4 roles (arquitecto, developer, ux, auditor_oss) x 2 modelos
+            # = 8 opciones.
+            assert len(options) == 8
 
             # Cada opcion tiene model_id y model_name.
             for opt in options:
@@ -69,8 +70,8 @@ class TestCatalogRolModelo:
                   return_value={"enabled_model_ids": ["deepseek-pro"], "default_model_by_role": {}}),
         ):
             options = list_available_agent_options()
-            # Solo 2 opciones (2 roles x 1 modelo habilitado).
-            assert len(options) == 2
+            # Solo 4 opciones (4 roles x 1 modelo habilitado).
+            assert len(options) == 4
             for opt in options:
                 assert opt.model_id == "deepseek-pro"
 
@@ -82,7 +83,7 @@ class TestCatalogRolModelo:
                   return_value=_mock_preferences_all_enabled()),
         ):
             options = list_available_agent_options()
-            assert len(options) == 4
+            assert len(options) == 8
 
     def test_option_is_plain_data(self) -> None:
         option = AgentLaunchOption(

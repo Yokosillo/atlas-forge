@@ -26,8 +26,8 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
-from brain.backlog.parser import load_backlog
-from brain.models.backlog import BacklogGraph, ITEM_KIND_USER_STORY
+from brain.backlog.promote import detect_reopened_drift_in_graph
+from brain.models.backlog import BacklogGraph, ITEM_KIND_TASK, ITEM_KIND_USER_STORY
 
 _EPIC_ID_PATTERN = re.compile(r"^FB-\d{3,}$")
 _EPIC_LABEL_PREFIX_PATTERN = re.compile(r"^(FB-\d{3,})")
@@ -81,6 +81,19 @@ def _read_section(text: str, header_name: str) -> str | None:
     return None
 
 
+def _drifted_ids(graph: BacklogGraph) -> frozenset[str]:
+    """Ids de US/Epic con drift inverso (T-FB022-US13-04: `state: DONE`
+    en disco con un hijo directo reabierto) presentes en `graph`.
+
+    T-FB022-US13-05: `build_item_detail`/`build_epic_detail` la invocan
+    para que `GET /backlog/{item_id}` nunca sirva un padre DONE con un
+    hijo pendiente sin decirlo explícitamente — pasada extra sobre datos
+    ya en memoria (el grafo ya está cargado por el llamador), sin releer
+    disco ni escribir nada."""
+    drift = detect_reopened_drift_in_graph(graph)
+    return frozenset(item.parent_id for item in drift.items)
+
+
 def is_epic_item_id(item_id: str) -> bool:
     """True si `item_id` tiene la forma `FB-xxx` (identificador de Epic,
     p. ej. `FB-020`) en vez de `T-FBxxx-...`/`US-FBxxx-...` (Task/User
@@ -101,7 +114,13 @@ def build_epic_detail(backlog_path: str | Path, graph: BacklogGraph, epic_id: st
     desglose de sus User Stories con estado — `None` si no existe ningún
     fichero de Epic con ese prefijo NI ninguna US/Task la declara (ni
     fichero de Epic ni items la referencian → la Epic no existe en este
-    backlog, 404 en la capa HTTP)."""
+    backlog, 404 en la capa HTTP).
+
+    T-FB022-US13-05: si la propia Epic o alguna de sus User Stories
+    listadas tiene drift inverso (`state: DONE` en disco con un hijo
+    reabierto), el `state` mostrado aquí es el reconciliado
+    (`IN_PROGRESS`), con `drift: true` explícito — nunca el `DONE` crudo
+    sin matiz."""
     epics_dir = Path(backlog_path) / "epics"
     epic_file = next(iter(sorted(epics_dir.glob(f"{epic_id}-*.md"))), None) if epics_dir.is_dir() else None
 
@@ -132,17 +151,42 @@ def build_epic_detail(backlog_path: str | Path, graph: BacklogGraph, epic_id: st
     if epic_file is None and not user_stories:
         return None
 
+    drifted_ids = _drifted_ids(graph)
+
+    # T-FB036-US01-09: número de Tasks de cada User Story, contado sobre
+    # el mismo `graph` ya cargado (sin llamada adicional al backend) —
+    # se cruza por el campo real `item.user_story` de cada Task (el
+    # valor del `user_story:` del frontmatter YAML, `T-FB008-US04-05`),
+    # NUNCA por prefijo del propio id de la Task: confirmado en
+    # `T-FB036-US01-04`/`T-FB008-US10-01` que esa convención de nombre
+    # de fichero no es universal en el backlog real (hay Tasks reales
+    # cuyo id no coincide con su `user_story` verdadero).
+    task_counts: dict[str, int] = {}
+    for item in graph.items.values():
+        if item.kind == ITEM_KIND_TASK and item.user_story is not None:
+            task_counts[item.user_story] = task_counts.get(item.user_story, 0) + 1
+
     result: dict = {
         "id": epic_id,
         "kind": "epic",
         "objetivo": objetivo,
         "fase": fase,
         "user_stories": [
-            {"id": item.id, "state": item.state} for item in user_stories
+            {
+                "id": item.id,
+                "state": "IN_PROGRESS" if item.id in drifted_ids else item.state,
+                "priority": item.priority,
+                "task_count": task_counts.get(item.id, 0),
+                **({"drift": True} if item.id in drifted_ids else {}),
+            }
+            for item in user_stories
         ],
     }
     if parse_warning is not None:
         result["parse_warning"] = parse_warning
+    if epic_id in drifted_ids:
+        result["state"] = "IN_PROGRESS"
+        result["drift"] = True
     return result
 
 
@@ -160,9 +204,16 @@ def build_item_detail(graph: BacklogGraph, item_id: str) -> dict | None:
     endpoint entero por una sección mal formada).
 
     Para una User Story, incluye además sus Tasks (id + estado) derivadas
-    de `graph.items` filtrando por dependencia inversa — qué Tasks
-    declaran esta US en su propia `## Dependencias` (no requiere releer
-    ningún fichero adicional)."""
+    de `graph.items` filtrando por el campo `user_story` de cada Task
+    (T-FB008-US04-05: `dependencies` nunca fue la relación Task→US real —
+    ninguna Task del proyecto declaró jamás su propia US ahí, esa relación
+    vive en `user_story:` del frontmatter — no requiere releer ningún
+    fichero adicional, ya viene resuelto en el grafo).
+
+    T-FB022-US13-05: si `item_id` es una User Story con drift inverso
+    (`state: DONE` en disco con una Task hija reabierta), `state` se
+    reconcilia a `IN_PROGRESS` y se añade `drift: true` — nunca se sirve
+    el `DONE` crudo del fichero sin ese matiz."""
     item = graph.items.get(item_id)
     if item is None:
         return None
@@ -179,11 +230,14 @@ def build_item_detail(graph: BacklogGraph, item_id: str) -> dict | None:
     if criterios is None:
         warnings.append("sección `## Criterios de aceptación` ausente o vacía")
 
+    drifted_ids = _drifted_ids(graph) if item.kind == ITEM_KIND_USER_STORY else frozenset()
+    is_drifted = item_id in drifted_ids
+
     result: dict = {
         "id": item.id,
         "kind": item.kind,
         "epic": item.epic,
-        "state": item.state,
+        "state": "IN_PROGRESS" if is_drifted else item.state,
         "priority": item.priority,
         "fase": item.fase,
         "dependencies": [
@@ -196,17 +250,19 @@ def build_item_detail(graph: BacklogGraph, item_id: str) -> dict | None:
         "objetivo": objetivo,
         "criterios_aceptacion": criterios,
     }
+    if is_drifted:
+        result["drift"] = True
 
     if item.kind == ITEM_KIND_USER_STORY:
         tasks = sorted(
             (
                 other
                 for other in graph.items.values()
-                if other.kind != ITEM_KIND_USER_STORY and item_id in other.dependencies
+                if other.kind != ITEM_KIND_USER_STORY and other.user_story == item_id
             ),
             key=lambda other: other.id,
         )
-        result["tasks"] = [{"id": task.id, "state": task.state} for task in tasks]
+        result["tasks"] = [{"id": task.id, "state": task.state, "priority": task.priority} for task in tasks]
 
     if warnings:
         result["parse_warning"] = "; ".join(warnings)

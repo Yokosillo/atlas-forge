@@ -19,7 +19,11 @@ import argparse
 import os
 import sys
 
-from brain.backlog.promote import check_backlog_promotion, promote_backlog
+from brain.backlog.promote import (
+    check_backlog_promotion,
+    detect_reopened_drift,
+    promote_backlog,
+)
 
 BACKLOG = os.path.join(os.path.dirname(__file__), "..", "..", "02-backlog")
 
@@ -41,8 +45,24 @@ def main() -> int:
         print(f"\nEpics a promover -> DONE: {len(result.promoted_epics)}")
         for epic_id in result.promoted_epics:
             print(f"  {epic_id}  (-> DONE)")
-        if result.has_drift:
-            print("\nDrift detectado: hay US/Epics con todos sus hijos DONE pero el padre no.")
+
+        # T-FB022-US13-04: caso inverso — padre DONE con un hijo reabierto.
+        # Solo se detecta y reporta, nunca se corrige por --apply.
+        reopened = detect_reopened_drift(BACKLOG)
+        print(f"\nPadres DONE con hijo reabierto: {len(reopened.items)}")
+        for item in reopened.items:
+            children = ", ".join(f"{cid} ({cstate})" for cid, cstate in item.reopened_children)
+            print(f"  {item.parent_id} (DONE) con hijo(s) reabierto(s): {children}")
+
+        if result.has_drift or reopened.has_drift:
+            if result.has_drift:
+                print("\nDrift detectado: hay US/Epics con todos sus hijos DONE pero el padre no.")
+            if reopened.has_drift:
+                print(
+                    "\nDrift inverso detectado: hay US/Epics DONE con un hijo reabierto "
+                    "(TODO/IN_PROGRESS/REVIEW) — revisar manualmente si el padre debe "
+                    "reabrirse; este chequeo no lo hace automáticamente."
+                )
             return 1
         print("\nSin drift: todo consistente.")
         return 0

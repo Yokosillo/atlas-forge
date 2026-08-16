@@ -24,6 +24,7 @@ from __future__ import annotations
 
 import json
 import re
+from dataclasses import replace
 from pathlib import Path
 
 from brain.backlog.parser import (
@@ -31,7 +32,9 @@ from brain.backlog.parser import (
     find_max_leverage_chain,
     load_backlog,
     calculate_unblock_degree,
+    parse_frontmatter,
 )
+from brain.backlog.promote import detect_reopened_drift_in_graph
 from brain.models.backlog import ITEM_KIND_EPIC, ITEM_KIND_TASK, ITEM_KIND_USER_STORY
 
 BACKLOG_STATUS_NO_DATA_TEXT = "Sin datos: el backlog no tiene aún US/Tasks."
@@ -73,13 +76,32 @@ def _epic_prefix(epic: str | None) -> str | None:
     return match.group(1) if match else None
 
 def _epic_label_from_file(backlog_path: str | Path, epic_id: str) -> str:
+    """Título legible de la Epic `epic_id` (p. ej. "Descubrimiento y
+    Selección de Proyectos"), leído del campo `title` del frontmatter
+    YAML de su fichero (T-FB018-US02-06) — mismo patrón que
+    `_read_task_title` (`dispatcher/job_plan_builder.py`, tras
+    `T-FB008-US04-07`), reutilizando `parse_frontmatter` en vez de una
+    segunda implementación de parseo. No hace falta compatibilidad con
+    el formato Markdown antiguo (primera línea `# FB-NNN · Título`,
+    lógica previa a esta Task): confirmado que el backlog real de este
+    proyecto no tiene ningún fichero de Epic pendiente de migrar a
+    frontmatter (`FB-027`, 2026-08-06).
+
+    Fallback a `epic_id` (nunca lanza) si el fichero no existe, no tiene
+    frontmatter válido, o el campo `title` está vacío/ausente — mismo
+    criterio de robustez que ya tenía la función."""
     epics_dir = Path(backlog_path) / "epics"
     epic_file = next(iter(sorted(epics_dir.glob(f"{epic_id}-*.md"))), None) if epics_dir.is_dir() else None
-    if epic_file is not None:
-        first_line = epic_file.read_text(encoding="utf-8").splitlines()[0]
-        if first_line.startswith("# "):
-            return first_line[2:].strip()
-    return epic_id
+    if epic_file is None:
+        return epic_id
+
+    try:
+        data = parse_frontmatter(epic_file.read_text(encoding="utf-8"))
+    except ValueError:
+        return epic_id
+
+    title = data.get("title")
+    return title.strip() if isinstance(title, str) and title.strip() else epic_id
 
 
 def _summary(item) -> dict:
@@ -99,14 +121,51 @@ def _sorted_by_priority(items: list[dict]) -> list[dict]:
     )
 
 
+def reconcile_graph_state(graph):
+    """Devuelve un `BacklogGraph` donde ninguna US/Epic con drift inverso
+    (T-FB022-US13-04: `state: DONE` en disco con un hijo directo
+    reabierto) aparece como `DONE` — y el conjunto de ids afectados, para
+    que el llamador pueda marcarlos explícitamente (T-FB022-US13-05:
+    `GET /backlog`/`GET /backlog/{id}` nunca sirven un padre DONE con un
+    hijo pendiente, sin escribir nada en disco).
+
+    El estado mostrado para un item con drift es `"IN_PROGRESS"` (hay
+    trabajo real bajo un padre que se creía cerrado) — decisión explícita
+    de esta Task, no un intento de adivinar un estado más fino a partir
+    de los estados concretos de los hijos reabiertos (que pueden ser una
+    mezcla de TODO/IN_PROGRESS/REVIEW).
+
+    Nunca escribe en disco — reemplaza únicamente los `BacklogItem` en
+    memoria del `BacklogGraph` ya cargado (frozen dataclass, se sustituye
+    con `dataclasses.replace`, no se muta)."""
+    drift = detect_reopened_drift_in_graph(graph)
+    if not drift.has_drift:
+        return graph, frozenset()
+
+    drifted_ids = {item.parent_id for item in drift.items}
+    items = dict(graph.items)
+    for item_id in drifted_ids:
+        original = items.get(item_id)
+        if original is not None:
+            items[item_id] = replace(original, state="IN_PROGRESS")
+
+    return type(graph)(items=items, errors=graph.errors), frozenset(drifted_ids)
+
+
 def build_backlog_report(backlog_path: str | Path) -> dict:
     """Informe estructurado del `02-backlog/` dado, en UN solo dict.
 
     Reusa `load_backlog`/`classify_todo_items`/`find_max_leverage_chain` de
     T-FB018-US02-01 (los mismos cálculos del parser, no una reimplementación).
     Nunca lanza por un backlog vacío o recién creado: en ese caso devuelve
-    `empty=True` y listas/cuentas vacías (criterio 3 de la Task)."""
-    graph = load_backlog(backlog_path)
+    `empty=True` y listas/cuentas vacías (criterio 3 de la Task).
+
+    T-FB022-US13-05: antes de calcular nada, se reconcilia el estado de
+    cualquier US/Epic con drift inverso (DONE en disco, hijo reabierto) —
+    el resto de esta función ve el grafo ya corregido, sin necesidad de
+    tocar cada cálculo (`classify_todo_items`, conteos por Epic, etc.) por
+    separado."""
+    graph, drifted_ids = reconcile_graph_state(load_backlog(backlog_path))
     lista, bloqueada = classify_todo_items(graph)
     chain = find_max_leverage_chain(graph)
 
@@ -163,7 +222,7 @@ def build_backlog_report(backlog_path: str | Path) -> dict:
         for error in graph.errors
     ]
 
-    return {
+    result = {
         "backlog_path": str(Path(backlog_path)),
         "empty": len(user_stories) + len(tasks) == 0,
         "total": {
@@ -179,6 +238,16 @@ def build_backlog_report(backlog_path: str | Path) -> dict:
         "max_leverage_chain": [_summary(item) for item in chain],
         "errors": errors,
     }
+    # T-FB022-US13-05, criterio 3: campo nuevo solo si hay drift — un
+    # backlog sin drift no cambia su respuesta respecto a antes de esta
+    # Task. `total.user_stories`/`total.epics`/`by_epic` ya reflejan el
+    # estado reconciliado (`state: IN_PROGRESS`, no `DONE` crudo del
+    # fichero) porque se calculan sobre `graph` ya reconciliado arriba —
+    # este campo es solo la lista explícita de qué ids tenían el fichero
+    # en disco todavía en DONE, para no ocultarlo sin más.
+    if drifted_ids:
+        result["drift"] = sorted(drifted_ids)
+    return result
 
 
 def format_human_report(report: dict) -> str:

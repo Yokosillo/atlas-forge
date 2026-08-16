@@ -47,15 +47,19 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 from brain.api import routes as routes_module
 from brain.api.events import jobs_hub, plans_hub, register_event_loops
 from brain.api.routes import router
+from brain.core.reconciliation_log import append_reconciliation_log
 from brain.core.session_reconciliation import reconcile_session_agents
 from brain.core.session_registry import (
     SessionAlreadyActiveError,
     get_current_session,
     resolve_startup_session,
 )
+from brain.dispatcher.architect_queue import launch_architect_queue_watcher
+from brain.dispatcher.dispatch_queue_worker import DispatchQueueWorker
 from brain.runtime.agent_runtime_registry import get_runtime_instance_for_agent
 from brain.runtime.generic import is_runtime_alive
-from brain.tmux import capture_pane_lines
+from brain.tmux import capture_pane_lines, list_sessions
+from brain.workspace.active_project import get_active_project
 
 # T-FB017-US01-01: ruta del APK más reciente servido por `GET /apk` (ver
 # docstring del endpoint más abajo para la justificación completa del
@@ -134,6 +138,13 @@ async def _lifespan(app: FastAPI):
     # proyecto activo (`None`), no hay nada que reconciliar todavía — el
     # flujo de selección de proyecto (FB-001) debe completarse primero.
     #
+    # `active_project` se resuelve aquí (antes que en versiones previas de
+    # este bloque) porque tanto el log de reconciliación de abajo como el
+    # watcher del Arquitecto más adelante necesitan `project.path`/
+    # `project.name` — misma llamada de solo lectura reutilizada por
+    # ambos, sin resolverla dos veces.
+    active_project = get_active_project(state_dir=routes_module._STATE_DIR)
+
     # `socket_name=routes_module._SOCKET_NAME` (no el valor por defecto de
     # `list_sessions`): mismo patrón ya establecido en `api/routes.py`
     # para que los tests puedan aislarse en su propio servidor tmux vía
@@ -141,11 +152,94 @@ async def _lifespan(app: FastAPI):
     # `factory-brain` de producción durante la suite.
     current_session = get_current_session()
     if current_session is not None:
-        reconcile_session_agents(
+        reconciled, ignored = reconcile_session_agents(
             current_session, socket_name=routes_module._SOCKET_NAME
         )
+        # T-FB037-US02-01: persiste el resultado ya calculado arriba —
+        # puramente aditivo, no cambia qué sesiones se reenganchan
+        # (`reconcile_session_agents` decide eso en solitario, sin saber
+        # que este log existe). Requiere `active_project` (mismo dato que
+        # `append_to_architect_queue` usa para su propia ruta) además de
+        # `current_session` — sin proyecto activo no hay
+        # `project.path`/`project.name` con los que calcular la ubicación
+        # del log, igual que el watcher del Arquitecto más abajo. Un
+        # fallo al escribir el log no debe tumbar el arranque del
+        # servidor (mismo criterio de "mejor esfuerzo" que
+        # `append_to_architect_queue` en el resto del código).
+        if active_project is not None:
+            try:
+                total_sessions = len(
+                    list_sessions(socket_name=routes_module._SOCKET_NAME)
+                )
+                recognized = total_sessions - sum(
+                    1
+                    for entry in ignored
+                    if entry["reason"] in ("nombre_no_reconocido", "otro_proyecto", "rol_invalido")
+                )
+                append_reconciliation_log(
+                    active_project.path,
+                    active_project.name,
+                    total_sessions=total_sessions,
+                    recognized=recognized,
+                    reconciled=[agent.name for agent in reconciled],
+                    ignored=ignored,
+                )
+            except Exception:
+                pass
+
+    # T-FB030-US03-04: lanza `architect_queue_watcher.sh` para el proyecto
+    # activo, para que el aviso al Arquitecto de un cierre de Task
+    # (`US-FB030-03`) funcione sin que nadie tenga que ejecutar el script
+    # a mano en una terminal aparte — antes de esta Task, el mecanismo
+    # completo quedaba operativamente inerte salvo lanzamiento manual
+    # (incidente real del 2026-08-16, ver
+    # `07-informes/incidente-arquitecto-perdido-tras-reinicio-2026-08-16.md`).
+    # Sin proyecto activo, no hay `project_root`/`project_name` con los que
+    # calcular su destino — no se lanza nada (criterio de aceptación 4),
+    # sin que esto haga fallar el arranque de `brain-api`.
+    # `project.path`/`project.name` (no un literal): deben coincidir
+    # exactamente con lo que ya usa `append_to_architect_queue` al cerrar
+    # una Task (mismo `project_name` sin sanear, saneado internamente con
+    # la misma regla en `architect_queue_path`/`session_name_for`) y con la
+    # sesión tmux real del Arquitecto (`arquitecto-<project_name saneado>`,
+    # T-FB030-US01-01) — un `project_name` distinto calcularía una cola o
+    # una sesión destino que no existen.
+    if active_project is not None:
+        launch_architect_queue_watcher(active_project.path, active_project.name)
+
+    # T-FB008-US10-02: arranca el Dispatcher de fondo de la cola de
+    # despacho (`T-FB008-US10-01`) — un hilo `daemon` DENTRO de este
+    # mismo proceso (no un script externo como `architect_queue_watcher.sh`,
+    # ver docstring de `dispatch_queue_worker.py` para el porqué:
+    # necesita `list_agents`/`dispatch_job` reales sobre la misma sesión
+    # en memoria). Requiere tanto `active_project` como `current_session`
+    # ya resueltos (mismo agente/sesión que el resto del dominio de este
+    # proceso) — sin proyecto activo o sin sesión, no se lanza nada, sin
+    # que esto haga fallar el arranque de `brain-api` (mismo criterio que
+    # el watcher del Arquitecto justo arriba).
+    if active_project is not None and current_session is not None:
+        routes_module._dispatch_queue_worker = DispatchQueueWorker(
+            active_project.path,
+            active_project.name,
+            current_session,
+            socket_name=routes_module._SOCKET_NAME,
+        )
+        routes_module._dispatch_queue_worker.start()
 
     yield
+
+    # Shutdown: detiene el hilo `daemon` del Dispatcher al cerrar la app
+    # (`with TestClient(...)` en tests, o el propio `uvicorn` en
+    # producción) — sin esto, un hilo de polling quedaría corriendo
+    # indefinidamente contra un `project_root`/`tmp_path` que un test ya
+    # borró al salir de su fixture, o se acumularían hilos huérfanos
+    # entre tests que construyen `TestClient(create_app())` repetidas
+    # veces en el mismo proceso pytest (verificado explícitamente: sin
+    # este shutdown, 4 ficheros de test existentes que ya usan `with
+    # TestClient(...)` habrían dejado un hilo de fondo vivo cada uno).
+    if routes_module._dispatch_queue_worker is not None:
+        routes_module._dispatch_queue_worker.stop()
+        routes_module._dispatch_queue_worker = None
 
 
 def create_app() -> FastAPI:

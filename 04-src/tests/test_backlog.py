@@ -195,6 +195,11 @@ def test_parse_backlog_item_extracts_fields_from_a_well_formed_file(
     assert item.dependencies == ("US-FB001-01",)
     assert item.epic == "FB-001"
     assert item.path == path
+    # T-FB008-US04-05: la relación Task→US real es `user_story:`, nunca
+    # `dependencies` (que aquí, además, coincide por casualidad con el
+    # mismo id — antes del fix, `build_item_detail` habría encontrado esta
+    # Task solo por esa coincidencia, no por la relación real).
+    assert item.user_story == "US-FB001-01"
 
 
 def test_parse_backlog_item_kind_for_user_stories(tmp_path: Path) -> None:
@@ -206,6 +211,8 @@ def test_parse_backlog_item_kind_for_user_stories(tmp_path: Path) -> None:
     assert item.kind == "US"
     assert item.state == "DONE"
     assert item.dependencies == ()
+    # Una User Story no declara `user_story:` (solo las Tasks lo hacen).
+    assert item.user_story is None
 
 
 def test_parse_backlog_item_reports_missing_estado(tmp_path: Path) -> None:

@@ -3,6 +3,7 @@ import uuid
 
 import pytest
 
+import brain.actions.transversal as transversal_module
 from brain.actions.transversal import (
     ACCIONES_DISPONIBLES,
     ActionType,
@@ -11,7 +12,8 @@ from brain.actions.transversal import (
     _persist_action_report,
     dispatch_action,
 )
-from brain.models import Job
+from brain.agents.ux import UX_ROLE
+from brain.models import Agent, DevelopmentSession, Job
 
 
 class TestActionDefinitions:
@@ -107,3 +109,110 @@ class TestPersistActionReport:
             assert any(story_dir.glob("*.md"))
         finally:
             tmod._default_reports_root = orig
+
+
+class TestAuditarUxDispatchesToUxAgent:
+    """T-FB024-US13-03: `auditar-ux` despacha un Job normal a la instancia
+    de UX ya lanzada (mismo mecanismo genérico que `documentar` usa con
+    Arquitecto vía `_dispatch_agent_action`), en vez del
+    `subprocess.run(["opencode", "run", "--auto", ...])` headless previo."""
+
+    def test_auditar_ux_with_ux_agent_launched_dispatches_a_real_job(
+        self, monkeypatch, tmp_path
+    ) -> None:
+        session = DevelopmentSession(id="sess-1", project_id="proj-1")
+        ux_agent = Agent(
+            id="ux-1",
+            name="UX",
+            role=UX_ROLE,
+            prompt="prompt",
+            runtime_id="runtime-1",
+            status="idle",
+        )
+
+        monkeypatch.setattr(
+            transversal_module, "get_current_session", lambda: session
+        )
+        monkeypatch.setattr(
+            transversal_module, "list_agents", lambda _session: [ux_agent]
+        )
+        monkeypatch.setattr(
+            transversal_module, "_default_reports_root", lambda: tmp_path / "07-informes"
+        )
+
+        dispatch_calls = []
+
+        def fake_create_and_record_job(description, agent, session_arg):
+            assert agent is ux_agent
+            return Job(
+                id=str(uuid.uuid4()),
+                session_id=session_arg.id,
+                agent_id=agent.id,
+                description=description,
+                status="dispatched",
+            )
+
+        monkeypatch.setattr(
+            transversal_module, "create_and_record_job", fake_create_and_record_job
+        )
+        monkeypatch.setattr(
+            transversal_module,
+            "get_runtime_instance_for_agent",
+            lambda agent_id: object(),
+        )
+
+        def fake_dispatch_job(job, agent, runtime_instance, socket_name=None):
+            dispatch_calls.append((job, agent, socket_name))
+            job.status = "completed"
+            job.result = "auditoría completada"
+
+        monkeypatch.setattr(transversal_module, "dispatch_job", fake_dispatch_job)
+
+        result = dispatch_action("auditar-ux", socket_name="test-socket")
+
+        assert len(dispatch_calls) == 1
+        dispatched_job, dispatched_agent, socket_name = dispatch_calls[0]
+        assert dispatched_agent is ux_agent
+        assert socket_name == "test-socket"
+        assert result["action"] == "auditar-ux"
+        assert result["status"] == "completed"
+        assert result["result"] == "auditoría completada"
+
+    def test_auditar_ux_without_ux_agent_launched_fails_explicitly(
+        self, monkeypatch
+    ) -> None:
+        session = DevelopmentSession(id="sess-1", project_id="proj-1")
+        monkeypatch.setattr(
+            transversal_module, "get_current_session", lambda: session
+        )
+        monkeypatch.setattr(transversal_module, "list_agents", lambda _session: [])
+
+        with pytest.raises(RuntimeError, match="UX"):
+            dispatch_action("auditar-ux")
+
+    def test_auditar_ux_with_stopped_ux_agent_fails_explicitly_not_500(
+        self, monkeypatch
+    ) -> None:
+        """Bug real encontrado en verificación de navegador (2026-08-16):
+        una instancia de UX registrada pero `stopped` (no `idle`) hacía que
+        `create_and_record_job` lanzara `JobCreationError` sin traducir,
+        propagándose como 500 en vez del `RuntimeError` explícito exigido
+        por el criterio de aceptación 3 de la Task."""
+        session = DevelopmentSession(id="sess-1", project_id="proj-1")
+        stopped_ux_agent = Agent(
+            id="ux-1",
+            name="UX",
+            role=UX_ROLE,
+            prompt="prompt",
+            runtime_id="runtime-1",
+            status="stopped",
+        )
+        monkeypatch.setattr(
+            transversal_module, "get_current_session", lambda: session
+        )
+        monkeypatch.setattr(
+            transversal_module, "list_agents", lambda _session: [stopped_ux_agent]
+        )
+
+        with pytest.raises(RuntimeError, match="UX"):
+            dispatch_action("auditar-ux")

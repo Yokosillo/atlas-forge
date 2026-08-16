@@ -5,6 +5,7 @@ import libtmux
 import pytest
 from fastapi.testclient import TestClient
 
+import brain.api.app as app_module
 import brain.api.routes as routes_module
 from brain.api import create_app
 from brain.core import resolve_startup_session
@@ -27,6 +28,16 @@ def _clean_registry():
     yield
     _reset_registry_for_tests()
     _reset_job_history()
+
+
+@pytest.fixture(autouse=True)
+def _no_real_architect_queue_watcher(monkeypatch):
+    # T-FB030-US03-04: ver mismo fixture en test_ws_agent_pane.py — sin
+    # este stub, los tests de este fichero (que sí disparan `_lifespan`
+    # real con `with TestClient(...)` y un proyecto activo real de test)
+    # dejarían un `architect_queue_watcher.sh` real corriendo tras cada
+    # test, sin relación con la reconciliación de agentes bajo prueba.
+    monkeypatch.setattr(app_module, "launch_architect_queue_watcher", lambda *a, **k: None)
 
 
 @pytest.fixture

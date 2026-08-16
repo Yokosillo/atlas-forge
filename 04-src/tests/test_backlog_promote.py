@@ -8,7 +8,11 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from brain.backlog.promote import check_backlog_promotion, promote_backlog
+from brain.backlog.promote import (
+    check_backlog_promotion,
+    detect_reopened_drift,
+    promote_backlog,
+)
 
 
 def _write(path: Path, content: str) -> None:
@@ -169,3 +173,104 @@ def test_mark_story_tasks_done_also_accepts_normalized_story_id(tmp_path: Path) 
 
     assert _state_of(backlog / "tasks" / "T-FB100-US01-01.md") == "DONE"
     assert _state_of(backlog / "user-stories" / "US-FB100-01.md") == "DONE"
+
+
+# ── T-FB022-US13-04: drift inverso (padre DONE con hijo reabierto) ─────────
+
+
+def test_detect_reopened_drift_reports_us_done_with_task_reopened(
+    tmp_path: Path,
+) -> None:
+    # Caso real encontrado en vivo 2026-08-16: el Arquitecto añadió una
+    # Task nueva bajo una US ya DONE, sin reabrir la US.
+    backlog = tmp_path / "02-backlog"
+    _epic(backlog, "FB-100", "TODO")
+    _story(backlog, "US-FB100-01", "FB-100", "DONE")
+    _task(backlog, "T-FB100-US01-01", "FB-100", "US-FB100-01", "DONE")
+    _task(backlog, "T-FB100-US01-02", "FB-100", "US-FB100-01", "TODO")
+
+    result = detect_reopened_drift(backlog)
+
+    assert result.has_drift
+    assert len(result.items) == 1
+    item = result.items[0]
+    assert item.parent_id == "US-FB100-01"
+    assert item.parent_kind == "user_story"
+    assert item.reopened_children == (("T-FB100-US01-02", "TODO"),)
+
+
+def test_detect_reopened_drift_reports_epic_done_with_us_reopened(
+    tmp_path: Path,
+) -> None:
+    backlog = tmp_path / "02-backlog"
+    _epic(backlog, "FB-100", "DONE")
+    _story(backlog, "US-FB100-01", "FB-100", "DONE")
+    _story(backlog, "US-FB100-02", "FB-100", "IN_PROGRESS")
+    _task(backlog, "T-FB100-US01-01", "FB-100", "US-FB100-01", "DONE")
+    _task(backlog, "T-FB100-US02-01", "FB-100", "US-FB100-02", "IN_PROGRESS")
+
+    result = detect_reopened_drift(backlog)
+
+    parent_ids = {item.parent_id for item in result.items}
+    assert "FB-100" in parent_ids
+    epic_item = next(item for item in result.items if item.parent_id == "FB-100")
+    assert epic_item.parent_kind == "epic"
+    assert epic_item.reopened_children == (("US-FB100-02", "IN_PROGRESS"),)
+
+
+def test_detect_reopened_drift_empty_when_backlog_consistent(tmp_path: Path) -> None:
+    backlog = tmp_path / "02-backlog"
+    _epic(backlog, "FB-100", "DONE")
+    _story(backlog, "US-FB100-01", "FB-100", "DONE")
+    _task(backlog, "T-FB100-US01-01", "FB-100", "US-FB100-01", "DONE")
+
+    result = detect_reopened_drift(backlog)
+
+    assert not result.has_drift
+    assert result.items == []
+
+
+def test_detect_reopened_drift_ignores_us_not_marked_done(tmp_path: Path) -> None:
+    # Una US en TODO/IN_PROGRESS/REVIEW con Tasks pendientes no es drift —
+    # es el estado normal, no un padre completado prematuramente.
+    backlog = tmp_path / "02-backlog"
+    _epic(backlog, "FB-100", "TODO")
+    _story(backlog, "US-FB100-01", "FB-100", "TODO")
+    _task(backlog, "T-FB100-US01-01", "FB-100", "US-FB100-01", "TODO")
+
+    result = detect_reopened_drift(backlog)
+
+    assert not result.has_drift
+
+
+def test_detect_reopened_drift_does_not_write_any_file(tmp_path: Path) -> None:
+    backlog = tmp_path / "02-backlog"
+    _epic(backlog, "FB-100", "TODO")
+    _story(backlog, "US-FB100-01", "FB-100", "DONE")
+    _task(backlog, "T-FB100-US01-01", "FB-100", "US-FB100-01", "TODO")
+
+    detect_reopened_drift(backlog)
+
+    # Detección, no corrección: el fichero en disco sigue igual que antes.
+    assert _state_of(backlog / "user-stories" / "US-FB100-01.md") == "DONE"
+
+
+def test_promotion_case_still_works_unchanged_alongside_reopened_drift(
+    tmp_path: Path,
+) -> None:
+    # Criterio 4 de T-FB022-US13-04: el caso ya cubierto (promoción hacia
+    # DONE) sigue funcionando sin cambios de comportamiento, incluso en un
+    # backlog que también tiene drift inverso en otra rama.
+    backlog = tmp_path / "02-backlog"
+    _epic(backlog, "FB-100", "TODO")
+    _story(backlog, "US-FB100-01", "FB-100", "TODO")
+    _task(backlog, "T-FB100-US01-01", "FB-100", "US-FB100-01", "DONE")
+    _story(backlog, "US-FB100-02", "FB-100", "DONE")
+    _task(backlog, "T-FB100-US02-01", "FB-100", "US-FB100-02", "TODO")
+
+    promotion = check_backlog_promotion(backlog)
+    reopened = detect_reopened_drift(backlog)
+
+    assert promotion.promoted_user_stories == ["US-FB100-01"]
+    assert reopened.has_drift
+    assert reopened.items[0].parent_id == "US-FB100-02"

@@ -202,6 +202,64 @@ def test_post_agents_launches_a_real_agent_and_get_agents_reflects_it(
     stop_runtime(runtime_instance, socket_name=isolated_socket)
 
 
+def test_post_agents_launches_a_real_ux_agent_and_get_agents_reflects_it(
+    tmp_path: Path, isolated_socket: str, monkeypatch
+) -> None:
+    """Criterio de aceptación (T-FB024-US13-01): `POST /agents` con
+    `role: "ux"` deja de responder "rol no reconocido" y lanza una
+    instancia real, reflejada en `GET /agents` con los mismos campos que
+    cualquier otro agente."""
+    _project, _session = _active_project_and_session(tmp_path, monkeypatch)
+    client = TestClient(create_app())
+
+    post_response = client.post(
+        "/agents", json={"role": "ux", "runtime_type": "claude-code"}
+    )
+    assert post_response.status_code == 201
+    launched = post_response.json()
+    assert launched["role"] == "ux"
+
+    get_response = client.get("/agents")
+    assert get_response.status_code == 200
+    matching = [a for a in get_response.json() if a["id"] == launched["id"]]
+    assert len(matching) == 1
+    for field in ("id", "status", "runtime_id", "model", "session_name"):
+        assert field in matching[0]
+
+    runtime_instance = get_runtime_instance_for_agent(launched["id"])
+    assert runtime_instance is not None
+    stop_runtime(runtime_instance, socket_name=isolated_socket)
+
+
+def test_post_agents_launches_a_real_auditor_oss_agent_and_get_agents_reflects_it(
+    tmp_path: Path, isolated_socket: str, monkeypatch
+) -> None:
+    """Criterio de aceptación (T-FB024-US13-02): `POST /agents` con
+    `role: "auditor_oss"` deja de responder "rol no reconocido" y lanza
+    una instancia real, reflejada en `GET /agents` con los mismos campos
+    que cualquier otro agente."""
+    _project, _session = _active_project_and_session(tmp_path, monkeypatch)
+    client = TestClient(create_app())
+
+    post_response = client.post(
+        "/agents", json={"role": "auditor_oss", "runtime_type": "claude-code"}
+    )
+    assert post_response.status_code == 201
+    launched = post_response.json()
+    assert launched["role"] == "auditor_oss"
+
+    get_response = client.get("/agents")
+    assert get_response.status_code == 200
+    matching = [a for a in get_response.json() if a["id"] == launched["id"]]
+    assert len(matching) == 1
+    for field in ("id", "status", "runtime_id", "model", "session_name"):
+        assert field in matching[0]
+
+    runtime_instance = get_runtime_instance_for_agent(launched["id"])
+    assert runtime_instance is not None
+    stop_runtime(runtime_instance, socket_name=isolated_socket)
+
+
 def test_post_agents_with_initial_job_returns_agent_and_job_in_same_response(
     tmp_path: Path, isolated_socket: str, monkeypatch
 ) -> None:

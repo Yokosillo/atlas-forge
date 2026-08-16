@@ -12,10 +12,15 @@ from brain.api import create_app
 from brain.core import resolve_startup_session
 from brain.core.session_registry import _reset_registry_for_tests
 from brain.agents.launch import launch_agent
+from brain.dispatcher.architect_verdict_queue import (
+    _instance as _verdict_queue_instance,
+    get_verdict_queue_status,
+)
 from brain.dispatcher.job_cancellation_registry import (
     _reset_registry_for_tests as _reset_job_cancellation,
 )
 from brain.dispatcher.job_history_registry import _reset_registry_for_tests as _reset_job_history
+from brain.dispatcher.job_report import read_job_report
 from brain.runtime import is_runtime_alive, stop_runtime
 from brain.workspace import discover_projects, select_active_project
 
@@ -29,10 +34,12 @@ def _clean_registries():
     _reset_registry_for_tests()
     _reset_job_history()
     _reset_job_cancellation()
+    _verdict_queue_instance.reset_for_testing()
     yield
     _reset_registry_for_tests()
     _reset_job_history()
     _reset_job_cancellation()
+    _verdict_queue_instance.reset_for_testing()
 
 
 @pytest.fixture(autouse=True)
@@ -417,3 +424,117 @@ def test_post_job_cancel_returns_404_when_no_session_is_active() -> None:
     response = client.post("/jobs/whatever/cancel")
 
     assert response.status_code == 404
+
+
+def test_post_jobs_with_story_id_writes_report_and_enqueues_verdict(
+    tmp_path: Path, isolated_socket: str, monkeypatch
+) -> None:
+    """T-FB024-US15-01, criterio de aceptación central: `POST /jobs` con
+    `story_id` informado, al completarse el Job, genera el informe de
+    cierre en `07-informes` y encola un veredicto — de punta a punta, con
+    tmux real (doble cooperativo), no mockeando la lógica de negocio."""
+    _project, session = _active_project_and_session(tmp_path, monkeypatch)
+    agent, runtime_instance = _launch_cooperative_agent(
+        "developer", tmp_path, session, isolated_socket, monkeypatch
+    )
+
+    from brain.dispatcher.job_report import write_job_report as _real_write_job_report
+
+    reports_root = tmp_path / "07-informes"
+
+    def _write_to_tmp(job):
+        return _real_write_job_report(job, reports_root=reports_root)
+
+    monkeypatch.setattr(routes_module, "write_job_report", _write_to_tmp)
+
+    # El worker daemon de la cola de veredictos procesa items en un hilo
+    # de fondo casi de inmediato (mismo patrón que `test_verdict_queue.py`
+    # usa para observar `active` de forma determinista): bloqueamos
+    # `_do_dispatch_verdict` con un Event hasta confirmar que el veredicto
+    # quedó realmente encolado/en curso, luego lo liberamos para no dejar
+    # el worker atascado entre tests.
+    dispatch_started = threading.Event()
+    release_dispatch = threading.Event()
+
+    def _blocking_dispatch(story_id, session_arg, socket_name_arg, reports_root_arg=None):
+        dispatch_started.set()
+        release_dispatch.wait(timeout=5.0)
+
+    monkeypatch.setattr(
+        "brain.dispatcher.architect_verdict_queue._do_dispatch_verdict",
+        _blocking_dispatch,
+    )
+
+    client = TestClient(create_app())
+    response = client.post(
+        "/jobs",
+        json={
+            "agent_id": agent.id,
+            "description": "implement the feature",
+            "story_id": "US-FB024-15",
+        },
+    )
+
+    assert response.status_code == 201
+    body = response.json()
+    assert body["status"] == "completed"
+
+    assert dispatch_started.wait(timeout=5.0), (
+        "El veredicto nunca llegó a encolarse/despacharse."
+    )
+    status = get_verdict_queue_status()
+    assert status["active"] == "US-FB024-15", (
+        f"Esperado active='US-FB024-15', obtenido {status}"
+    )
+
+    release_dispatch.set()
+    for _ in range(50):
+        if get_verdict_queue_status()["active"] is None:
+            break
+        time.sleep(0.05)
+
+    report = read_job_report("US-FB024-15", body["id"], reports_root=reports_root)
+    assert report is not None
+    assert "cooperative result" in report
+
+    stop_runtime(runtime_instance, socket_name=isolated_socket)
+
+
+def test_post_jobs_without_story_id_does_not_write_report_or_enqueue_verdict(
+    tmp_path: Path, isolated_socket: str, monkeypatch
+) -> None:
+    """T-FB024-US15-01, test de regresión dedicado: un Job sin `story_id`
+    no dispara ni informe ni veredicto — comportamiento actual preservado."""
+    _project, session = _active_project_and_session(tmp_path, monkeypatch)
+    agent, runtime_instance = _launch_cooperative_agent(
+        "developer", tmp_path, session, isolated_socket, monkeypatch
+    )
+
+    write_report_calls = []
+    monkeypatch.setattr(
+        routes_module,
+        "write_job_report",
+        lambda job: write_report_calls.append(job.id),
+    )
+    verdict_calls = []
+    monkeypatch.setattr(
+        routes_module,
+        "trigger_architect_verdict",
+        lambda story_id, session_arg, socket_name=None: verdict_calls.append(story_id),
+    )
+
+    client = TestClient(create_app())
+    response = client.post(
+        "/jobs", json={"agent_id": agent.id, "description": "implement the feature"}
+    )
+
+    assert response.status_code == 201
+    assert response.json()["status"] == "completed"
+    assert write_report_calls == []
+    assert verdict_calls == []
+
+    status = get_verdict_queue_status()
+    assert status["active"] is None
+    assert status["waiting"] == []
+
+    stop_runtime(runtime_instance, socket_name=isolated_socket)

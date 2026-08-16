@@ -41,6 +41,18 @@ def _no_real_runtime(monkeypatch):
     monkeypatch.setattr(opencode_module, "DEFAULT_OPENCODE_ARGS", ["5"])
 
 
+@pytest.fixture(autouse=True)
+def _no_real_architect_queue_watcher(monkeypatch):
+    # T-FB030-US03-04: `_lifespan` ahora lanza `architect_queue_watcher.sh`
+    # como subproceso real de larga duración para el proyecto activo — sin
+    # este stub, cualquier test de este fichero que construya un
+    # `TestClient` con `with` (lo que sí dispara `_lifespan`, ver
+    # docstrings de más abajo) y tenga un proyecto activo real de test
+    # dejaría ese proceso corriendo indefinidamente tras el test, sin
+    # relación con lo que este fichero prueba.
+    monkeypatch.setattr(app_module, "launch_architect_queue_watcher", lambda *a, **k: None)
+
+
 @pytest.fixture
 def isolated_socket(monkeypatch):
     name = f"brain-test-{uuid.uuid4().hex[:8]}"

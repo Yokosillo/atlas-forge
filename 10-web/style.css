@@ -528,6 +528,15 @@ body {
   white-space: pre-wrap;
 }
 
+/* T-FB008-US04-08 · Motivo real de un paso fallido, mismo color que
+   .agent-error del resto de la pantalla. */
+.plan-step-error {
+  font-size: 13px;
+  color: #b00020;
+  margin-top: 4px;
+  white-space: pre-wrap;
+}
+
 .plan-actions {
   display: flex;
   justify-content: flex-end;
@@ -724,6 +733,78 @@ body {
   margin-top: 4px;
 }
 
+/* T-FB036-US01-08: línea de resumen de cada tarjeta de Epic — id+título
+   a la izquierda, conteos de estado alineados a la derecha, en la misma
+   línea. `.job-line` en sí no se toca (se reutiliza en Jobs con texto
+   plano) — el layout flex vive en esta clase adicional, solo aplicada
+   aquí. */
+.backlog-epic-line {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 4px 12px;
+}
+.backlog-epic-line-title {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.backlog-epic-line-counts {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-weight: 400;
+  font-size: 13px;
+  color: #555;
+  text-align: right;
+}
+
+/* T-FB036-US01-09: fila de User Story dentro del detalle de Epic — id/
+   estado a la izquierda, indicador de número de Tasks a la derecha,
+   misma línea. Mismo patrón flex que `.backlog-epic-line`. */
+.backlog-us-line {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 4px 12px;
+}
+.backlog-us-line-title {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.backlog-us-line-taskcount {
+  flex: 0 0 auto;
+  font-weight: 600;
+  font-size: 13px;
+  text-align: right;
+}
+/* Rojo (mismo tono que `.job-status-ko`/`.plan-status-ko` de esta misma
+   pantalla): sin ninguna Task todavía — señal de "US sin desglosar". */
+.backlog-us-task-count-zero {
+  color: #b3261e;
+}
+/* Verde (mismo tono que `renderProgressBar` de esta misma pantalla):
+   al menos una Task ya existe. */
+.backlog-us-task-count-some {
+  color: #2e7d32;
+}
+
+/* T-FB036-US08-01: controles de prioridad/estado en la línea de título de
+   una User Story/Task, sin desplegar el detalle. `flex: 0 0 auto` para no
+   competir con `.backlog-us-line-title`/`-taskcount` por el espacio de la
+   línea. */
+.backlog-edit-controls {
+  display: flex;
+  flex: 0 0 auto;
+  gap: 6px;
+  align-items: center;
+}
+.backlog-edit-priority,
+.backlog-edit-state {
+  font-size: 12px;
+  padding: 2px 4px;
+}
+
 /* Seccion Modelos (T-FB022-US10-02). */
 .model-row {
   margin: 6px 0;
@@ -768,9 +849,28 @@ body {
   vertical-align: middle;
 }
 
-/* T-FB024-US07-02 · Mapa de calor: barra de desbloqueo en cada Epic */
+/* T-FB036-US01-03 · Barra de progreso real (% DONE), principal de cada
+   tarjeta de Epic — sustituye a la barra de desbloqueo como barra
+   principal (esa pasa a secundaria, ver más abajo). */
+.backlog-progress-bar {
+  height: 8px;
+  border-radius: 3px;
+  margin-top: 6px;
+  background: #ddd;
+  overflow: hidden;
+}
+.backlog-progress-fill {
+  height: 100%;
+  border-radius: 3px;
+  transition: width 0.2s;
+}
+
+/* T-FB024-US07-02 · Barra de desbloqueo (`unblock_degree`), degradada a
+   SECUNDARIA por T-FB036-US01-03 — más fina que la de progreso, siempre
+   con etiqueta explícita "Desbloqueo: N%" para no confundirse con
+   progreso real. */
 .backlog-heat-bar {
-  height: 4px;
+  height: 3px;
   border-radius: 2px;
   margin-top: 4px;
   background: #ddd;
@@ -780,6 +880,11 @@ body {
   height: 100%;
   border-radius: 2px;
   transition: width 0.2s;
+}
+.backlog-heat-label {
+  font-size: 11px;
+  color: #777;
+  margin-top: 2px;
 }
 /* Fase grouping (T-FB024-US07-03) */
 .backlog-fase-group {
@@ -796,6 +901,155 @@ body {
 .backlog-view-toggle {
   margin-left: 12px;
   font-size: 13px;
+}
+
+/* T-FB036-US01-01 · Barra de controles: buscador + filtro de estado +
+   filtro de prioridad, sobre el listado raíz de la pantalla Backlog. */
+.backlog-filter-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 10px 0;
+}
+.backlog-filter-search {
+  flex: 1 1 220px;
+  min-width: 160px;
+  padding: 8px 10px;
+  font-size: 14px;
+  border: 1px solid #999;
+  border-radius: 6px;
+}
+.backlog-filter-select {
+  padding: 8px 10px;
+  font-size: 14px;
+  border: 1px solid #999;
+  border-radius: 6px;
+}
+.backlog-filter-priority-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.backlog-filter-priority-note {
+  font-size: 11px;
+  color: #777;
+  margin: 0;
+}
+.backlog-filter-clear {
+  align-self: flex-start;
+}
+.backlog-filter-empty {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 0;
+}
+
+/* T-FB036-US01-02 · Panel "Próximo foco" (cadena de máximo desbloqueo),
+   sobre el listado raíz de la pantalla Backlog. */
+.backlog-focus-panel {
+  border: 1px solid #999;
+  border-radius: 8px;
+  padding: 10px 14px;
+  margin: 10px 0;
+  background: #f7f7f7;
+}
+.backlog-focus-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+.backlog-focus-title {
+  font-weight: 700;
+  font-size: 14px;
+}
+.backlog-focus-toggle {
+  font-size: 12px;
+}
+.backlog-focus-chain {
+  margin: 8px 0 2px;
+  font-size: 14px;
+  font-weight: 600;
+  overflow-wrap: break-word;
+  word-break: break-word;
+}
+.backlog-focus-note {
+  margin: 0;
+  font-size: 12px;
+  color: #666;
+}
+
+/* T-FB008-US10-03 · Panel de la cola de despacho, reutiliza
+   `.backlog-focus-panel`/`.backlog-focus-header`/`-title`/`-toggle`
+   (mismo contenedor colapsable que "Próximo foco") — solo las filas
+   individuales necesitan reglas propias. */
+.backlog-queue-row {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 4px 12px;
+  padding: 4px 0;
+  border-top: 1px solid #e5e5e5;
+}
+.backlog-queue-row:first-of-type {
+  border-top: none;
+  margin-top: 4px;
+}
+.backlog-queue-row-title {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-size: 13px;
+}
+.backlog-queue-row-status {
+  flex: 0 0 auto;
+  font-size: 13px;
+  font-weight: 600;
+  text-align: right;
+}
+
+/* T-FB036-US01-04 · Badge "N bloqueadas" por Epic, y separador plegable
+   de Epics terminadas.
+   El <button> conserva el área de toque mínima de 48px (T-FB021-US01-01)
+   pero queda transparente: el chip visual compacto vive en el <span>
+   interior, para que el bloque no se vea desproporcionado en la tarjeta.
+   El motivo de cada bloqueo (IDs de las dependencias pendientes) se
+   expone en el `title` del botón (tooltip nativo), sin necesitar
+   desplegar el detalle de la Epic para verlo. */
+.backlog-blocked-badge {
+  display: inline-flex;
+  align-items: center;
+  margin-left: 8px;
+  padding: 0;
+  border: none;
+  background: none;
+  cursor: pointer;
+}
+.backlog-blocked-badge-chip {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 10px;
+  background: #d32f2f;
+  color: #fff;
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1.6;
+}
+.backlog-done-header {
+  display: block;
+  width: 100%;
+  text-align: left;
+  background: none;
+  border: none;
+  border-top: 1px solid #ddd;
+  padding: 10px 4px;
+  margin-top: 8px;
+  font-weight: 700;
+  font-size: 14px;
+  color: #555;
+  cursor: pointer;
 }
 
 /* FB-025 · Acciones transversales de proyecto (Hilo 3). */

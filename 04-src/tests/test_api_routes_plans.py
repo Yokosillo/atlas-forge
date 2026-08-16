@@ -7,6 +7,7 @@ import libtmux
 import pytest
 from fastapi.testclient import TestClient
 
+import brain.api.app as app_module
 import brain.api.routes as routes_module
 from brain.api import create_app
 from brain.api.plan_registry import _reset_registry_for_tests as _reset_plan_registry
@@ -46,6 +47,16 @@ def _no_real_runtime(monkeypatch):
     monkeypatch.setattr(opencode_module, "DEFAULT_OPENCODE_COMMAND", "sleep")
     monkeypatch.setattr(opencode_module, "DEFAULT_OPENCODE_AUTONOMY_FLAG", "5")
     monkeypatch.setattr(opencode_module, "DEFAULT_OPENCODE_ARGS", ["5"])
+
+
+@pytest.fixture(autouse=True)
+def _no_real_architect_queue_watcher(monkeypatch):
+    # T-FB030-US03-04: ver mismo fixture en test_ws_agent_pane.py — sin
+    # este stub, los tests de este fichero que disparan `_lifespan` real
+    # con `with TestClient(...)` dejarían un `architect_queue_watcher.sh`
+    # real corriendo tras cada test, sin relación con el despacho de
+    # planes bajo prueba.
+    monkeypatch.setattr(app_module, "launch_architect_queue_watcher", lambda *a, **k: None)
 
 
 @pytest.fixture
@@ -165,6 +176,24 @@ def test_post_plans_builds_a_real_plan_without_dispatching_anything(
     assert len(body["steps"]) == 1
     assert body["steps"][0]["status"] == "pending"
     assert "plan_id" in body
+
+
+def test_post_plans_with_canonical_story_id_returns_a_non_empty_plan(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """T-FB022-US13-01B (criterio 3): POST /plans con `goal` en la forma
+    canónica que envía el selector de historias de la web (`US-FB999-01`,
+    NO `FB999-US01`) encuentra las Tasks TODO reales de la Story y
+    devuelve un plan no vacío, en vez de fallar en silencio."""
+    _isolated_backlog(tmp_path, monkeypatch, story_id="FB999-US01")
+    client = TestClient(create_app())
+
+    response = client.post("/plans", json={"goal": "US-FB999-01"})
+
+    assert response.status_code == 201
+    body = response.json()
+    assert body["goal"] == "US-FB999-01"
+    assert len(body["steps"]) == 1
 
 
 def test_post_plan_reject_prevents_any_dispatch(tmp_path: Path, monkeypatch) -> None:
@@ -543,3 +572,40 @@ def test_ws_plans_receives_per_step_progress_events_during_approve(
     assert step_status_sequences[-1] == ["completed", "completed"]
 
     stop_runtime(runtime_instance, socket_name=isolated_socket)
+
+
+def test_get_plan_includes_result_per_step_with_the_real_failure_message(
+    tmp_path: Path, monkeypatch
+) -> None:
+    # T-FB008-US04-08, criterio de aceptación: "GET /plans / GET
+    # /plans/{id} incluyen result por paso" con el mensaje real del
+    # error, no un mensaje genérico ni ausente — verificado vía HTTP real
+    # (no solo `get_plan_progress` en aislamiento), forzando el caso "no
+    # existe ningún agente" (sesión activa, cero Developers lanzados).
+    _project, session = _active_project_and_session(tmp_path, monkeypatch)
+    _isolated_backlog(tmp_path, monkeypatch)
+
+    client = TestClient(create_app())
+    plan_id = client.post("/plans", json={"goal": "FB999-US01"}).json()["plan_id"]
+
+    approve_response = client.post(f"/plans/{plan_id}/approve")
+    assert approve_response.status_code == 200
+    approve_body = approve_response.json()
+    assert approve_body["status"] == "blocked"
+    assert approve_body["steps"][0]["status"] == "failed"
+    assert approve_body["steps"][0]["result"] is not None
+    assert "No hay ningún agente con role 'developer'" in approve_body["steps"][0]["result"]
+
+    # Mismo dato disponible en un `GET /plans/{id}` posterior, no solo en
+    # la respuesta directa de `approve` — confirma que `result` persiste
+    # en el estado consultable del plan, no solo en la respuesta puntual.
+    get_response = client.get(f"/plans/{plan_id}")
+    assert get_response.status_code == 200
+    get_body = get_response.json()
+    assert get_body["steps"][0]["result"] == approve_body["steps"][0]["result"]
+
+    # Y también en el listado `GET /plans`.
+    list_response = client.get("/plans")
+    assert list_response.status_code == 200
+    listed_plan = next(p for p in list_response.json() if p["plan_id"] == plan_id)
+    assert listed_plan["steps"][0]["result"] == approve_body["steps"][0]["result"]

@@ -432,6 +432,66 @@
   }
 
   /* ------------------------------------------------------------------ */
+  /* Cola de despacho (T-FB008-US10-01/-02/-03)                          */
+  /* ------------------------------------------------------------------ */
+
+  /** `POST /backlog/{task_id}/enqueue` — marca la Task `taskId` (debe
+   * estar `TODO`) como encolada para desarrollo, sin pasar por el flujo
+   * de Plan/aprobación. 404 (Task inexistente)/400 (no está `TODO`)/409
+   * (ya encolada) propagan el `detail` real del backend. */
+  async function enqueueTask(taskId) {
+    return request("POST", "/backlog/" + encodeURIComponent(taskId) + "/enqueue", { post: true });
+  }
+
+  /** `POST /backlog/{us_id}/enqueue-all` — encola de una sola llamada
+   * todas las Tasks `TODO` de la User Story `usId`. 404 si `usId` no
+   * existe. */
+  async function enqueueAllTasks(usId) {
+    return request("POST", "/backlog/" + encodeURIComponent(usId) + "/enqueue-all", { post: true });
+  }
+
+  /** `DELETE /backlog/{task_id}/enqueue` — retira `taskId` de la cola
+   * antes de que el Dispatcher la haya tomado. 404 (nunca se encoló)/409
+   * (ya despachada) propagan el `detail` real. */
+  async function dequeueTask(taskId) {
+    return request("DELETE", "/backlog/" + encodeURIComponent(taskId) + "/enqueue");
+  }
+
+  /** `GET /backlog/queue` — estado completo de la cola: `queued`
+   * (ordenadas por prioridad), `dispatched`, `failed`. */
+  async function getDispatchQueue() {
+    return request("GET", "/backlog/queue");
+  }
+
+  /* ------------------------------------------------------------------ */
+  /* Edición en línea de prioridad/estado (T-FB036-US08-01)              */
+  /* ------------------------------------------------------------------ */
+
+  /** `PUT /backlog/{item_id}/priority` — cambia la prioridad de una User
+   * Story/Task ya existente directamente en su fichero real.
+   * `newPriority` es una de `'Crítica'|'Alta'|'Media'|'Baja'`, o `null`
+   * para "sin prioridad". 400 (valor inválido, o Epic) propaga el
+   * `detail` real del backend. */
+  async function setBacklogItemPriority(itemId, newPriority) {
+    return request("PUT", "/backlog/" + encodeURIComponent(itemId) + "/priority", {
+      post: true, body: { priority: newPriority }
+    });
+  }
+
+  /** `PUT /backlog/{item_id}/state` — cambia el estado de una User
+   * Story/Task ya existente directamente en su fichero real.
+   * `newState` es una de `'TODO'|'IN_PROGRESS'|'REVIEW'|'DONE'`. Si el
+   * item es una User Story y `newState` es `'DONE'`, el backend dispara
+   * la promoción automática de su Epic si corresponde (`promoted_epics`
+   * en la respuesta). 400 (valor inválido, o Epic) propaga el `detail`
+   * real del backend. */
+  async function setBacklogItemState(itemId, newState) {
+    return request("PUT", "/backlog/" + encodeURIComponent(itemId) + "/state", {
+      post: true, body: { state: newState }
+    });
+  }
+
+  /* ------------------------------------------------------------------ */
 
   window.BackendClient = Object.freeze({
     BackendUnavailableError: BackendUnavailableError,
@@ -473,5 +533,11 @@
     getBacklogItem: getBacklogItem,
     launchDevelopment: launchDevelopment,
     analyzeEpicThreads: analyzeEpicThreads,
+    enqueueTask: enqueueTask,
+    enqueueAllTasks: enqueueAllTasks,
+    dequeueTask: dequeueTask,
+    getDispatchQueue: getDispatchQueue,
+    setBacklogItemPriority: setBacklogItemPriority,
+    setBacklogItemState: setBacklogItemState,
   });
 })();

@@ -18,6 +18,16 @@ Factory Brain centralizes that flow:
 - **Delegates reads/summaries to a local model** (Scribe + Ollama) to reduce remote token consumption.
 - **Exposes everything** through a single HTTP/WebSocket API consumed by the web interface, the TUI and the Android app.
 
+## What Factory Brain really is
+
+Factory Brain is a **coordination layer between defined work and the agents that execute it** — not another project tracker, and not another coding agent. The backlog (Epic → User Story → Task) is the language used to describe work; the persistent development session, Jobs and pipelines are the mechanism used to execute and verify it.
+
+- **vs. Jira/Linear**: those describe work for humans to do. Here the backlog is *executable* — a Task can go from a Markdown file to verified, tested code without a human writing a line.
+- **vs. Claude Code/Codex/OpenCode**: those execute work but don't know what work exists, don't persist across sessions, and don't validate their own output. Factory Brain is the layer that turns a coding agent into a factory.
+- **What's genuinely differential**: the adversarial verification cycle (Developer implements → Architect independently re-verifies with real evidence → structured verdict) and "deterministic automation first" as a real operating discipline, not a slogan.
+
+See [What Factory Brain really is](docs/index.md#what-factory-brain-really-is) in the full documentation for the complete picture, including market positioning.
+
 ## What sets it apart
 
 - **Coordination over execution**: Factory Brain decides *who does what and when*; agents execute with their own runtimes and models.

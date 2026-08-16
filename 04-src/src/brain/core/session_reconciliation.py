@@ -35,7 +35,7 @@ from brain.tmux.manager import DEFAULT_SOCKET_NAME, list_sessions
 
 def reconcile_session_agents(
     session: DevelopmentSession, socket_name: str = DEFAULT_SOCKET_NAME
-) -> list[Agent]:
+) -> tuple[list[Agent], list[dict]]:
     """Reengancha a `session` cada sesión tmux real de `socket_name` cuyo
     nombre normalizado (`parse_session_name`, FB-030/US-FB030-01)
     pertenece al proyecto de `session` (`session.project_id`, que es el
@@ -43,11 +43,22 @@ def reconcile_session_agents(
     ver `workspace/discovery.py`) y todavía no está representada en
     `session.agents`.
 
-    Devuelve la lista de `Agent` reenganchados en esta llamada (vacía si
-    no había ninguno nuevo) — usada solo para trazabilidad/logging por el
-    llamador, `session.agents` ya queda actualizado por efecto lateral
-    igual que el resto de funciones de asignación de este paquete
-    (`assign_agent`).
+    Devuelve `(reconciled, ignored)`:
+    - `reconciled`: lista de `Agent` reenganchados en esta llamada (vacía
+      si no había ninguno nuevo) — usada solo para trazabilidad/logging
+      por el llamador, `session.agents` ya queda actualizado por efecto
+      lateral igual que el resto de funciones de asignación de este
+      paquete (`assign_agent`).
+    - `ignored` (T-FB037-US02-01): lista de `{"session_name": str,
+      "reason": str}` — una entrada por cada sesión tmux del socket que
+      NO terminó reenganchada, con el motivo (`"ya_reconciliada"`:
+      sesión que session.agents ya representaba antes de esta llamada;
+      `"nombre_no_reconocido"`: no pasa `parse_session_name`;
+      `"otro_proyecto"`: normalizada pero de un proyecto distinto;
+      `"rol_invalido"`: rol sin `prompt_builder` registrado;
+      `"error_reenganche: <mensaje>"`: excepción puntual durante el
+      reenganche, ver tolerancia a fallo más abajo). Puramente aditivo
+      para trazabilidad — no cambia qué sesiones se reenganchan ni cómo.
 
     ## Tolerancia a fallo puntual (punto 4 de la Task, criterio explícito)
 
@@ -89,19 +100,24 @@ def reconcile_session_agents(
     }
 
     reconciled: list[Agent] = []
+    ignored: list[dict] = []
     for tmux_session_name in list_sessions(socket_name=socket_name):
         if tmux_session_name in already_present_session_names:
+            ignored.append({"session_name": tmux_session_name, "reason": "ya_reconciliada"})
             continue
 
         try:
             parsed = parse_session_name(tmux_session_name)
             if parsed is None:
+                ignored.append({"session_name": tmux_session_name, "reason": "nombre_no_reconocido"})
                 continue
             if parsed.project_name != project_name_for_session:
+                ignored.append({"session_name": tmux_session_name, "reason": "otro_proyecto"})
                 continue
 
             role_config = get_role(parsed.role)
             if role_config is None or role_config.prompt_builder is None:
+                ignored.append({"session_name": tmux_session_name, "reason": "rol_invalido"})
                 continue
 
             agent_name = parsed.role.capitalize()
@@ -124,10 +140,14 @@ def reconcile_session_agents(
                 RuntimeInstance(runtime=runtime, session_name=tmux_session_name),
             )
             reconciled.append(agent)
-        except Exception:
+        except Exception as error:
             # Tolerancia a fallo puntual (punto 4 de la Task): una sesión
             # que no se puede reenganchar no debe impedir reenganchar el
             # resto, ni tumbar el arranque del proceso.
+            ignored.append({
+                "session_name": tmux_session_name,
+                "reason": f"error_reenganche: {error}",
+            })
             continue
 
-    return reconciled
+    return reconciled, ignored

@@ -17,6 +17,17 @@ coordinación adicional. Si el `Job` resultante no queda `completed`
 (`failed`, o cualquier excepción de `create_job`/`dispatch_job`), el paso
 se marca `failed` y el plan se bloquea.
 
+`dispatch_job` recibe explícitamente `timeout_seconds=AGENT_STEP_TIMEOUT_SECONDS`
+(T-FB008-US04-06), no el default de 30s: el trabajo real de una Task de
+Developer detrás de un paso de plan tarda de forma habitual más de 30s en
+completarse y reportar, a diferencia de un Job corto/determinista —
+antes de esta Task, cualquier paso de agente real bloqueaba el plan por
+timeout prematuro aunque el Developer no hubiera fallado (reproducido en
+vivo con el plan de `US-FB036-01`, ver la Task). El timeout de 30s por
+defecto de `dispatch_job` sigue vigente sin cambios para sus otros
+llamadores (`architect_verdict_queue.py`, `api/routes.py`,
+`actions/transversal.py`), donde sigue siendo un Job corto/determinista.
+
 ## Mecanismo `"scribe"`
 
 Invoca `summarize_document` (FB-014) directamente sobre `step.description`
@@ -89,6 +100,17 @@ from brain.runtime.agent_runtime_registry import get_runtime_instance_for_agent
 from brain.tmux.manager import DEFAULT_SOCKET_NAME
 
 
+# T-FB008-US04-06: timeout de `dispatch_job` para pasos de mecanismo
+# 'agent', distinto del default de 30s (pensado para Jobs cortos/
+# deterministas, no para el trabajo real de una Task de Developer). Un
+# valor grande en vez de "sin timeout" para no tocar la firma de
+# `dispatch_job`/`_wait_for_report` (ambos ya aceptan cualquier float) —
+# la vía de escape ante un cuelgue real sigue siendo la cancelación
+# explícita (`POST /plans/{id}/cancel`), comprobada en cada ciclo del
+# polling de `_wait_for_report` sin depender de este timeout.
+AGENT_STEP_TIMEOUT_SECONDS = 3600.0
+
+
 class JobPlanDispatchError(ValueError):
     """No se puede despachar `plan` en su estado/condiciones actuales."""
 
@@ -100,28 +122,59 @@ class _StepCancelledSignal(Exception):
     `cancelled` en vez de `blocked`."""
 
 
+class _NoAgentAvailableError(ValueError):
+    """No hay ningún agente `idle` de `role` disponible para despachar un
+    paso (T-FB008-US04-08). Distingue en el mensaje si el motivo es que
+    todos los agentes de ese rol están ocupados (`all_working=True`) o
+    que no existe ninguno (`all_working=False`) — quien llama decide el
+    texto exacto del `JobCreationError` para cada caso."""
+
+    def __init__(self, all_working: bool) -> None:
+        self.all_working = all_working
+        super().__init__()
+
+
 def _find_agent_by_role(
     session: DevelopmentSession, role: str, agent_id: str | None = None
-) -> Agent | None:
+) -> Agent:
+    """Resuelve el agente de `role` al que despachar un paso.
+
+    Con `agent_id` explícito, se busca exactamente ese agente (mismo
+    comportamiento previo a esta Task) — el llamador pidió uno concreto,
+    no hay elección que hacer.
+
+    Sin `agent_id`, prioriza un agente `idle` sobre uno `working` del
+    mismo rol (T-FB008-US04-08, criterio 1): antes de esta Task se
+    devolvía el primero encontrado sin mirar `status`, lo que con
+    `MAX_SIMULTANEOUS_DEVELOPERS` > 1 podía reutilizar un Developer ya
+    `working` en otro Job/paso — riesgo real de mezclar dos instrucciones
+    en el mismo pane. Si no hay ningún agente `idle` disponible, lanza
+    `_NoAgentAvailableError` (no devuelve `None`, no reutiliza uno
+    ocupado): `all_working=True` si existe al menos un agente de `role`
+    pero todos están `working`, `all_working=False` si no existe ninguno
+    — el llamador (`_dispatch_agent_step`) traduce cada caso a un mensaje
+    de `JobCreationError` distinto y explícito (criterio 3: fallar rápido,
+    sin cola de espera automática)."""
+    candidates_by_id: dict[str, Agent] = {
+        agent.id: agent
+        for agent in list_agents(session)
+        if isinstance(agent, Agent) and agent.role == role
+    }
+
     if agent_id is not None:
-        return next(
-            (
-                agent
-                for agent in list_agents(session)
-                if isinstance(agent, Agent)
-                and agent.role == role
-                and agent.id == agent_id
-            ),
-            None,
-        )
-    return next(
-        (
-            agent
-            for agent in list_agents(session)
-            if isinstance(agent, Agent) and agent.role == role
-        ),
+        agent = candidates_by_id.get(agent_id)
+        if agent is None:
+            raise _NoAgentAvailableError(all_working=False)
+        return agent
+
+    idle_agent = next(
+        (agent for agent in candidates_by_id.values() if agent.status == "idle"),
         None,
     )
+    if idle_agent is not None:
+        return idle_agent
+
+    raise _NoAgentAvailableError(all_working=bool(candidates_by_id))
 
 
 def _dispatch_agent_step(
@@ -133,17 +186,24 @@ def _dispatch_agent_step(
             "resolver el agente destinatario."
         )
 
-    agent = _find_agent_by_role(session, step.agent_role, agent_id=step.agent_id)
-    if agent is None:
+    try:
+        agent = _find_agent_by_role(session, step.agent_role, agent_id=step.agent_id)
+    except _NoAgentAvailableError as error:
         if step.agent_id is not None:
             raise JobCreationError(
                 f"No hay ningún agente con role '{step.agent_role}' y "
                 f"agent_id '{step.agent_id}' en la sesión activa."
-            )
+            ) from error
+        if error.all_working:
+            raise JobCreationError(
+                f"Todos los agentes con role '{step.agent_role}' están "
+                f"ocupados — no se reutiliza un agente ya en curso para "
+                f"evitar mezclar instrucciones en el mismo pane."
+            ) from error
         raise JobCreationError(
             f"No hay ningún agente con role '{step.agent_role}' en la "
             f"sesión activa para despachar este paso."
-        )
+        ) from error
 
     runtime_instance = get_runtime_instance_for_agent(agent.id)
     if runtime_instance is None:
@@ -160,7 +220,13 @@ def _dispatch_agent_step(
     # (reutiliza T-FB008-US05-01) — ver `job_plan_cancellation_registry`.
     set_active_job_for_plan(plan, job)
     try:
-        dispatch_job(job, agent, runtime_instance, socket_name=socket_name)
+        dispatch_job(
+            job,
+            agent,
+            runtime_instance,
+            timeout_seconds=AGENT_STEP_TIMEOUT_SECONDS,
+            socket_name=socket_name,
+        )
     finally:
         clear_active_job_for_plan(plan)
         # T-FB022-US06-03: persistir informe de cierre en
@@ -342,7 +408,19 @@ def dispatch_plan(
 
 def get_plan_progress(plan: JobPlan) -> dict[str, Any]:
     """Consulta el progreso de `plan` en cualquier momento: estado global
-    del plan más el estado individual de cada paso, en orden."""
+    del plan más el estado individual de cada paso, en orden.
+
+    `result` por paso (T-FB008-US04-08): `JobPlanStep.result` ya se
+    rellena con el mensaje real del error (`step.result = str(error)`,
+    ver `dispatch_plan`) antes de marcar el plan `blocked`, pero hasta
+    esta Task ese dato nunca llegaba a `GET /plans`/`GET /plans/{id}` —
+    el usuario solo veía "BLOQUEADO" a nivel de plan, sin saber qué paso
+    falló ni por qué. `step.result` es `str` con default `""` (no
+    `str | None`) en el modelo — se traduce a `None` aquí cuando está
+    vacío (paso sin terminar, o mecanismo que nunca escribe `result`,
+    p. ej. `"script"` degradado) en vez de exponer una cadena vacía, para
+    que el consumidor pueda distinguir "sin resultado" de "resultado
+    vacío" de forma explícita en el JSON (`null` vs. `""`)."""
     return {
         "goal": plan.goal,
         "status": plan.status,
@@ -351,6 +429,7 @@ def get_plan_progress(plan: JobPlan) -> dict[str, Any]:
                 "description": step.description,
                 "mechanism": step.mechanism,
                 "status": step.status,
+                "result": step.result or None,
             }
             for step in plan.steps
         ],

@@ -23,6 +23,28 @@ Developing with AI today requires keeping several Claude Code sessions open, lau
 
 Factory Brain centralizes that flow: the active project, the live session, the launched agents, the Job history, the plans, the scripts and the backlog state all live in a single process (`brain-api`) to which any interface connects.
 
+## What Factory Brain really is
+
+Factory Brain is a **coordination layer between defined work and the agents that execute it**. Its own vision statement is the clearest definition available: *"Factory Brain automates the execution of work, not the decisions about what work to do."*
+
+The core concept is not the backlog and it is not the agents themselves — it is the **persistent development session**: agents that survive between jobs, carrying accumulated context, coordinated by a dispatcher, running on interchangeable runtimes. The backlog (Epic → User Story → Task) is the *language* used to describe work; Jobs and pipelines are the *mechanism* used to execute it.
+
+**How it differs from a traditional project management tool:** Jira describes work for humans to do. Here the backlog is *executable* — a Task can go from a Markdown file to verified, tested code without a human writing a single line, with the system updating the backlog's own state on closure.
+
+**How it differs from a coding agent:** Claude Code does the work but does not know what work exists, does not persist across sessions on its own, does not coordinate with other agents, and does not validate its own output. Factory Brain is the layer a coding agent needs to become a *factory* instead of a tool.
+
+### Where it fits
+
+- **It does not compete with Jira/Linear** — and it shouldn't try to. Its Markdown-file-plus-validator backlog model is functional, but it is the least differentiated part of the product.
+- **It does not compete with Claude Code / Codex / OpenCode** — it consumes them as runtimes, which is exactly the right relationship.
+- Its closest real neighbor is the emerging category of **coding-agent orchestrators** (Factory.ai, GitHub Copilot's coding agent, GitLab Duo). The observable difference: those are single-provider/single-runtime; Factory Brain is runtime-agnostic by design, and adds a verdict/validation layer (the Developer → Architect cycle) that those tools don't treat as a first-class concept.
+- Natural integration points: upstream with work-management tools (importing issues), downstream with runtimes. Today there is no upstream integration — the entire backlog is native to the system.
+
+### What is genuinely differential (with real evidence, not just design intent)
+
+- **The adversarial verification cycle**: Developer implements → Architect independently verifies (re-running tests, reading the actual code, reproducing the result live) → structured verdict. This cycle has caught real bugs the Developer itself didn't see. None of the products above have this as a core mechanism.
+- **"Deterministic first"**: format validators, state promotion, pre-commit hooks — the system spends LLM calls only where they add value. This is a real operating discipline verified in daily use, not a slogan.
+
 ## Design principles
 
 | Principle | What it means |

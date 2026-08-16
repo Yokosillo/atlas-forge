@@ -19,9 +19,11 @@ import time
 import uuid
 from contextlib import contextmanager
 from pathlib import Path
+from unittest.mock import patch
 
 import uvicorn
 
+import brain.api.app as app_module
 import brain.api.routes as routes_module
 from brain.api.app import create_app
 
@@ -77,36 +79,48 @@ def running_backend(
     routes_module._WORKSPACE_ROOT = workspace_root
     routes_module._STATE_DIR = state_dir
 
-    port = _free_port()
-    config = uvicorn.Config(
-        create_app(), host="127.0.0.1", port=port, log_level="warning"
-    )
-    server = uvicorn.Server(config)
+    # T-FB030-US03-04: `_lifespan` ahora lanza `architect_queue_watcher.sh`
+    # como subproceso real de larga duración para el proyecto activo que
+    # resuelva — cuando este fixture se invoca SIN `state_dir` (algunos
+    # tests de arranque de la TUI lo hacen a propósito, ver docstring de
+    # arriba), `_lifespan` resolvería el proyecto activo REAL persistido
+    # del usuario en esta máquina y dejaría ese watcher corriendo
+    # indefinidamente tras el test, sin relación con lo que el test
+    # prueba. Mismo stub que ya aplican `test_ws_agent_pane.py`/
+    # `test_session_reconciliation.py`/`test_api_routes_plans.py` para el
+    # `_lifespan` vía `TestClient`, aquí centralizado para cualquier
+    # llamador de `running_backend` (servidor uvicorn real en hilo).
+    with patch.object(app_module, "launch_architect_queue_watcher", lambda *a, **k: None):
+        port = _free_port()
+        config = uvicorn.Config(
+            create_app(), host="127.0.0.1", port=port, log_level="warning"
+        )
+        server = uvicorn.Server(config)
 
-    thread = threading.Thread(target=server.run, daemon=True)
-    thread.start()
+        thread = threading.Thread(target=server.run, daemon=True)
+        thread.start()
 
-    deadline = time.monotonic() + 5.0
-    while not server.started and time.monotonic() < deadline:
-        time.sleep(0.01)
-    if not server.started:
-        routes_module._SOCKET_NAME = original_socket_name
-        routes_module._WORKSPACE_ROOT = original_workspace_root
-        routes_module._STATE_DIR = original_state_dir
-        raise RuntimeError("El backend de prueba no arrancó a tiempo.")
-
-    try:
-        yield f"http://127.0.0.1:{port}"
-    finally:
-        server.should_exit = True
-        thread.join(timeout=5.0)
-        routes_module._SOCKET_NAME = original_socket_name
-        routes_module._WORKSPACE_ROOT = original_workspace_root
-        routes_module._STATE_DIR = original_state_dir
+        deadline = time.monotonic() + 5.0
+        while not server.started and time.monotonic() < deadline:
+            time.sleep(0.01)
+        if not server.started:
+            routes_module._SOCKET_NAME = original_socket_name
+            routes_module._WORKSPACE_ROOT = original_workspace_root
+            routes_module._STATE_DIR = original_state_dir
+            raise RuntimeError("El backend de prueba no arrancó a tiempo.")
 
         try:
-            import libtmux
+            yield f"http://127.0.0.1:{port}"
+        finally:
+            server.should_exit = True
+            thread.join(timeout=5.0)
+            routes_module._SOCKET_NAME = original_socket_name
+            routes_module._WORKSPACE_ROOT = original_workspace_root
+            routes_module._STATE_DIR = original_state_dir
 
-            libtmux.Server(socket_name=isolated_socket_name).kill()
-        except Exception:
-            pass
+            try:
+                import libtmux
+
+                libtmux.Server(socket_name=isolated_socket_name).kill()
+            except Exception:
+                pass

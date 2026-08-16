@@ -12,11 +12,17 @@ Wants=tailscaled.service
 
 [Service]
 Type=simple
-# User= y Group= se omiten en la instancia de systemd de usuario (el
-# proceso hereda el usuario/group del session manager).
-# Para systemd de sistema (root), descomentar:
-# User=secure_ai_atlas
-# Group=secure_ai_atlas
+# User=/Group= (T-FB037-US04-02): esta unit se despliega como unit de
+# SISTEMA (/etc/systemd/system/), donde sin User= explícito el proceso
+# corre como root — confirmado en producción (`Uid: 0 0 0 0`). Eso rompe
+# `resolve_startup_session()`: `Path.home()` dentro del proceso resolvía
+# a `/root`, no a `~secure_ai_atlas`, así que no encontraba el
+# `active_project.json` real y `GET /agents`/`GET /project` quedaban sin
+# sesión activa tras cada reinicio. Fijar el usuario no privilegiado que
+# ya aloja el estado real corrige la causa y evita además exponer un
+# servicio HTTP en la red Tailscale con privilegios de root sin motivo.
+User=secure_ai_atlas
+Group=secure_ai_atlas
 # Raíz del workspace (factoria-software/), no 04-src/ — mismo motivo ya
 # documentado en discover_projects (FB-001): el proceso necesita ver los
 # repos reales de 10-PRODUCTOS/ para poder lanzar agentes sobre ellos,
@@ -31,6 +37,14 @@ ExecStart=/opt/openclaw/openclaw-software/.openclaw/workspace/factoria-software/
 # `systemctl disable` primero solo para parar el proceso un momento).
 Restart=on-failure
 RestartSec=5
+# KillMode=process (T-FB037-US04-01): con el default control-group, un
+# restart/stop mata a TODOS los procesos del cgroup del servicio, no solo
+# al ExecStart — incluyendo el servidor tmux -Lfactory-brain que
+# brain.tmux.manager.create_session lanza como hijo (y con él, todos los
+# agentes vivos), aunque tmux haga su propio doble-fork y quede
+# reparented a PID 1 a nivel de árbol de procesos Unix (eso no lo saca
+# del cgroup). Con process, solo el PID principal recibe la señal.
+KillMode=process
 
 [Install]
 WantedBy=multi-user.target

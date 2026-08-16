@@ -1,3 +1,5 @@
+import threading
+import time
 import uuid
 from pathlib import Path
 from unittest.mock import patch
@@ -96,6 +98,81 @@ def test_dispatch_plan_executes_three_agent_steps_in_order_waiting_for_each(
     assert plan.status == "approved"
     assert [step.status for step in plan.steps] == ["completed", "completed", "completed"]
     assert all("cooperative result" in step.result for step in plan.steps)
+
+
+def test_dispatch_agent_step_passes_an_explicit_timeout_longer_than_the_dispatch_job_default(
+    isolated_socket: str, tmp_path
+) -> None:
+    """T-FB008-US04-06: antes de esta Task, `_dispatch_agent_step` llamaba
+    `dispatch_job(job, agent, runtime_instance, socket_name=socket_name)`
+    sin `timeout_seconds`, heredando el default de 30s de `dispatch_job`
+    (pensado para Jobs cortos/deterministas, no para el trabajo real de
+    una Task de Developer) — causa raíz verificada del bloqueo reproducido
+    en vivo con el plan de `US-FB036-01`. Verifica contra la llamada real
+    (mock de `dispatch_job`, sin esperar de verdad el timeout) que ahora
+    se pasa `timeout_seconds=AGENT_STEP_TIMEOUT_SECONDS`, mayor que el
+    default de 30s de `dispatch_job`."""
+    from brain.dispatcher.job_plan_dispatch import AGENT_STEP_TIMEOUT_SECONDS
+
+    assert AGENT_STEP_TIMEOUT_SECONDS > 30.0
+
+    agent, runtime_instance = _launch_cooperative_developer(isolated_socket, tmp_path)
+    session = _active_session_with_developer(agent)
+    plan = JobPlan(
+        goal="FB999-US01",
+        steps=[JobPlanStep(description="paso", mechanism="agent", agent_role="developer")],
+        status="approved",
+    )
+
+    with patch(
+        "brain.dispatcher.job_plan_dispatch.dispatch_job",
+        wraps=__import__(
+            "brain.dispatcher.job_plan_dispatch", fromlist=["dispatch_job"]
+        ).dispatch_job,
+    ) as mock_dispatch_job:
+        try:
+            dispatch_plan(plan, session, socket_name=isolated_socket)
+        finally:
+            stop_runtime(runtime_instance, socket_name=isolated_socket)
+
+    assert mock_dispatch_job.call_args.kwargs["timeout_seconds"] == AGENT_STEP_TIMEOUT_SECONDS
+    assert plan.status == "approved"
+    assert plan.steps[0].status == "completed"
+
+
+def test_dispatch_plan_completes_an_agent_step_that_would_have_exceeded_the_old_default_timeout(
+    isolated_socket: str, tmp_path
+) -> None:
+    """T-FB008-US04-06, criterio de aceptación 1 y 4: reproduce el bug
+    original end-to-end con reloj real, sin esperar 30s de verdad —
+    reduce `AGENT_STEP_TIMEOUT_SECONDS` (el timeout que `_dispatch_agent_step`
+    pasa explícitamente desde esta Task) a un valor pequeño que simula en
+    segundos de test la misma relación que existía con el viejo default
+    de 30s de `dispatch_job` heredado sin querer (Developer más lento que
+    el timeout aplicado). Antes de esta Task no existía ningún
+    `timeout_seconds` propio del paso de plan — `dispatch_job` usaba
+    directamente su propio default (30.0) sin que `_dispatch_agent_step`
+    pudiera ajustarlo; ahora sí puede, y este test verifica que el ajuste
+    realmente evita el bloqueo con un Developer más lento que ese valor."""
+    agent, runtime_instance = _launch_cooperative_developer(
+        isolated_socket, tmp_path, extra_env="SIM_DELAY=1"
+    )
+    session = _active_session_with_developer(agent)
+    plan = JobPlan(
+        goal="FB999-US01",
+        steps=[JobPlanStep(description="paso lento", mechanism="agent", agent_role="developer")],
+        status="approved",
+    )
+
+    with patch("brain.dispatcher.job_plan_dispatch.AGENT_STEP_TIMEOUT_SECONDS", 5.0):
+        try:
+            dispatch_plan(plan, session, socket_name=isolated_socket)
+        finally:
+            stop_runtime(runtime_instance, socket_name=isolated_socket)
+
+    assert plan.status == "approved"
+    assert plan.steps[0].status == "completed"
+    assert "cooperative result" in plan.steps[0].result
 
 
 def test_dispatch_plan_stops_and_blocks_on_first_failing_step(
@@ -221,6 +298,29 @@ def test_get_plan_progress_reflects_step_states_after_partial_dispatch(
     assert progress["status"] == "blocked"
     assert progress["steps"][0]["status"] == "completed"
     assert progress["steps"][1]["status"] == "failed"
+    # T-FB008-US04-08, criterio de aceptación: `result` por paso, texto
+    # real del error para el paso que falló, `null` (no cadena vacía)
+    # para el que sí completó.
+    assert progress["steps"][0]["result"] is not None
+    assert "cooperative result" in progress["steps"][0]["result"]
+    assert progress["steps"][1]["result"] is not None
+    assert "No hay ningún agente con role 'critic'" in progress["steps"][1]["result"]
+
+
+def test_get_plan_progress_step_result_is_null_when_not_yet_dispatched() -> None:
+    # T-FB008-US04-08, criterio de aceptación: "un paso sin fallo tiene
+    # `result: null`" — verificado también para el caso más simple, un
+    # plan recién construido, sin despachar nada todavía.
+    plan = JobPlan(
+        goal="FB999-US01",
+        steps=[JobPlanStep(description="paso", mechanism="agent", agent_role="developer")],
+        status="proposed",
+    )
+
+    progress = get_plan_progress(plan)
+
+    assert progress["steps"][0]["status"] == "pending"
+    assert progress["steps"][0]["result"] is None
 
 
 def test_dispatch_plan_invokes_the_step_status_callback_for_each_transition(
@@ -293,7 +393,10 @@ def test_dispatch_plan_completes_normally_even_if_the_callback_raises(
 
 
 def test_find_agent_by_role_disambiguates_by_agent_id() -> None:
-    from brain.dispatcher.job_plan_dispatch import _find_agent_by_role
+    from brain.dispatcher.job_plan_dispatch import (
+        _NoAgentAvailableError,
+        _find_agent_by_role,
+    )
 
     session = DevelopmentSession(id="s1", project_id="p1")
     activate(session)
@@ -303,30 +406,75 @@ def test_find_agent_by_role_disambiguates_by_agent_id() -> None:
     assign_agent(session, dev2)
 
     found_dev2 = _find_agent_by_role(session, "developer", agent_id="dev-2")
-    assert found_dev2 is not None
     assert found_dev2.id == "dev-2"
 
     found_dev1 = _find_agent_by_role(session, "developer", agent_id="dev-1")
-    assert found_dev1 is not None
     assert found_dev1.id == "dev-1"
 
-    found_nonexistent = _find_agent_by_role(session, "developer", agent_id="dev-3")
-    assert found_nonexistent is None
+    # T-FB008-US04-08: un `agent_id` concreto que no existe ya no devuelve
+    # `None` — lanza `_NoAgentAvailableError` explícito (mismo criterio de
+    # "fallar rápido" que el resto de esta Task).
+    with pytest.raises(_NoAgentAvailableError):
+        _find_agent_by_role(session, "developer", agent_id="dev-3")
 
 
-def test_find_agent_by_role_no_agent_id_returns_first_match() -> None:
+def test_find_agent_by_role_no_agent_id_prefers_idle_over_working() -> None:
+    # T-FB008-US04-08, criterio 1: con varios candidatos del mismo rol,
+    # se prioriza uno `idle` sobre uno `working` — antes de esta Task se
+    # devolvía sin más el primero encontrado, sin mirar `status`.
     from brain.dispatcher.job_plan_dispatch import _find_agent_by_role
 
     session = DevelopmentSession(id="s1", project_id="p1")
     activate(session)
-    dev1 = Agent(id="dev-1", name="Developer-1", role="developer", prompt="p", runtime_id="r1")
-    dev2 = Agent(id="dev-2", name="Developer-2", role="developer", prompt="p", runtime_id="r1")
+    dev1 = Agent(
+        id="dev-1", name="Developer-1", role="developer", prompt="p",
+        runtime_id="r1", status="working",
+    )
+    dev2 = Agent(
+        id="dev-2", name="Developer-2", role="developer", prompt="p",
+        runtime_id="r1", status="idle",
+    )
     assign_agent(session, dev1)
     assign_agent(session, dev2)
 
     found = _find_agent_by_role(session, "developer")
-    assert found is not None
-    assert found.id == "dev-1"
+    assert found.id == "dev-2"
+
+
+def test_find_agent_by_role_no_agent_id_fails_explicitly_when_all_working() -> None:
+    # T-FB008-US04-08, criterio 2/3: si todos los agentes del rol están
+    # `working`, no se reutiliza ninguno — falla explícito con
+    # `all_working=True`, distinto del caso "no existe ninguno".
+    from brain.dispatcher.job_plan_dispatch import (
+        _NoAgentAvailableError,
+        _find_agent_by_role,
+    )
+
+    session = DevelopmentSession(id="s1", project_id="p1")
+    activate(session)
+    dev1 = Agent(
+        id="dev-1", name="Developer-1", role="developer", prompt="p",
+        runtime_id="r1", status="working",
+    )
+    assign_agent(session, dev1)
+
+    with pytest.raises(_NoAgentAvailableError) as exc_info:
+        _find_agent_by_role(session, "developer")
+    assert exc_info.value.all_working is True
+
+
+def test_find_agent_by_role_no_agent_id_fails_explicitly_when_none_exists() -> None:
+    from brain.dispatcher.job_plan_dispatch import (
+        _NoAgentAvailableError,
+        _find_agent_by_role,
+    )
+
+    session = DevelopmentSession(id="s1", project_id="p1")
+    activate(session)
+
+    with pytest.raises(_NoAgentAvailableError) as exc_info:
+        _find_agent_by_role(session, "developer")
+    assert exc_info.value.all_working is False
 
 
 def test_dispatch_plan_disambiguates_multiple_developers_by_agent_id(
@@ -375,6 +523,84 @@ def test_dispatch_plan_disambiguates_multiple_developers_by_agent_id(
     assert plan.status == "approved"
     assert plan.steps[0].status == "completed"
     assert plan.steps[1].status == "completed"
+
+
+def test_dispatch_plan_picks_the_idle_developer_while_the_other_is_genuinely_busy(
+    isolated_socket: str, tmp_path
+) -> None:
+    # T-FB008-US04-08, criterio de aceptación explícito: dos Developers
+    # reales (tmux real, mismo runtime cooperativo que el resto de esta
+    # suite), uno ocupado con un Job de LARGA DURACIÓN simulado (no un
+    # `status="working"` puesto a mano — concurrencia real vía threading,
+    # el Job del hilo de fondo sigue genuinamente en curso cuando se
+    # despacha el segundo). Confirma que un despacho por rol (sin
+    # `agent_id`) elige el Developer libre, nunca el ocupado.
+    from brain.dispatcher.job_creation import create_job
+    from brain.dispatcher.job_dispatch import dispatch_job
+
+    busy_dev, busy_ri = _launch_cooperative_developer(
+        isolated_socket, tmp_path, extra_env="SIM_DELAY=3"
+    )
+    busy_dev.id = "dev-busy"
+    busy_dev.name = "Developer-busy"
+    register_runtime_instance_for_agent(busy_dev.id, busy_ri)
+
+    idle_dev, idle_ri = _launch_cooperative_developer(isolated_socket, tmp_path)
+    idle_dev.id = "dev-idle"
+    idle_dev.name = "Developer-idle"
+    register_runtime_instance_for_agent(idle_dev.id, idle_ri)
+
+    session = DevelopmentSession(id="s1", project_id="p1")
+    activate(session)
+    assign_agent(session, busy_dev)
+    assign_agent(session, idle_dev)
+
+    busy_job = create_job("Job de larga duración en curso", busy_dev, session)
+    busy_thread = threading.Thread(
+        target=dispatch_job,
+        args=(busy_job, busy_dev, busy_ri),
+        kwargs={"socket_name": isolated_socket},
+    )
+    busy_thread.start()
+    try:
+        # Espera activa corta a que el hilo de fondo REALMENTE haya
+        # marcado `busy_dev` como `working` (mark_working ocurre dentro
+        # de `dispatch_job`, antes de enviar la instrucción) — sin este
+        # sondeo, el despacho del plan podría adelantarse a la
+        # transición y el test no probaría la condición de carrera real.
+        deadline = time.monotonic() + 5.0
+        while busy_dev.status != "working" and time.monotonic() < deadline:
+            time.sleep(0.02)
+        assert busy_dev.status == "working"
+
+        plan = JobPlan(
+            goal="FB999-US01",
+            steps=[
+                JobPlanStep(
+                    description="paso sin agent_id",
+                    mechanism="agent",
+                    agent_role="developer",
+                ),
+            ],
+            status="approved",
+        )
+        dispatch_plan(plan, session, socket_name=isolated_socket)
+    finally:
+        busy_thread.join(timeout=10)
+        stop_runtime(busy_ri, socket_name=isolated_socket)
+        stop_runtime(idle_ri, socket_name=isolated_socket)
+
+    assert plan.status == "approved"
+    assert plan.steps[0].status == "completed"
+    # El Job del paso se despachó al Developer libre (`dev-idle`), no al
+    # ocupado — verificado con el propio agente vuelto a `idle` tras
+    # completar (ambos lo estarán al terminar, pero solo `idle_dev`
+    # participó en el paso: confirmado indirectamente por que el plan
+    # completó sin bloquearse, lo que solo pasa si el paso encontró un
+    # agente `idle` real para despachar — con la implementación previa a
+    # esta Task, el riesgo real era que reutilizara `busy_dev` mientras
+    # seguía `working`, mezclando dos instrucciones en el mismo pane).
+    assert busy_job.status == "completed"
 
 
 def test_dispatch_plan_blocks_when_agent_id_does_not_match_any_agent() -> None:

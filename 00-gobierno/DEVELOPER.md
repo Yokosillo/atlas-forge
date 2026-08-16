@@ -48,6 +48,44 @@ espera de validación constante.
   el hallazgo en tu reporte de cierre en vez de ampliar el trabajo sin que
   te lo hayan pedido.
 
+## Verificación obligatoria en navegador real para cambios de web (decisión de producto, 2026-08-15)
+
+Si una Task modifica cualquier fichero de `10-web/` (HTML/JS/CSS) — tanto
+si el cambio es visual como si toca lógica JS invocada desde la interfaz —
+no basta con tests unitarios/backend para darla por `DONE`. Es obligatorio
+verificar el resultado contra la web real, ejerciendo el flujo real de
+usuario con navegador real (headless o no), sin mockear la lógica de
+negocio del backend.
+
+**Mecanismo de referencia (usado en `T-FB024-US11-09`, 2026-08-15):**
+Playwright + Chromium (instalable en el venv de `04-src`) contra el
+`brain-api` real ya en marcha, sin modificar su estado. Cuando el estado
+que hay que probar no es alcanzable de forma segura contra el backend
+real en ese momento (p. ej. el propio Arquitecto activo gestionando el
+trabajo, y probar requeriría detenerlo), interceptar a nivel de cliente
+con `page.route` las respuestas de los endpoints necesarios para simular
+ese estado — sigue siendo el mismo HTML/JS real sirviéndose y
+ejecutándose, solo se sustituye la respuesta de red, nunca la lógica de
+negocio en sí. Verificar contra el DOM real resultante (atributos
+`disabled`/`title`, texto visible, valores de formulario), no contra una
+descripción de lo que "debería" pasar.
+
+Motivo: varios bugs reales de la pantalla Agentes (`T-FB024-US11-03`,
+`-06`, `-07`, `-08`, `-09`) solo eran reproducibles interactuando con el
+DOM/backend real — invisibles para un test unitario de lógica aislada o
+una lectura de código, por razonable que pareciera el código a simple
+vista.
+
+Esto es criterio de aceptación adicional, no solo buena práctica: una Task
+de web sin esa verificación no está lista para reportarse como cerrada,
+igual que no lo está una Task sin sus tests unitarios. Reporta en el
+cierre qué verificación en real se hizo y su resultado (mismo campo
+"Tests ejecutados" del protocolo de cierre, ver abajo) — no basta con
+decir "verificado", se exige evidencia reproducible (comando ejecutado,
+script de Playwright, o pasos manuales seguidos), igual que hizo el
+informe de `T-FB024-US11-09`
+(`07-informes/US-FB024-11/arquitecto-sin-modelo-bloquea-lanzar.md`).
+
 ## Cómo llega el trabajo (mecanismo real)
 
 Un Job (descripción de trabajo concreto) llega por uno de estos caminos:
@@ -59,6 +97,25 @@ Un Job (descripción de trabajo concreto) llega por uno de estos caminos:
   Claude Code): no trae ningún fichero de reporte asociado — responde por
   el mismo canal (`SendMessage` de vuelta al remitente) con el resultado,
   salvo que la instrucción indique explícitamente otra cosa.
+
+**Job suelto con Story asociada — veredicto automático sin aviso manual
+(`US-FB024-15`, 2026-08-16):** si el Job formal que recibiste vía
+`dispatch_job`/`POST /jobs` lleva `story_id` informado (el humano lo
+asoció al despacharlo, desde la web o directamente contra el backend),
+tu cierre del fichero temporal con `___FACTORY_BRAIN_JOB_DONE___` YA
+dispara automáticamente el ciclo completo — informe de cierre en
+`07-informes/<story_id>/` + veredicto encolado hacia el Arquitecto
+(`post_jobs`, `04-src/src/brain/api/routes.py`, tras `dispatch_job`,
+mismo mecanismo y misma cola FIFO que usa `dispatch_plan` para el flujo
+de Plan). **No necesitas avisar manualmente al Arquitecto ni escribir
+ningún marcador especial para ese caso** — ni el `### STORY_DONE ###`
+del mecanismo legado (ese sigue existiendo aparte, para el flujo de
+conversación directa fuera de Factory Brain, no para este camino) ni la
+cola de `FB-030` de la sección siguiente (pensada para el ciclo largo de
+una Task de Developer trabajando de forma autónoma en tmux, no para un
+Job síncrono de `dispatch_job`). Si el Job NO trae `story_id`, nada
+cambia respecto al comportamiento de siempre: responde por el canal por
+el que llegó, sin que se dispare ningún veredicto automático.
 
 ## Protocolo de cierre de User Story (Developer → Arquitecto)
 
@@ -75,16 +132,38 @@ Envía esto por el canal por el que te llegó el trabajo (ver arriba). No
 inventes una convención de fichero/carpeta propia si la instrucción no la
 especifica — pregunta si no está claro, en vez de asumir.
 
+## Un informe por User Story, no un fichero nuevo por Task (decisión de producto, 2026-08-16)
+
+**Antes de anotar el cierre de una Task (siguiente sección), escribe su
+evidencia en el informe compartido de la User Story, no en un fichero
+markdown propio.** Cada User Story tiene un único informe acumulativo en
+`07-informes/<story_id>/<story_id>.md` (créalo si es la primera Task que
+cierras de esa Story). Al cerrar una Task, añade una sección propia dentro
+de ese mismo fichero (`## <task_id> · <título breve>`) con su
+diagnóstico/cambios/validaciones — nunca un fichero markdown nuevo por
+Task suelta.
+
+Motivo: un fichero de informe completo por cada Task (cuando la unidad de
+trabajo del backlog es deliberadamente pequeña, ver `METODOLOGIA.md`)
+generaba más volumen de prosa que código real — 1248 ficheros de informe
+frente a ~22K líneas de código de producto a fecha 2026-08-15, la mayoría
+con secciones repetidas (Diagnóstico, Cambios, Validaciones) que ya vivían
+mejor juntas en el contexto de su Story. La ruta del informe que se anota
+en la cola (siguiente sección) sigue siendo la misma — solo cambia que
+apunta al fichero compartido de la Story, con un ancla a la sección de
+esa Task concreta, en vez de a un fichero exclusivo.
+
 ## Anotar el cierre de cada Task en la cola del proyecto (T-FB030-US02-02)
 
 Además del Protocolo de cierre de User Story de arriba (que solo se
 dispara al cerrar la User Story COMPLETA), anota en la cola de tu proyecto
 el cierre de **cada Task individual** en cuanto termines de implementarla
-y hayas escrito su informe — sin esperar respuesta ni bloquear tu propio
-flujo. Es el mecanismo que permite al Arquitecto enterarse de que hay
-trabajo terminado sin depender de la espera síncrona de `dispatch_job`
-(pensada para Jobs cortos, no para el trabajo real de una Task) ni de
-mecanismos legados con destino hardcodeado.
+y hayas escrito su sección en el informe compartido de la Story (ver
+arriba) — sin esperar respuesta ni bloquear tu propio flujo. Es el
+mecanismo que permite al Arquitecto enterarse de que hay trabajo terminado
+sin depender de la espera síncrona de `dispatch_job` (pensada para Jobs
+cortos, no para el trabajo real de una Task) ni de mecanismos legados con
+destino hardcodeado.
 
 Invoca `append_to_architect_queue` (`brain.dispatcher.architect_queue`,
 `T-FB030-US02-01`):
@@ -97,14 +176,15 @@ append_to_architect_queue(
     project_name,   # nombre del proyecto (mismo criterio que el nombre de sesión tmux)
     agente="developer",
     task_id="T-FBxxx-USxx-xx",       # el identificador de la Task que acabas de cerrar
-    informe="07-informes/<story_id>/<job_id>.md",  # ruta del informe ya escrito
+    informe="07-informes/<story_id>/<story_id>.md#T-FBxxx-USxx-xx",  # informe compartido de la Story + ancla a la sección de esta Task
 )
 ```
 
 Esto añade una línea a `<project_root>/.claude/state/<project_name>/architect_queue.jsonl`
 (la crea si no existe) con el formato exacto que define `T-FB030-US02-01`:
-`agente`, `task_id`, `informe` (ruta relativa al informe de cierre que ya
-escribiste), `ts` (se resuelve solo si no lo indicas). No necesitas
+`agente`, `task_id`, `informe` (ruta relativa al informe compartido de la
+Story, con ancla `#<task_id>` a la sección que acabas de escribir), `ts`
+(se resuelve solo si no lo indicas). No necesitas
 esperar ninguna respuesta tras escribir — continúa con tu siguiente paso
 (autoconsulta del backlog, instrucción directa, o cierre de User Story)
 en cuanto la llamada retorna.
@@ -191,6 +271,31 @@ bloqueo real (código roto fuera del alcance literal de la Task, ambigüedad
 de diseño, discrepancia entre Epics) se dirige al Arquitecto, no
 directamente al humano con una herramienta de pregunta interactiva, salvo
 que el propio encargo te lo indique explícitamente.
+
+## Nunca uses un menú de decisión interactivo dentro de Brain (regla dura, 2026-08-16)
+
+Motivo: un Developer lanzado desde Brain no tiene a nadie mirando su pane
+en tiempo real — ni el Dispatcher ni el Arquitecto detectan que te has
+detenido en un menú de opciones (`AskUserQuestion` o equivalente), y el
+estado que expone `GET /agents` sigue marcándote `idle` mientras esperas
+input humano que puede no llegar en horas. Un Developer atascado así
+bloquea en la práctica una Task entera sin que el sistema se entere.
+
+- Ante cualquier ambigüedad de implementación con varias opciones
+  razonables, **decide tú mismo con criterio propio** — igual que ya haces
+  para el resto de decisiones de alcance dentro de una User Story (ver
+  "Autonomía dentro de la User Story" en Principios) — y documenta
+  brevemente qué opción elegiste y por qué en tu informe de cierre o en el
+  bloque de "Bugs encontrados"/notas de la Task. No pares el trabajo a
+  esperar que un humano elija entre opciones.
+- Si la ambigüedad es real y tiene consecuencias que no puedes decidir sin
+  el Arquitecto (choque con otra Epic, alcance no cubierto por ninguna
+  Task existente), usa el "Protocolo de parada" de arriba — comunica por
+  el mismo canal, nunca abras un menú de opciones esperando que alguien lo
+  resuelva en la propia sesión.
+- Esta regla aplica a cualquier herramienta de pregunta interactiva del
+  runtime que uses (Claude Code, OpenCode u otro), no solo a una en
+  concreto.
 
 ## Texto plano al mandar instrucciones a un agente (regla dura)
 

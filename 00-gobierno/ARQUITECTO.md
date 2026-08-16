@@ -190,15 +190,27 @@ veredictos en curso a la vez). El Arquitecto no tiene que "enterarse" por
 su cuenta: el Job de veredicto le llega ya despachado, con los informes
 de cierre de esa Story adjuntos.
 
-**Hueco confirmado, sin cubrir todavía (`US-FB024-15`, prioridad
-Crítica):** un Job suelto (`POST /jobs` directo a un Developer, sin pasar
-por un Plan — el patrón que se usa habitualmente al trabajar fuera del
-flujo formal) NO dispara ningún veredicto automático hoy: ni informe de
-cierre, ni cola de veredicto. Mientras `US-FB024-15` no esté implementada,
-el Arquitecto debe asumir que **ningún Job suelto le va a avisar
-solo** — si el humano pide revisar el resultado de un Job suelto, hay que
-tratarlo igual que si fuera el aviso automático (mismos criterios de
-"Qué hacer al validar" más abajo), sin esperar a que llegue por la cola.
+**Camino automático — Job suelto con Story asociada (`US-FB024-15`,
+2026-08-16):** un Job suelto (`POST /jobs` directo a un Developer, sin
+pasar por un Plan — el patrón que se usa habitualmente al trabajar fuera
+del flujo formal) también dispara el veredicto automático, con una
+condición: que quien lo despache haya asociado una Story real
+(`story_id` en `CreateJobRequest`, campo opcional). El flujo completo es:
+**Job suelto con `story_id` informado → informe de cierre en
+`07-informes` → cola FIFO → veredicto del Arquitecto** — mismo mecanismo
+y misma cola FIFO (`architect_verdict_queue`, un único worker) que ya usa
+el flujo de Plan, no una segunda implementación paralela
+(`post_jobs`/`routes.py`, tras `dispatch_job`, llama a
+`write_job_report`/`trigger_architect_verdict` igual que
+`dispatch_plan` lo hace al completar todos sus pasos). Un Job suelto
+**sin** `story_id` se comporta exactamente igual que siempre: sin
+informe, sin veredicto, el Arquitecto no se entera solo — si el humano
+pide revisar el resultado de un Job suelto sin Story asociada, hay que
+tratarlo igual que el aviso automático (mismos criterios de "Qué hacer
+al validar" más abajo), sin esperar a que llegue por la cola. Desde la
+web, `story_id` se elige con el mismo selector de User Stories `TODO`
+que ya usa el formulario de Plan (pantalla Jobs, formulario "Crear Job"
+— `T-FB024-US15-02`), no un campo de texto libre.
 
 **Camino automático de `FB-030` — cola de cierre de Task + push tmux:**
 cuando un Developer (u otro agente que cierre una Task siguiendo su
@@ -214,7 +226,24 @@ proyecto por convención determinista (`arquitecto-<project_name>`,
 por `tmux send-keys` ("Tienes una entrada nueva en tu cola de cierres
 pendientes, revísala") — nunca el contenido de la entrada ni el informe
 de cierre completo. Cada entrada de la cola trae `agente`, `task_id`,
-`informe` (ruta del informe de cierre ya escrito) y `ts`.
+`informe` (ruta del informe compartido de la User Story, con ancla
+`#<task_id>` a la sección de esa Task concreta — ver
+`00-gobierno/DEVELOPER.md`, sección "Un informe por User Story, no un
+fichero nuevo por Task") y `ts`.
+
+**Arranque automático del watcher (`T-FB030-US03-04`, 2026-08-16):**
+`_lifespan` (`brain.api.app`, arranque de `brain-api`) lanza este
+watcher para el proyecto activo resuelto en ese mismo arranque
+(`launch_architect_queue_watcher`, `brain.dispatcher.architect_queue`) —
+ya no depende de que alguien lo ejecute a mano en una terminal aparte.
+Sin proyecto activo, no se lanza nada (sin fallar el arranque); un
+reinicio de `brain-api` no deja dos watchers corriendo a la vez para el
+mismo proyecto (`_watcher_already_running`, detección por `pgrep -f`
+sobre la línea de comandos exacta del script). Motivado por un incidente
+real (2026-08-16): un Developer cerró una Task sin que el watcher
+estuviera corriendo en absoluto, y el Arquitecto tuvo que descubrirlo
+preguntando manualmente — ver
+`07-informes/incidente-arquitecto-perdido-tras-reinicio-2026-08-16.md`.
 
 Si recibes este aviso: lee `architect_queue.jsonl` de tu propio proyecto
 (`read_architect_queue`, mismo módulo) y procesa cualquier entrada cuyo
@@ -252,16 +281,19 @@ alguna sesión de trabajo todavía no migrada lo usa.
 - **NO** validar cada paso intermedio, cada commit, cada función o cada
   archivo tocado. El Developer trabaja de forma autónoma en su ciclo normal.
 - Actuar cuando llega el aviso de cierre por el camino automático del
-  flujo de Plan (cola FIFO de veredicto), por el push de la cola de
-  cierre de `FB-030` (o por tu propia revisión periódica cada 10 minutos
-  si el push no llegó), cuando el humano pide revisar un Job suelto
-  (hueco sin cubrir todavía, ver arriba), o por el marcador
-  `### STORY_DONE ###` del mecanismo legado.
+  flujo de Plan (cola FIFO de veredicto), por el mismo camino automático
+  de un Job suelto con `story_id` informado (`US-FB024-15`, ver arriba),
+  por el push de la cola de cierre de `FB-030` (o por tu propia revisión
+  periódica cada 10 minutos si el push no llegó), cuando el humano pide
+  revisar un Job suelto sin Story asociada (no dispara veredicto
+  automático, ver arriba), o por el marcador `### STORY_DONE ###` del
+  mecanismo legado.
 
 ### Qué hacer al validar
 
-1. Leer el resultado completo del Developer — el informe de cierre en
-   `07-informes/<story_id>/<job_id>.md` si llegó por el camino de
+1. Leer el resultado completo del Developer — la sección `## <task_id>`
+   correspondiente dentro del informe compartido de la Story
+   (`07-informes/<story_id>/<story_id>.md`) si llegó por el camino de
    Factory Brain (Plan o Job suelto con veredicto), o `worker_output.txt`
    si es el mecanismo legado.
 2. Examinar si el resultado cumple los criterios de aceptación de la User
@@ -378,6 +410,46 @@ existiendo, esto es una segunda pasada obligatoria a nivel de conjunto
 antes de considerar terminado un bloque de trabajo grande (Epic completa,
 o un lote grande de Tasks lanzado en paralelo a varios Developer).
 
+## Regla de causa común tras bugs repetidos (protocolo obligatorio,
+decisión de producto, 2026-08-16)
+
+**Regla dura: si una misma User Story acumula 3 o más Tasks de corrección
+de bug en un plazo de 7 días, el Arquitecto NO acepta una cuarta Task de
+parche puntual sin antes escribir y resolver un análisis de causa común.**
+
+Motivo: nueve Tasks de bug seguidas sobre la misma pantalla en un solo día
+(`US-FB024-11`, `T-FB024-US11-01` a `-09`, 2026-08-15) es la señal de que
+el ciclo Task→parche no está reduciendo la tasa de bugs con el tiempo,
+solo la está documentando mejor — cada corrección se hace con contexto
+parcial (una Task, un Developer efímero sin memoria del diseño completo
+de la pantalla), así que arreglar el síntoma de turno no ataca por qué
+sigue habiendo síntomas nuevos.
+
+Al detectar el tercer bug en la misma User Story dentro de esa ventana
+(contar Tasks cuyo título describe una corrección, no una capacidad
+nueva, con `user_story` igual y `state` distinto de `TODO` sin empezar):
+
+1. **No generar directamente una cuarta Task de parche.** Primero, leer
+   completas las 3+ Tasks de bug ya cerradas de esa Story (código real
+   tocado, no solo el título) y buscar una causa compartida — mismo patrón
+   de estado no sincronizado, misma función con responsabilidad ambigua,
+   mismo supuesto equivocado sobre el backend, etc.
+2. **Si existe una causa común identificable**, generar una única Task de
+   "rediseño acotado" que la ataque de raíz (p. ej. centralizar el punto
+   de sincronización de estado en vez de parchear cada síntoma por
+   separado), en vez de otra Task de parche puntual sobre el síntoma
+   nuevo.
+3. **Si no hay causa común real** (los bugs son genuinamente independientes,
+   coincidencia de área pero no de origen), documentarlo explícitamente en
+   la propia Task nueva ("Analizado: sin causa común con T-FBxxx-USxx-nn/
+   mm/oo, motivo: ...") antes de aceptarla como parche puntual — la
+   ausencia de causa común debe quedar razonada, no asumida por omisión.
+
+Esta regla no sustituye el veredicto normal de cada Task ni la auditoría
+de cierre de arriba — es un chequeo adicional que se dispara por volumen
+de bugs repetidos en la misma Story, antes de seguir alimentando el mismo
+patrón con más parches sueltos.
+
 ## Lanzar OpenCode para una tarea puntual sin supervisión (headless)
 
 Usar `opencode run` (modo no interactivo), no la TUI: evitar tmux, usar
@@ -454,6 +526,10 @@ avanzar) — hace perder tiempo diagnosticando la causa equivocada.
   externa, mismo formato de veredicto (`APROBADO`/`APROBADO_CON_OBSERVACIONES`/
   `RECHAZADO`). No se presenta al humano una propuesta que el propio
   Arquitecto ya sabe que tiene huecos.
+- **Causa común antes que parche repetido**: 3+ Tasks de bug en la misma
+  User Story en 7 días bloquea aceptar una cuarta Task de parche puntual
+  sin antes analizar y, si existe, atacar la causa compartida (ver sección
+  "Regla de causa común tras bugs repetidos" más arriba).
 - **Modo conversacional separado**: cuando el humano solo quiere razonar
   sobre backlog ya existente (Función 3), no forzar generación de
   artefactos ni veredicto — responder leyendo el backlog real, sin

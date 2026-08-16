@@ -4,6 +4,12 @@ from brain.agents.arquitecto import (
     build_arquitecto_prompt,
     register_arquitecto,
 )
+from brain.agents.auditor_oss import (
+    AUDITOR_OSS_PROMPT,
+    AUDITOR_OSS_ROLE,
+    build_auditor_oss_prompt,
+    register_auditor_oss,
+)
 from brain.agents.developer import (
     DEVELOPER_PROMPT,
     DEVELOPER_ROLE,
@@ -27,18 +33,30 @@ from brain.agents.liveness import refresh_agent_liveness
 from brain.agents.registry import register_agent, register_agent_with_reuse
 from brain.agents.roles import RoleConfig, get_role, get_register_fn_for_role, list_roles, register_role
 from brain.agents.stop import AgentRuntimeNotFoundError, stop_agent
+from brain.agents.ux import (
+    UX_PROMPT,
+    UX_ROLE,
+    build_ux_prompt,
+    register_ux,
+)
 
 __all__ = [
     "AgentRuntimeNotFoundError",
     "ARQUITECTO_PROMPT",
     "ARQUITECTO_ROLE",
+    "AUDITOR_OSS_PROMPT",
+    "AUDITOR_OSS_ROLE",
     "DEVELOPER_PROMPT",
     "DEVELOPER_ROLE",
     "InvalidAgentTransitionError",
     "MAX_SIMULTANEOUS_DEVELOPERS",
     "RoleConfig",
+    "UX_PROMPT",
+    "UX_ROLE",
     "build_arquitecto_prompt",
+    "build_auditor_oss_prompt",
     "build_developer_prompt",
+    "build_ux_prompt",
     "get_agent_state",
     "get_role",
     "get_register_fn_for_role",
@@ -53,7 +71,9 @@ __all__ = [
     "register_agent",
     "register_agent_with_reuse",
     "register_arquitecto",
+    "register_auditor_oss",
     "register_developer",
     "register_role",
+    "register_ux",
     "stop_agent",
 ]

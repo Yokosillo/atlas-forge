@@ -64,10 +64,16 @@ def _item_kind(item_id: str) -> str:
     return ITEM_KIND_TASK
 
 
-def _parse_frontmatter(text: str) -> dict:
+def parse_frontmatter(text: str) -> dict:
     """Extrae y parsea el bloque YAML frontmatter del contenido.
 
-    Raises BacklogParseError si el frontmatter esta ausente o es invalido.
+    Publica (T-FB008-US04-05) para que otros modulos que necesiten leer
+    un campo suelto del frontmatter de un fichero de Task (p. ej.
+    `job_plan_builder.py`, que trabaja con rutas de fichero sueltas via
+    glob, no con un `BacklogGraph` cargado) reutilicen este parseo en vez
+    de reimplementar un segundo parser YAML.
+
+    Raises ValueError si el frontmatter esta ausente o es invalido.
     """
     lines = text.splitlines()
     if not lines or lines[0].strip() != "---":
@@ -222,7 +228,7 @@ def parse_backlog_item(path: Path) -> BacklogItem:
 
     if text.startswith("---"):
         try:
-            data = _parse_frontmatter(text)
+            data = parse_frontmatter(text)
         except ValueError as e:
             raise BacklogParseError(path=path, item_id=item_id, reason=str(e)) from e
 
@@ -252,9 +258,14 @@ def parse_backlog_item(path: Path) -> BacklogItem:
         if fase is not None and not isinstance(fase, str):
             fase = None
 
+        user_story = data.get("user_story")
+        if user_story is not None and not isinstance(user_story, str):
+            user_story = None
+
         return BacklogItem(id=item_id, kind=_item_kind(item_id), epic=epic,
                            state=state, dependencies=dependencies,
-                           priority=priority, fase=fase, path=path)
+                           priority=priority, fase=fase, path=path,
+                           user_story=user_story)
 
     return _parse_legacy_format(text, path, item_id)
 

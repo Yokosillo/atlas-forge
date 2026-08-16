@@ -13,24 +13,24 @@ Acciones definidas:
   - `analizar-arquitectura` → despacha Job al Arquitecto (US-FB025-02, Hilo 3)
   - `sugerir-ideas`    → despacha Job al Arquitecto (US-FB025-03, Hilo 3)
   - `testear`          → ejecuta `pytest` determinista (US-FB025-04, Hilo 3)
-  - `auditar-ux`       → opencode run --auto headless (US-FB025-06, Hilo 4)
+  - `auditar-ux`       → despacha Job a la instancia de UX ya lanzada
+    (T-FB024-US13-03; antes `opencode run --auto` headless, US-FB025-06)
   - `indexar`          → Scribe index_documents (US-FB025-07, Hilo 4)
 """
 
 from __future__ import annotations
 
-import subprocess
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 
 from brain.agents.arquitecto import ARQUITECTO_ROLE
+from brain.agents.ux import UX_ROLE
 from brain.core.session_lifecycle import list_agents
 from brain.core.session_registry import get_current_session
 from brain.dispatcher.job_creation import create_job
 from brain.dispatcher.job_dispatch import dispatch_job
 from brain.dispatcher.job_history_registry import record_job
-from brain.dispatcher.job_lifecycle import mark_completed, mark_failed, mark_running
 from brain.dispatcher.job_orchestration import create_and_record_job
 from brain.dispatcher.job_report import write_job_report
 from brain.models import Agent, Job
@@ -106,6 +106,13 @@ _REPORTS_DIRNAME = "07-informes"
 
 
 def _find_agent_by_role(role: str) -> Agent | None:
+    """Busca un agente `idle` de `role` en la sesión activa — mismo
+    criterio que `job_plan_dispatch.py` aplica para Developer (T-FB024-
+    US13-03): un agente `stopped`/`working`/`unavailable` no cuenta como
+    "instancia lanzada disponible", para que el llamador informe
+    explícitamente ("lanza un <rol>") en vez de propagar un
+    `JobCreationError` sin traducir cuando el agente existe pero no puede
+    recibir un Job ahora mismo."""
     session = get_current_session()
     if session is None:
         return None
@@ -113,7 +120,7 @@ def _find_agent_by_role(role: str) -> Agent | None:
         (
             agent
             for agent in list_agents(session)
-            if isinstance(agent, Agent) and agent.role == role
+            if isinstance(agent, Agent) and agent.role == role and agent.status == "idle"
         ),
         None,
     )
@@ -191,20 +198,37 @@ ACCIONES_DISPONIBLES: tuple[str, ...] = (
 )
 
 
+# Rol destinatario de cada acción que despacha Job a un agente persistente
+# (T-FB024-US13-03): `auditar-ux` pasa a usar el mismo mecanismo genérico
+# `_dispatch_agent_action`/`_find_agent_by_role` que ya usan `documentar`/
+# `analizar-arquitectura`/`sugerir-ideas` con Arquitecto, en vez del
+# `subprocess.run(["opencode", "run", "--auto", ...])` headless previo.
+_ACTION_ROLE_MAP = {
+    "documentar": ARQUITECTO_ROLE,
+    "analizar-arquitectura": ARQUITECTO_ROLE,
+    "sugerir-ideas": ARQUITECTO_ROLE,
+    "auditar-ux": UX_ROLE,
+}
+
+_ROLE_DISPLAY_NAME = {
+    ARQUITECTO_ROLE: "Arquitecto",
+    UX_ROLE: "UX",
+}
+
+
 def dispatch_action(action_id: str, socket_name: str = "default") -> dict:
     """Despacha una acción transversal de proyecto.
 
     Para acciones que requieren agente (`documentar`, `analizar-arquitectura`,
-    `sugerir-ideas`): encuentra el Arquitecto en la sesión activa, crea y
+    `sugerir-ideas` → Arquitecto; `auditar-ux` → UX, T-FB024-US13-03):
+    encuentra el agente del rol correspondiente en la sesión activa, crea y
     despacha un Job con la descripción predefinida, y persiste el informe
-    en `07-informes/`.
+    en `07-informes/`. Si no hay ninguna instancia lanzada de ese rol,
+    informa explícitamente en vez de fallar en silencio (mismo criterio que
+    `job_plan_dispatch.py` aplica para Developer).
 
     Para `testear`: ejecuta la suite de tests del proyecto de forma
     determinista (sin LLM), y persiste el resultado en `07-informes/`.
-
-    Para `auditar-ux`: lanza opencode run --auto en modo headless (sin tmux,
-    T-FB025-US06-01), crea un Job de registro y persiste el informe con
-    timestamp en `07-informes/US-FB025-06/` (T-FB025-US06-02).
 
     Para `indexar`: recolecta ficheros del proyecto y genera un índice
     temático vía Scribe (modelo local Ollama, T-FB025-US07-01), sin gastar
@@ -214,20 +238,19 @@ def dispatch_action(action_id: str, socket_name: str = "default") -> dict:
     if action_id == ActionType.TESTEAR:
         return _dispatch_test_action()
 
-    if action_id == ActionType.AUDITAR_UX:
-        return _dispatch_audit_ux_action()
-
     if action_id == ActionType.INDEXAR:
         return _dispatch_index_action()
 
     if action_id not in _ACTION_DESCRIPTIONS:
         raise ValueError(f"Acción desconocida: '{action_id}'.")
 
-    agent = _find_agent_by_role(ARQUITECTO_ROLE)
+    role = _ACTION_ROLE_MAP.get(action_id, ARQUITECTO_ROLE)
+    agent = _find_agent_by_role(role)
     if agent is None:
+        role_name = _ROLE_DISPLAY_NAME.get(role, role)
         raise RuntimeError(
-            "No hay ningún agente Arquitecto en la sesión activa. "
-            "Lanza un Arquitecto antes de ejecutar esta acción."
+            f"No hay ningún agente {role_name} en la sesión activa. "
+            f"Lanza un {role_name} antes de ejecutar esta acción."
         )
 
     job = _dispatch_agent_action(action_id, agent, socket_name)
@@ -280,89 +303,9 @@ def _dispatch_test_action() -> dict:
     }
 
 
-_UX_AUDIT_TIMEOUT_SECONDS = 600
 _INDEX_MAX_FILE_SIZE_BYTES = 50_000
 _INDEX_MAX_FILES = 100
 _INDEX_DIRS = ("01-documentacion", "02-backlog", "04-src", "00-gobierno")
-
-
-def _dispatch_audit_ux_action() -> dict:
-    """Lanza una auditoría UX headless con opencode run --auto (sin tmux,
-    T-FB025-US06-01). Crea un Job de registro y persiste el informe con
-    timestamp en `07-informes/US-FB025-06/` (T-FB025-US06-02: dos
-    ejecuciones en fechas distintas producen ficheros distintos)."""
-    project = get_active_project()
-    if project is None:
-        raise ProjectNotDiscoveredError("No hay ningún proyecto activo.")
-
-    ux_path = Path(project.path) / "00-gobierno" / "UX.md"
-    if not ux_path.is_file():
-        raise RuntimeError(
-            f"No se encontró el fichero de auditoría UX en '{ux_path}'. "
-            "Asegúrate de que el proyecto activo es PROD-006-factory-brain."
-        )
-
-    ux_content = ux_path.read_text(encoding="utf-8")
-
-    session = get_current_session()
-    job_id = str(uuid.uuid4())
-
-    job = Job(
-        id=job_id,
-        session_id=session.id if session else "_headless",
-        agent_id="headless-ux-auditor",
-        description="Auditoría UX de la interfaz web (headless, opencode run --auto)",
-    )
-
-    if session is not None:
-        record_job(session.id, job)
-
-    mark_running(job)
-
-    prompt = (
-        f"Eres el Auditor UX+Producto definido a continuación. Ejecuta tu "
-        f"auditoría siguiendo exactamente el método y formato descritos. "
-        f"Navega la web real, no solo leas el código.\n\n{ux_content}"
-    )
-
-    try:
-        result = subprocess.run(
-            ["opencode", "run", "--auto", prompt],
-            cwd=project.path,
-            capture_output=True,
-            text=True,
-            timeout=_UX_AUDIT_TIMEOUT_SECONDS,
-        )
-        output = result.stdout + "\n" + result.stderr
-        if result.returncode != 0:
-            error_msg = (
-                f"opencode run --auto exited with code {result.returncode}\n\n"
-                f"{output[:5000]}"
-            )
-            mark_failed(job, error_msg)
-        else:
-            mark_completed(job, output[:10_000])
-    except subprocess.TimeoutExpired:
-        mark_failed(
-            job,
-            f"La auditoría UX excedió el tiempo máximo de espera "
-            f"({_UX_AUDIT_TIMEOUT_SECONDS}s).",
-        )
-    except FileNotFoundError:
-        mark_failed(
-            job,
-            "No se encontró el comando 'opencode' en el PATH. "
-            "¿Está instalado y accesible desde el entorno del backend?",
-        )
-
-    _persist_index_action_report("auditar-ux", job, job.result or "")
-
-    return {
-        "action": "auditar-ux",
-        "job_id": job.id,
-        "status": job.status,
-        "result": job.result,
-    }
 
 
 def _dispatch_index_action() -> dict:
