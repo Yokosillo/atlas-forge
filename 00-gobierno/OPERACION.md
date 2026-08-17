@@ -189,3 +189,44 @@ curl -s http://<host-tailscale>:8000/agents | python3 -c "import sys,json; print
 tail -1 <project_root>/.claude/state/<project_name>/reconciliation_log.jsonl | python3 -m json.tool
 journalctl -u factory-brain-api -n 50 | grep "Detectada otra instancia"
 ```
+
+## Gate de arranque de la TUI (T-FB002-US04-01)
+
+La interfaz TUI (Textual) está bloqueada por defecto — ejecutar `brain`
+desde línea de comandos imprime un aviso de seguridad y termina sin
+arrancar la interfaz. **Motivo**: la TUI es una superficie antigua sin
+mantenimiento activo en el desarrollo actual (prioridad Web actualmente,
+`FB-024`). El bloqueo evita que se arranca por accidente en un entorno de
+desarrollo o producción sin saberlo explícitamente.
+
+### Habilitar la TUI (para desarrollo o debugging)
+
+Si necesitas trabajar con la interfaz TUI, habilítala mediante el endpoint
+`PUT /system/preferences`:
+
+```bash
+curl -X PUT http://<host-tailscale>:8000/system/preferences \
+  -H "Content-Type: application/json" \
+  -d '{"tui_enabled": true}'
+```
+
+Después de esto, `brain` arrancará la TUI con normalidad. El cambio se
+persiste en `~/.local/share/brain/system_preferences.json` (o
+`$XDG_DATA_HOME/brain/` si está configurado).
+
+### Verificar estado actual
+
+```bash
+curl -s http://<host-tailscale>:8000/system/preferences | python3 -m json.tool | grep tui_enabled
+```
+
+Debe mostrar `"tui_enabled": false` (por defecto, bloqueada) o
+`"tui_enabled": true` (habilitada explícitamente).
+
+### Deshabilitar de nuevo
+
+```bash
+curl -X PUT http://<host-tailscale>:8000/system/preferences \
+  -H "Content-Type: application/json" \
+  -d '{"tui_enabled": false}'
+```

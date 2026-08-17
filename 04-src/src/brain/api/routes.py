@@ -913,16 +913,18 @@ def get_system_preferences() -> dict:
 
 class UpdateSystemPreferencesRequest(BaseModel):
     max_simultaneous_developers: int | None = None
+    tui_enabled: bool | None = None
 
 
 @router.put("/system/preferences")
 def put_system_preferences(body: UpdateSystemPreferencesRequest) -> dict:
-    """Actualiza las preferencias de sistema (US-FB024-12). Recibe
-    `{max_simultaneous_developers: <int>}`. Rechaza con 400 un valor
-    inválido (0, negativo, no numérico ya lo rechaza FastAPI/Pydantic al
-    parsear el body) sin persistir un estado que rompería
-    `register_developer` (criterio de aceptación explícito: nunca
-    persistir un límite que dejaría el sistema en un estado roto)."""
+    """Actualiza las preferencias de sistema (US-FB024-12, T-FB002-US04-01).
+    Recibe `{max_simultaneous_developers: <int>, tui_enabled: <bool>}`.
+    Rechaza con 400 un valor inválido (0, negativo para developers, no
+    numérico ya lo rechaza FastAPI/Pydantic al parsear el body) sin persistir
+    un estado que rompería `register_developer` (criterio de aceptación
+    explícito: nunca persistir un límite que dejaría el sistema en un estado
+    roto)."""
     current = load_system_preferences(state_dir=_STATE_DIR)
 
     if body.max_simultaneous_developers is not None:
@@ -935,6 +937,9 @@ def put_system_preferences(body: UpdateSystemPreferencesRequest) -> dict:
                 ),
             )
         current["max_simultaneous_developers"] = body.max_simultaneous_developers
+
+    if body.tui_enabled is not None:
+        current["tui_enabled"] = body.tui_enabled
 
     save_system_preferences(current, state_dir=_STATE_DIR)
     return current

@@ -16,10 +16,12 @@ Workspace/Dashboard (`switch_screen`, no `push_screen`: la comprobación
 de conectividad no debe quedar en el historial de navegación al que se
 pueda "volver atrás")."""
 
+import sys
 from pathlib import Path
 
 from textual.app import App
 
+from brain.system_preferences import get_tui_enabled
 from brain.tui.backend_client import BackendClient
 from brain.tui.screens import ConnectivityCheckScreen, DashboardScreen, WorkspaceScreen
 from brain.workspace.startup import ProjectRecovered, resolve_startup_project
@@ -81,4 +83,8 @@ def run() -> None:
     """Arranca la app. Reutilizada por el entrypoint de consola `brain`
     (T-FB002-US02-05) — no hay un entrypoint `brain-tui` separado, para
     no coexistir dos superficies de interfaz para lo mismo."""
+    if not get_tui_enabled():
+        print("TUI bloqueada por política de seguridad: superficie sin mantenimiento activo.")
+        print("Para reactivarla, use: PUT /system/preferences con tui_enabled: true")
+        sys.exit(1)
     FactoryBrainApp().run()

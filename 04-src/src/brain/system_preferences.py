@@ -24,6 +24,8 @@ DEFAULT_DIFFICULTY_MODEL_MAP = {
     "Alta": 4,      # Alta dificultad: tier 4
     "Crítica": 5,   # Crítica dificultad: tier 5 (modelos avanzados)
 }
+# T-FB002-US04-01: gate de arranque de la TUI por seguridad
+DEFAULT_TUI_ENABLED = False
 
 
 def _default_state_dir() -> Path:
@@ -48,6 +50,7 @@ def load_system_preferences(
         return {
             "max_simultaneous_developers": DEFAULT_MAX_SIMULTANEOUS_DEVELOPERS,
             "difficulty_model_map": DEFAULT_DIFFICULTY_MODEL_MAP,
+            "tui_enabled": DEFAULT_TUI_ENABLED,
         }
     payload = json.loads(path.read_text(encoding="utf-8"))
     return {
@@ -56,6 +59,9 @@ def load_system_preferences(
         ),
         "difficulty_model_map": payload.get(
             "difficulty_model_map", DEFAULT_DIFFICULTY_MODEL_MAP
+        ),
+        "tui_enabled": payload.get(
+            "tui_enabled", DEFAULT_TUI_ENABLED
         ),
     }
 
@@ -72,6 +78,8 @@ def save_system_preferences(
       indica).
     - `difficulty_model_map`: dict difficulty → tier mínimo (default
       `DEFAULT_DIFFICULTY_MODEL_MAP` si no se indica).
+    - `tui_enabled`: bool — gate de arranque de la TUI (default
+      `DEFAULT_TUI_ENABLED` si no se indica).
     """
     path = _preferences_file(state_dir)
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -81,6 +89,9 @@ def save_system_preferences(
         ),
         "difficulty_model_map": preferences.get(
             "difficulty_model_map", DEFAULT_DIFFICULTY_MODEL_MAP
+        ),
+        "tui_enabled": preferences.get(
+            "tui_enabled", DEFAULT_TUI_ENABLED
         ),
     }
     path.write_text(json.dumps(payload), encoding="utf-8")
@@ -99,3 +110,11 @@ def get_difficulty_model_map(state_dir: Path | None = None) -> dict:
     Devuelve un dict {difficulty: tier_minimo} que el Dispatcher usa para
     resolver qué modelo/runtime usar dada una Task de cierta dificultad."""
     return load_system_preferences(state_dir=state_dir)["difficulty_model_map"]
+
+
+def get_tui_enabled(state_dir: Path | None = None) -> bool:
+    """Atajo para obtener el gate de arranque de la TUI (T-FB002-US04-01).
+
+    Devuelve un bool indicando si la TUI está habilitada. Por defecto es False
+    (TUI bloqueada por seguridad, superficie sin mantenimiento activo)."""
+    return load_system_preferences(state_dir=state_dir)["tui_enabled"]
