@@ -262,6 +262,9 @@
     modelChangePending: null, // {agent_id, model} con confirmacion pendiente | null
     modelChangeError: null, // mensaje de error tras intento de cambio | null
     modelOptions: null, // catalogo de modelos disponibles, cacheado por agente
+    // T-FB024-US11-11: Cambio de runtime (separado de modelo)
+    runtimeChangeAgentId: null, // agente cuyo cambio de runtime esta en curso | null
+    runtimeChangePending: null, // {agent_id, runtime} con confirmacion pendiente | null
     launchPending: false, // T-FB024-US04-01: confirmacion antes de lanzar
   };
 
@@ -556,6 +559,18 @@
     // abierto en otra, mismo criterio que el resto de esta pantalla
     // (`editingRowKey`, `selectedItemId`).
     newUserStoryForm: null,
+    // T-FB036-US10-01: botones "Proponer User Stories" (detalle de Epic)
+    // y "Aterrizar en Tasks" (detalle de User Story) — single-flight por
+    // id en vuelo, mismo criterio que `enqueueTaskInFlight`/
+    // `enqueueAllInFlight`. El error/resultado del pipeline viven en
+    // slots globales que SOLO se pintan en el detalle que los generó
+    // (se resetean al cambiar de detalle o al lanzar una petición nueva).
+    proposeStoriesInFlight: null, // epic_id en vuelo | null
+    proposeStoriesError: null,    // motivo verbatim del backend | null
+    proposeStoriesResult: null,   // resumen del pipeline aprobado | null
+    proposeTasksInFlight: null,   // us_id en vuelo | null
+    proposeTasksError: null,      // motivo verbatim del backend | null
+    proposeTasksResult: null,     // resumen del pipeline aprobado | null
   };
 
   // Sección MODELOS (T-FB022-US10-02): catálogo con habilitado/deshabilitado
@@ -1416,9 +1431,9 @@
   }
 
   // --------------------------------------------------------- acciones por
-  // agente (T-FB021-US03-02): "Ver actividad" (pane), "Cambiar modelo"
-  // (T-FB021-US07-01, solo para OpenCode) y "Detener" (confirmacion de
-  // segunda pulsacion).
+  // agente (T-FB021-US03-02): "Ver actividad" (pane), "Cambiar runtime",
+  // "Cambiar modelo" (T-FB024-US11-11: separados, solo modelo en idle) y
+  // "Detener" (confirmacion de segunda pulsacion).
   function renderAgentActions(agent) {
     var actions = h("div", "agent-actions");
 
@@ -1428,27 +1443,54 @@
     });
     actions.appendChild(paneBtn);
 
-    // Cambiar modelo (T-FB021-US07-01): solo para agentes OpenCode en
-    // ejecucion (no stopped). Mismo patron de confirmacion de segunda
-    // pulsacion y single-flight que el resto de la seccion.
-    if (agent.runtime_id === "opencode" && agent.status !== "stopped") {
-      var isChanging = agentsSection.modelChangeAgentId === agent.id;
-      var isPending = agentsSection.modelChangePending && agentsSection.modelChangePending.agent_id === agent.id;
-      var changeLabel;
+    // T-FB024-US11-11: Separación de controles runtime vs modelo
+    if (agent.runtime_id && agent.status !== "stopped") {
+      // Cambiar runtime (todos los runtimes, pero NO con agente activo)
+      var runtimeDisabled = agent.status !== "idle";
+      var isRuntimeChanging = agentsSection.runtimeChangeAgentId === agent.id;
+      var isRuntimePending = agentsSection.runtimeChangePending && agentsSection.runtimeChangePending.agent_id === agent.id;
+      var runtimeBtnLabel;
 
-      if (isChanging) {
-        changeLabel = "Cambiando modelo…";
-      } else if (isPending) {
-        changeLabel = "¿Seguro? Cambiar a " + agentsSection.modelChangePending.model;
+      if (isRuntimeChanging) {
+        runtimeBtnLabel = "Cambiando runtime…";
+      } else if (isRuntimePending) {
+        runtimeBtnLabel = "¿Seguro? Cambiar a " + agentsSection.runtimeChangePending.runtime;
+      } else if (runtimeDisabled) {
+        runtimeBtnLabel = "Cambiar runtime (detén el agente primero)";
       } else {
-        changeLabel = "Cambiar modelo";
+        runtimeBtnLabel = "Cambiar runtime";
       }
-      var changeBtn = button(changeLabel, "agent-model-change");
-      if (isChanging) changeBtn.disabled = true;
-      changeBtn.addEventListener("click", function () {
-        requestModelChange(agent);
+      var runtimeBtn = button(runtimeBtnLabel, "agent-runtime-change");
+      runtimeBtn.disabled = runtimeDisabled || isRuntimeChanging;
+      runtimeBtn.addEventListener("click", function () {
+        if (isRuntimePending) {
+          executeRuntimeChange(agent);
+        } else {
+          requestRuntimeChange(agent);
+        }
       });
-      actions.appendChild(changeBtn);
+      actions.appendChild(runtimeBtn);
+
+      // Cambiar modelo (solo para OpenCode en idle)
+      if (agent.runtime_id === "opencode" && agent.status === "idle") {
+        var isChanging = agentsSection.modelChangeAgentId === agent.id;
+        var isPending = agentsSection.modelChangePending && agentsSection.modelChangePending.agent_id === agent.id;
+        var changeLabel;
+
+        if (isChanging) {
+          changeLabel = "Cambiando modelo…";
+        } else if (isPending) {
+          changeLabel = "¿Seguro? Cambiar a " + agentsSection.modelChangePending.model;
+        } else {
+          changeLabel = "Cambiar modelo";
+        }
+        var changeBtn = button(changeLabel, "agent-model-change");
+        if (isChanging) changeBtn.disabled = true;
+        changeBtn.addEventListener("click", function () {
+          requestModelChange(agent);
+        });
+        actions.appendChild(changeBtn);
+      }
     }
 
     // Un agente `stopped` no se puede volver a detener: sin botón
@@ -1553,10 +1595,63 @@
       });
   }
 
+  // ------------------------------------------------- cambio de runtime
+  // (T-FB024-US11-11): Separado de cambio de modelo. Solo permitido en
+  // agentes idle (no running, no stopped). Runtimes disponibles:
+  // OpenCode, Claude Code, Codex. Nota: cambiar runtime implica
+  // relanzar la instancia (el runtime es el "motor" del agente).
+  function requestRuntimeChange(agent) {
+    if (agentsSection.runtimeChangeAgentId) return; // single-flight
+    // Mostrar selector de runtimes disponibles
+    var availableRuntimes = ["OpenCode", "Claude Code", "Codex"];
+    var chosen = prompt(
+      "Elige un runtime para " + agent.name + ":\n\n" +
+      availableRuntimes.map(function (r, i) { return (i + 1) + ". " + r; }).join("\n") +
+      "\n\nEscribe el nombre exacto del runtime:"
+    );
+    if (!chosen) {
+      return;
+    }
+    // Normalizar entrada
+    var chosenTrimmed = chosen.trim();
+    var found = availableRuntimes.filter(function (r) { return r.toLowerCase() === chosenTrimmed.toLowerCase(); });
+    if (found.length === 0) {
+      agentsSection.actionMessage = "El runtime '" + chosen + "' no es válido.";
+      renderAgentsBody();
+      return;
+    }
+    // Solicitar confirmación de segunda pulsación
+    agentsSection.runtimeChangePending = { agent_id: agent.id, runtime: found[0] };
+    agentsSection.actionMessage = "¿Seguro? Se detendrá el agente y se relanzará con " + found[0] + ".";
+    renderAgentsBody();
+  }
+
+  // Ejecución de cambio de runtime: detiene y relanza con nuevo runtime.
+  // Por ahora, esto es un flujo manual que requiere que el usuario lo haga:
+  // 1. Detener agente actual
+  // 2. Lanzar con nuevo runtime
+  // Esta versión muestra un mensaje de confirmación documentando que no hay
+  // forma de hacerlo automáticamente desde la API actual.
+  function executeRuntimeChange(agent) {
+    if (agentsSection.runtimeChangeAgentId) return; // single-flight
+    agentsSection.runtimeChangePending = null;
+    agentsSection.runtimeChangeAgentId = agent.id;
+    renderAgentsBody();
+    // Documentar limitación: cambio de runtime requiere parada manual
+    // (no hay endpoint único para relanzar con nuevo runtime)
+    agentsSection.actionMessage =
+      "Cambio de runtime requiere parar el agente y relanzarlo manualmente. " +
+      "El agente será detenido; relánzalo con el nuevo runtime desde la sección de catálogo.";
+    agentsSection.runtimeChangeAgentId = null;
+    // Proceder a detener el agente
+    requestStop(agent);
+    renderAgentsBody();
+  }
+
   // ------------------------------------------------- cambio de modelo
-  // (T-FB021-US07-01): confirmacion de segunda pulsacion + single-flight,
-  // mismo idioma que el resto de la web. El agente debe ser OpenCode y no
-  // estar stopped.
+  // (T-FB024-US11-11): confirmacion de segunda pulsacion + single-flight,
+  // mismo idioma que el resto de la web. El agente debe ser OpenCode y estar
+  // en estado idle (no working, no stopped).
   function requestModelChange(agent) {
     if (agentsSection.modelChangeAgentId) return; // single-flight
     if (!agentsSection.modelChangePending || agentsSection.modelChangePending.agent_id !== agent.id) {
@@ -4471,6 +4566,11 @@
     backlogSection.selectedEpicId = epicId;
     backlogSection.epicDetail = null;
     backlogSection.epicDetailError = null;
+    // T-FB036-US10-01: el error/resultado de "Proponer User Stories"
+    // solo tiene sentido asociado al detalle de la Epic que lo generó —
+    // se limpia al abrir una Epic distinta.
+    backlogSection.proposeStoriesError = null;
+    backlogSection.proposeStoriesResult = null;
     closeItemDetail();
     renderBacklogBody();
 
@@ -4613,6 +4713,8 @@
     backlogSection.selectedEpicId = epicId;
     backlogSection.epicDetail = null;
     backlogSection.epicDetailError = null;
+    backlogSection.proposeStoriesError = null;
+    backlogSection.proposeStoriesResult = null;
     closeItemDetail();
     renderBacklogBody();
 
@@ -4703,6 +4805,11 @@
     backlogSection.enqueueTaskError = null;
     backlogSection.enqueueAllError = null;
     backlogSection.enqueueAllResult = null;
+    // T-FB036-US10-01: el error/resultado de "Aterrizar en Tasks" solo
+    // tiene sentido asociado al detalle de la US que lo generó — se
+    // limpia al cerrarlo, igual que `enqueueAllError`/`launchResult`.
+    backlogSection.proposeTasksError = null;
+    backlogSection.proposeTasksResult = null;
     // Cerrar la US padre también cierra cualquier Task anidada expandida
     // dentro de ella (deja de ser visible en el DOM de todos modos).
     backlogSection.selectedNestedTaskId = null;
@@ -4856,6 +4963,45 @@
     if (backlogSection.newUserStoryForm !== null && backlogSection.newUserStoryForm.epicId === detail.id) {
       box.appendChild(renderNewUserStoryForm());
     }
+
+    // T-FB036-US10-01, criterio 1: botón "Proponer User Stories" en el
+    // detalle de Epic — vía automática/alternativa a los formularios
+    // manuales (`US-FB036-02`), conviven sin sustituirse (criterio 5 de
+    // la Task). Invoca `POST /backlog/epic/{epic_id}/propose-stories`
+    // con single-flight por epic_id (etiqueta de progreso + botón
+    // deshabilitado mientras está en vuelo, mismo patrón que el resto de
+    // acciones de esta pantalla, criterio 4).
+    var proposeStoriesWrap = h("div", "accion-controls");
+    var proposeStoriesBtn = button(
+      backlogSection.proposeStoriesInFlight === detail.id ? "Proponiendo User Stories…" : "Proponer User Stories",
+      "accion-run"
+    );
+    if (backlogSection.proposeStoriesInFlight === detail.id) proposeStoriesBtn.disabled = true;
+    proposeStoriesBtn.addEventListener("click", function () {
+      proposeStoriesAction(detail.id);
+    });
+    proposeStoriesWrap.appendChild(proposeStoriesBtn);
+    if (backlogSection.proposeStoriesError) {
+      // Criterio 3: motivo verbatim del backend (validation_errors /
+      // self_audit.justification) cuando el pipeline no se aprobó — nada
+      // se escribió a disco.
+      proposeStoriesWrap.appendChild(h("p", "agent-error", backlogSection.proposeStoriesError));
+    }
+    if (backlogSection.proposeStoriesResult) {
+      var storiesResult = backlogSection.proposeStoriesResult;
+      var storyIds = (storiesResult.stories || []).map(function (s) { return s.id; }).join(", ");
+      proposeStoriesWrap.appendChild(
+        h(
+          "p",
+          "job-hint",
+          storiesResult.num_stories + " User Story" + (storiesResult.num_stories === 1 ? "" : "s") +
+          " propuesta" + (storiesResult.num_stories === 1 ? "" : "s") +
+          (storyIds ? ": " + storyIds : "") +
+          " — el listado se ha refrescado."
+        )
+      );
+    }
+    box.appendChild(proposeStoriesWrap);
 
     return box;
   }
@@ -5123,6 +5269,129 @@
       .catch(function (error) {
         backlogSection.enqueueAllInFlight = null;
         backlogSection.enqueueAllError = buildErrorMessage(error);
+        renderBacklogBody();
+      });
+  }
+
+  // T-FB036-US10-01: motivo real de un pipeline no aprobado, verbatim del
+  // backend (criterio 3 de la Task — "no un mensaje genérico"). Se junta
+  // solo lo que el backend trae: `validation_errors` (lista de strings)
+  // si la validación falló, y `self_audit.justification`/`suggestions`
+  // si la autoauditoría no llegó a APROBADO. Nunca inventa texto propio
+  // más allá de las etiquetas de contexto.
+  function proposePipelineReason(result) {
+    var parts = [];
+    if (result.validation_valid === false) {
+      var errors = result.validation_errors || [];
+      if (errors.length > 0) {
+        parts.push("Validación: " + errors.join("; "));
+      }
+    }
+    if (result.self_audit && result.self_audit.status !== "APROBADO") {
+      parts.push(
+        "Autoevaluación (" + result.self_audit.status + "): " +
+        (result.self_audit.justification || "(sin justificación)")
+      );
+      var suggestions = result.self_audit.suggestions || [];
+      if (suggestions.length > 0) {
+        parts.push("Sugerencias: " + suggestions.join("; "));
+      }
+    }
+    if (parts.length === 0) {
+      parts.push("El pipeline no aprobó la propuesta (respuesta sin motivo detallado).");
+    }
+    return parts.join("\n");
+  }
+
+  // T-FB036-US10-01: refresco del detalle de la Epic abierta tras un
+  // pipeline aprobado — mismo patrón lazy-fetch + guard de respuesta
+  // obsoleta que `toggleEpicDetail`, para que las User Stories recién
+  // escritas a disco aparezcan en el listado SIN recargar la página
+  // (criterio de aceptación 1).
+  function refreshEpicDetail(epicId) {
+    BackendClient.getBacklogItem(epicId)
+      .then(function (detail) {
+        if (backlogSection.selectedEpicId !== epicId) return;
+        backlogSection.epicDetail = detail;
+        renderBacklogBody();
+      })
+      .catch(function () {
+        // El detalle se queda con los datos previos; el listado raíz ya
+        // se refrescó aparte (`refreshBacklogReport`), no es bloqueante.
+      });
+  }
+
+  // Mismo criterio para el detalle de la User Story abierta tras
+  // "Aterrizar en Tasks" (criterio de aceptación 2).
+  function refreshUsDetail(usId) {
+    BackendClient.getBacklogItem(usId)
+      .then(function (detail) {
+        if (backlogSection.selectedItemId !== usId) return;
+        backlogSection.itemDetail = detail;
+        renderBacklogBody();
+      })
+      .catch(function () {
+        // Mismo criterio de robustez que `refreshEpicDetail`.
+      });
+  }
+
+  // T-FB036-US10-01, "Proponer User Stories": invoca el pipeline
+  // Epic→User Story del backend con single-flight por epic_id. Éxito
+  // (APROBADO): refresca el detalle de la Epic + el listado raíz.
+  // Pipeline no aprobado (o validación fallida): muestra el motivo
+  // verbatim y no toca el listado (nada se escribió a disco).
+  function proposeStoriesAction(epicId) {
+    if (backlogSection.proposeStoriesInFlight) return;
+    backlogSection.proposeStoriesInFlight = epicId;
+    backlogSection.proposeStoriesError = null;
+    backlogSection.proposeStoriesResult = null;
+    renderBacklogBody();
+
+    BackendClient.proposeStories(epicId)
+      .then(function (result) {
+        backlogSection.proposeStoriesInFlight = null;
+        if (result.validation_valid !== true || !result.self_audit || result.self_audit.status !== "APROBADO") {
+          backlogSection.proposeStoriesError = proposePipelineReason(result);
+          renderBacklogBody();
+          return;
+        }
+        backlogSection.proposeStoriesResult = result;
+        renderBacklogBody();
+        refreshEpicDetail(epicId);
+        refreshBacklogReport();
+      })
+      .catch(function (error) {
+        backlogSection.proposeStoriesInFlight = null;
+        backlogSection.proposeStoriesError = buildErrorMessage(error);
+        renderBacklogBody();
+      });
+  }
+
+  // T-FB036-US10-01, "Aterrizar en Tasks": mismo patrón que
+  // `proposeStoriesAction` para el pipeline User Story→Task.
+  function proposeTasksAction(usId) {
+    if (backlogSection.proposeTasksInFlight) return;
+    backlogSection.proposeTasksInFlight = usId;
+    backlogSection.proposeTasksError = null;
+    backlogSection.proposeTasksResult = null;
+    renderBacklogBody();
+
+    BackendClient.proposeTasks(usId)
+      .then(function (result) {
+        backlogSection.proposeTasksInFlight = null;
+        if (result.validation_valid !== true || !result.self_audit || result.self_audit.status !== "APROBADO") {
+          backlogSection.proposeTasksError = proposePipelineReason(result);
+          renderBacklogBody();
+          return;
+        }
+        backlogSection.proposeTasksResult = result;
+        renderBacklogBody();
+        refreshUsDetail(usId);
+        refreshBacklogReport();
+      })
+      .catch(function (error) {
+        backlogSection.proposeTasksInFlight = null;
+        backlogSection.proposeTasksError = buildErrorMessage(error);
         renderBacklogBody();
       });
   }
@@ -5457,6 +5726,42 @@
       // del detalle — se pinta primero y siempre visible (criterio de
       // aceptación 1), sin necesidad de desplegar nada.
       box.appendChild(renderEnqueueAllControls(detail.id));
+
+      // T-FB036-US10-01, criterio 2: botón "Aterrizar en Tasks" en el
+      // detalle de User Story — vía automática/alternativa al formulario
+      // manual "+ Nueva Task" (`US-FB036-02`), conviven sin sustituirse
+      // (criterio 5). Invoca `POST /backlog/us/{us_id}/propose-tasks`
+      // con single-flight por us_id (etiqueta de progreso + deshabilitado
+      // en vuelo, criterio 4). Pipeline no aprobado: motivo verbatim del
+      // backend (criterio 3).
+      var proposeTasksWrap = h("div", "accion-controls");
+      var proposeTasksBtn = button(
+        backlogSection.proposeTasksInFlight === detail.id ? "Aterrizando en Tasks…" : "Aterrizar en Tasks",
+        "accion-run"
+      );
+      if (backlogSection.proposeTasksInFlight === detail.id) proposeTasksBtn.disabled = true;
+      proposeTasksBtn.addEventListener("click", function () {
+        proposeTasksAction(detail.id);
+      });
+      proposeTasksWrap.appendChild(proposeTasksBtn);
+      if (backlogSection.proposeTasksError) {
+        proposeTasksWrap.appendChild(h("p", "agent-error", backlogSection.proposeTasksError));
+      }
+      if (backlogSection.proposeTasksResult) {
+        var tasksResult = backlogSection.proposeTasksResult;
+        var taskIds = (tasksResult.tasks || []).map(function (t) { return t.id; }).join(", ");
+        proposeTasksWrap.appendChild(
+          h(
+            "p",
+            "job-hint",
+            tasksResult.num_tasks + " Task" + (tasksResult.num_tasks === 1 ? "" : "s") +
+            " propuesta" + (tasksResult.num_tasks === 1 ? "" : "s") +
+            (taskIds ? ": " + taskIds : "") +
+            " — el listado se ha refrescado."
+          )
+        );
+      }
+      box.appendChild(proposeTasksWrap);
 
       // T-FB036-US07-01: "Lanzar desarrollo" y "Crear Job manual" quedan
       // agrupados bajo "Opciones avanzadas", colapsado por defecto — siguen

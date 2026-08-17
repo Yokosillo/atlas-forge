@@ -434,6 +434,29 @@
     });
   }
 
+  /** `POST /backlog/epic/{epic_id}/propose-stories` (T-FB036-US10-01) —
+   * pipeline Epic→User Story: propone User Stories desde el alcance v1 de
+   * la Epic, ejecuta validación + autoauditoría y, si se aprueban
+   * (`validation_valid: true` y `self_audit.status: "APROBADO"`), las
+   * escribe a disco. 404 (Epic inexistente) propaga el `detail` real. El
+   * resultado trae SIEMPRE el detalle del pipeline
+   * (`validation_valid`/`validation_errors`/`self_audit`) — un pipeline
+   * no aprobado es un 200 con esos flags en `false`/no-APROBADO, nada
+   * escrito a disco, no un error HTTP. */
+  async function proposeStories(epicId) {
+    return request("POST", "/backlog/epic/" + encodeURIComponent(epicId) + "/propose-stories", { post: true });
+  }
+
+  /** `POST /backlog/us/{us_id}/propose-tasks` (T-FB036-US10-01) — pipeline
+   * User Story→Task: propone Tasks desde la US, ejecuta validación +
+   * autoauditoría y, si se aprueban, las escribe a disco. 404 (US
+   * inexistente) propaga el `detail` real. Mismo contrato de respuesta
+   * que `proposeStories`: un pipeline no aprobado es un 200 con flags
+   * no-aprobados, no un error HTTP. */
+  async function proposeTasks(usId) {
+    return request("POST", "/backlog/us/" + encodeURIComponent(usId) + "/propose-tasks", { post: true });
+  }
+
   /** `POST /backlog/{story_id}/launch-development` — lanza el desarrollo
    * de la User Story `story_id` con contexto ya resuelto por el backend
    * (objetivo + Tasks `TODO`), despachado al agente `agentId`. Bloqueante
@@ -558,6 +581,8 @@
     getBacklogItem: getBacklogItem,
     createEpic: createEpic,
     createUserStory: createUserStory,
+    proposeStories: proposeStories,
+    proposeTasks: proposeTasks,
     launchDevelopment: launchDevelopment,
     analyzeEpicThreads: analyzeEpicThreads,
     enqueueTask: enqueueTask,
