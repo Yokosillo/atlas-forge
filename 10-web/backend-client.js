@@ -434,6 +434,12 @@
     });
   }
 
+  async function createTask(usId, payload) {
+    return request("POST", "/backlog/us/" + encodeURIComponent(usId) + "/task", {
+      post: true, body: payload,
+    });
+  }
+
   /** `POST /backlog/epic/{epic_id}/propose-stories` (T-FB036-US10-01) —
    * pipeline Epic→User Story: propone User Stories desde el alcance v1 de
    * la Epic, ejecuta validación + autoauditoría y, si se aprueban
@@ -581,6 +587,7 @@
     getBacklogItem: getBacklogItem,
     createEpic: createEpic,
     createUserStory: createUserStory,
+    createTask: createTask,
     proposeStories: proposeStories,
     proposeTasks: proposeTasks,
     launchDevelopment: launchDevelopment,

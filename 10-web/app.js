@@ -220,6 +220,7 @@
     working: "#EF6C00", // ámbar/naranja (Orange 800) — ocupado
     stopped: "#757575", // gris (Grey 600) — inactivo a propósito
     unavailable: "#D32F2F", // rojo (Red 700) — fallo no solicitado
+    limited: "#6A1B9A", // púrpura (Purple 800) — sin límite de sesión, T-FB024-US21-01
   };
 
   function agentStatusColor(status) {
@@ -559,6 +560,12 @@
     // abierto en otra, mismo criterio que el resto de esta pantalla
     // (`editingRowKey`, `selectedItemId`).
     newUserStoryForm: null,
+    // T-FB036-US02-06: formulario inline "+ Nueva Task" — mismo patrón que
+    // `newUserStoryForm`, con `us_id`/`epic_id` fijados desde el contexto
+    // (la US expandida donde se pulsó el botón). Un único slot global
+    // (no uno por US): abrir el formulario en una US distinta descarta
+    // cualquier formulario ya abierto en otra.
+    newTaskForm: null,
     // T-FB036-US10-01: botones "Proponer User Stories" (detalle de Epic)
     // y "Aterrizar en Tasks" (detalle de User Story) — single-flight por
     // id en vuelo, mismo criterio que `enqueueTaskInFlight`/
@@ -1947,7 +1954,15 @@
     // clic por el single-flight.
     renderAgentsBody();
 
-    var payload = { role: option.agent_role, model_id: option.model_id };
+    // T-FB005-US07-02: el runtime se manda SIEMPRE explícito (contrato de
+    // lanzamiento) y el modelo solo cuando el runtime lo admite — mismo
+    // criterio que `launchStoppedDev`/`launchArquitecto`: una opción
+    // Claude Code (`supports_model === false`) no manda `model_id`, el
+    // backend lo rechazaría ("Claude Code no admite indicar un modelo").
+    var payload = { role: option.agent_role, runtime_type: option.runtime_type };
+    if (option.supports_model) {
+      payload.model_id = option.model_id;
+    }
     if (agentsSection.taskInput.trim()) {
       payload.initial_job_description = agentsSection.taskInput.trim();
     }
@@ -4116,6 +4131,183 @@
       });
   }
 
+  // T-FB036-US02-06: formulario inline "+ Nueva Task" (mismo patrón que
+  // `renderNewUserStoryForm`). Campos: ID (formato `T-FBxxx-USnn-mm`),
+  // Título, Objetivo, Criterios de aceptación, Prioridad, Dependencias
+  // (opcional) — `us_id`/`epic_id` mostrados pero no editables (heredados
+  // del contexto de la US expandida).
+  var NEW_TASK_ID_PATTERN = /^T-FB\d{3,}-US\d{2}[A-Z]?-\d{2}[A-Z]?$/;
+
+  function renderNewTaskForm() {
+    var form = h("div", "jobs-form");
+    form.appendChild(h("div", "jobs-form-title", "Nueva Task"));
+
+    if (backlogSection.newTaskForm.epicId) {
+      form.appendChild(h("div", "field-label", "Epic"));
+      form.appendChild(h("div", "job-detail-field", backlogSection.newTaskForm.epicId));
+    }
+    form.appendChild(h("div", "field-label", "User Story"));
+    form.appendChild(h("div", "job-detail-field", backlogSection.newTaskForm.usId));
+
+    var createBtn = button(
+      backlogSection.newTaskForm.submitting ? "Creando…" : "Crear",
+      "backlog-launch"
+    );
+    function updateCreateBtnState() {
+      var missingRequired = !backlogSection.newTaskForm.id.trim() ||
+        !backlogSection.newTaskForm.title.trim() ||
+        !backlogSection.newTaskForm.objetivo.trim();
+      createBtn.disabled = missingRequired || backlogSection.newTaskForm.submitting;
+    }
+
+    form.appendChild(h("div", "field-label", "ID (formato T-FBxxx-USnn-mm)"));
+    var idInput = document.createElement("input");
+    idInput.type = "text";
+    idInput.className = "clickable backlog-new-epic-input";
+    idInput.placeholder = "T-FB999-US01-01";
+    idInput.value = backlogSection.newTaskForm.id;
+    idInput.addEventListener("input", function () {
+      backlogSection.newTaskForm.id = idInput.value;
+      updateCreateBtnState();
+    });
+    form.appendChild(idInput);
+
+    form.appendChild(h("div", "field-label", "Título"));
+    var titleInput = document.createElement("input");
+    titleInput.type = "text";
+    titleInput.className = "clickable backlog-new-epic-input";
+    titleInput.value = backlogSection.newTaskForm.title;
+    titleInput.addEventListener("input", function () {
+      backlogSection.newTaskForm.title = titleInput.value;
+      updateCreateBtnState();
+    });
+    form.appendChild(titleInput);
+
+    form.appendChild(h("div", "field-label", "Objetivo"));
+    var objetivoInput = document.createElement("textarea");
+    objetivoInput.className = "clickable backlog-new-epic-input";
+    objetivoInput.rows = 3;
+    objetivoInput.value = backlogSection.newTaskForm.objetivo;
+    objetivoInput.addEventListener("input", function () {
+      backlogSection.newTaskForm.objetivo = objetivoInput.value;
+      updateCreateBtnState();
+    });
+    form.appendChild(objetivoInput);
+
+    form.appendChild(h("div", "field-label", "Criterios de aceptación"));
+    var criteriosInput = document.createElement("textarea");
+    criteriosInput.className = "clickable backlog-new-epic-input";
+    criteriosInput.rows = 3;
+    criteriosInput.value = backlogSection.newTaskForm.criterios;
+    criteriosInput.addEventListener("input", function () {
+      backlogSection.newTaskForm.criterios = criteriosInput.value;
+    });
+    form.appendChild(criteriosInput);
+
+    form.appendChild(h("div", "field-label", "Prioridad"));
+    var prioritySelect = document.createElement("select");
+    prioritySelect.className = "clickable launch-select";
+    var noneOpt = document.createElement("option");
+    noneOpt.value = "";
+    noneOpt.textContent = "Sin prioridad";
+    if (!backlogSection.newTaskForm.priority) noneOpt.selected = true;
+    prioritySelect.appendChild(noneOpt);
+    EDITABLE_PRIORITIES.forEach(function (p) {
+      var option = document.createElement("option");
+      option.value = p;
+      option.textContent = p;
+      if (backlogSection.newTaskForm.priority === p) option.selected = true;
+      prioritySelect.appendChild(option);
+    });
+    prioritySelect.addEventListener("change", function () {
+      backlogSection.newTaskForm.priority = prioritySelect.value;
+    });
+    form.appendChild(prioritySelect);
+
+    updateCreateBtnState();
+    createBtn.addEventListener("click", submitNewTask);
+    form.appendChild(createBtn);
+
+    var cancelBtn = button("Cancelar", "backlog-launch");
+    if (backlogSection.newTaskForm.submitting) cancelBtn.disabled = true;
+    cancelBtn.addEventListener("click", function () {
+      // T11: cancelar descarta el estado del formulario SIN llamar al
+      // backend — vuelve al detalle de la US intacto.
+      backlogSection.newTaskForm = null;
+      renderBacklogBody();
+    });
+    form.appendChild(cancelBtn);
+
+    if (backlogSection.newTaskForm.error) {
+      // Error verbatim del backend (404 US inexistente / 409 duplicado
+      // / 400 formato o priority inválida) — el formulario permanece
+      // abierto (criterio de aceptación explícito de la Task).
+      form.appendChild(h("p", "agent-error", backlogSection.newTaskForm.error));
+    }
+
+    return form;
+  }
+
+  // T10: envío del formulario — single-flight (`newTaskForm.submitting`,
+  // mismo patrón que `submitNewUserStory`). Éxito: cierra el formulario,
+  // refresca el listado completo Y el detalle de la US (refetch real de
+  // `GET /backlog/{usId}`), deja la US expandida con la nueva Task
+  // visible sin que el usuario tenga que buscarla. Error: formulario
+  // permanece abierto con el error verbatim.
+  function submitNewTask() {
+    var form = backlogSection.newTaskForm;
+    if (!form || form.submitting) return; // single-flight
+    var usId = form.usId;
+    var epicId = form.epicId;
+    var id = form.id.trim();
+    var title = form.title.trim();
+    var objetivo = form.objetivo.trim();
+    var criterios = form.criterios.trim();
+    var priority = form.priority || null;
+
+    // Validación de formato en cliente antes de enviar — el servidor la
+    // repite de todos modos (nunca se confía solo en la validación de
+    // cliente, mismo criterio que submitNewUserStory).
+    if (!NEW_TASK_ID_PATTERN.test(id)) {
+      form.error = "El ID debe tener formato T-FBxxx-USnn-mm.";
+      renderBacklogBody();
+      return;
+    }
+
+    form.submitting = true;
+    form.error = null;
+    renderBacklogBody();
+
+    BackendClient.createTask(usId, {
+      id: id, title: title, objetivo: objetivo,
+      criterios_aceptacion: criterios, priority: priority,
+    })
+      .then(function () {
+        backlogSection.newTaskForm = null;
+        // Cierra el formulario de inmediato (sin esperar los refrescos de
+        // red de abajo, que llegan algo después y repintan por su cuenta).
+        renderBacklogBody();
+        // Refrescar el listado raíz completo (badges/conteos consistentes,
+        // mismo criterio que el resto de acciones que mutan el backlog) y
+        // el detalle de la US donde se creó (refetch real de
+        // `GET /backlog/{usId}`, no parcheado en memoria), para que la
+        // Task nueva aparezca sin recargar la página.
+        refreshBacklogReport();
+        BackendClient.getBacklogItem(usId).then(function (detail) {
+          if (backlogSection.selectedItemId !== usId) return;
+          backlogSection.itemDetail = detail;
+          renderBacklogBody();
+        });
+      })
+      .catch(function (error) {
+        var current = backlogSection.newTaskForm;
+        if (!current) return;
+        current.submitting = false;
+        current.error = buildErrorMessage(error);
+        renderBacklogBody();
+      });
+  }
+
   // T-FB036-US01-01: barra de controles con buscador + filtro de
   // estado + filtro de prioridad, sobre el listado raíz de Epics.
   // Sigue `07-informes/FB-036/especificacion-ux-backlog.md` (estados 3-4,
@@ -5728,6 +5920,32 @@
           box.appendChild(taskCard);
         });
       }
+      // T-FB036-US02-06: botón "+ Nueva Task" al final de la lista de
+      // Tasks — siempre visible (incluso con lista vacía), nunca dentro del
+      // bucle de arriba. Abre el formulario inline (T9) con `us_id`/`epic_id`
+      // heredados del contexto (`detail.id` es la US, `detail.epic` es la
+      // Epic), mostrados pero no editables — no hay ningún `<input>` de US/Epic
+      // en este formulario.
+      var newTaskBtn = button("+ Nueva Task", "backlog-new-epic-btn");
+      newTaskBtn.addEventListener("click", function () {
+        backlogSection.newTaskForm = {
+          usId: detail.id,
+          epicId: detail.epic || null,
+          id: "",
+          title: "",
+          objetivo: "",
+          criterios: "",
+          priority: "",
+          submitting: false,
+          error: null,
+        };
+        renderBacklogBody();
+      });
+      box.appendChild(newTaskBtn);
+      if (backlogSection.newTaskForm !== null && backlogSection.newTaskForm.usId === detail.id) {
+        box.appendChild(renderNewTaskForm());
+      }
+
       // T-FB036-US07-01: "Marcar para desarrollo" es la acción PRINCIPAL
       // del detalle — se pinta primero y siempre visible (criterio de
       // aceptación 1), sin necesidad de desplegar nada.
@@ -6485,6 +6703,8 @@
       statusLabel = "trabajando";
     } else if (agent.status === "idle") {
       statusLabel = "activo";
+    } else if (agent.status === "limited") {
+      statusLabel = "sin límite de sesión";
     } else {
       statusLabel = agent.status;
     }
@@ -6494,6 +6714,12 @@
     statusRow.appendChild(dot);
     statusRow.appendChild(h("span", "status-text", "Estado: " + statusLabel));
     info.appendChild(statusRow);
+
+    // T-FB024-US21-01: hora de recuperación visible (no solo tooltip)
+    // mientras el agente está `limited`.
+    if (agent.status === "limited" && agent.limited_until) {
+      info.appendChild(h("div", "agent-limited-until", formatLimitedUntil(agent.limited_until)));
+    }
 
     // 3. Tiempo desde la última orden
     info.appendChild(h("div", "agent-model", formatLastCommand(agent.last_command_at)));
@@ -6602,6 +6828,22 @@
       return "Tiempo desde última orden: hace " + hours + " h";
     } catch (_e) {
       return "Tiempo desde última orden: sin dato";
+    }
+  }
+
+  // Hora legible de recuperación de un agente `limited` (T-FB024-US21-01,
+  // criterio de aceptación: "la pantalla Agentes muestra la hora de
+  // recuperación de forma visible... no solo en un tooltip") — formato
+  // corto de hora local del navegador, mismo criterio de legibilidad que
+  // `formatLastCommand`.
+  function formatLimitedUntil(limitedUntil) {
+    if (!limitedUntil) return "";
+    try {
+      var when = new Date(limitedUntil);
+      if (isNaN(when.getTime())) return "";
+      return "Recupera a las " + when.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+    } catch (_e) {
+      return "";
     }
   }
 
