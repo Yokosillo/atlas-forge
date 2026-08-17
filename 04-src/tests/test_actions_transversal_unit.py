@@ -12,6 +12,8 @@ from brain.actions.transversal import (
     _persist_action_report,
     dispatch_action,
 )
+from brain.agents.arquitecto import ARQUITECTO_ROLE
+from brain.agents.documentador import DOCUMENTADOR_ROLE
 from brain.agents.ux import UX_ROLE
 from brain.models import Agent, DevelopmentSession, Job
 
@@ -216,3 +218,147 @@ class TestAuditarUxDispatchesToUxAgent:
 
         with pytest.raises(RuntimeError, match="UX"):
             dispatch_action("auditar-ux")
+
+
+class TestDocumentarDispatchesToDocumentadorAgent:
+    """T-FB024-US20-01: `documentar` despacha un Job a la instancia de
+    Documentador ya lanzada, NO al Arquitecto (comportamiento anterior a
+    esta Task) — mismo mecanismo genérico
+    `_dispatch_agent_action`/`_find_agent_by_role` que ya usa
+    `auditar-ux` con UX."""
+
+    def test_action_role_map_points_documentar_to_documentador(self) -> None:
+        assert transversal_module._ACTION_ROLE_MAP["documentar"] == DOCUMENTADOR_ROLE
+        assert transversal_module._ACTION_ROLE_MAP["documentar"] != ARQUITECTO_ROLE
+
+    def test_role_display_name_includes_documentador(self) -> None:
+        assert transversal_module._ROLE_DISPLAY_NAME[DOCUMENTADOR_ROLE] == "Documentador"
+
+    def test_documentar_with_documentador_agent_launched_dispatches_a_real_job(
+        self, monkeypatch, tmp_path
+    ) -> None:
+        session = DevelopmentSession(id="sess-1", project_id="proj-1")
+        documentador_agent = Agent(
+            id="documentador-1",
+            name="Documentador",
+            role=DOCUMENTADOR_ROLE,
+            prompt="prompt",
+            runtime_id="runtime-1",
+            status="idle",
+        )
+        # Un Arquitecto también lanzado, para confirmar que el Job va al
+        # Documentador y NUNCA al Arquitecto aunque ambos estén idle.
+        arquitecto_agent = Agent(
+            id="arquitecto-1",
+            name="Arquitecto",
+            role=ARQUITECTO_ROLE,
+            prompt="prompt",
+            runtime_id="runtime-2",
+            status="idle",
+        )
+
+        monkeypatch.setattr(
+            transversal_module, "get_current_session", lambda: session
+        )
+        monkeypatch.setattr(
+            transversal_module,
+            "list_agents",
+            lambda _session: [documentador_agent, arquitecto_agent],
+        )
+        monkeypatch.setattr(
+            transversal_module, "_default_reports_root", lambda: tmp_path / "07-informes"
+        )
+
+        dispatch_calls = []
+
+        def fake_create_and_record_job(description, agent, session_arg):
+            return Job(
+                id=str(uuid.uuid4()),
+                session_id=session_arg.id,
+                agent_id=agent.id,
+                description=description,
+                status="dispatched",
+            )
+
+        monkeypatch.setattr(
+            transversal_module, "create_and_record_job", fake_create_and_record_job
+        )
+        monkeypatch.setattr(
+            transversal_module,
+            "get_runtime_instance_for_agent",
+            lambda agent_id: object(),
+        )
+
+        def fake_dispatch_job(job, agent, runtime_instance, socket_name=None):
+            dispatch_calls.append((job, agent, socket_name))
+            job.status = "completed"
+            job.result = "documentación completada"
+
+        monkeypatch.setattr(transversal_module, "dispatch_job", fake_dispatch_job)
+
+        result = dispatch_action("documentar", socket_name="test-socket")
+
+        assert len(dispatch_calls) == 1
+        dispatched_job, dispatched_agent, socket_name = dispatch_calls[0]
+        assert dispatched_agent is documentador_agent
+        assert dispatched_agent is not arquitecto_agent
+        assert socket_name == "test-socket"
+        assert result["action"] == "documentar"
+        assert result["status"] == "completed"
+        assert result["result"] == "documentación completada"
+
+    def test_documentar_without_documentador_agent_launched_fails_explicitly(
+        self, monkeypatch
+    ) -> None:
+        """Un Arquitecto lanzado (idle) NO debe usarse como fallback — el
+        criterio de aceptación exige un error explícito, nunca desviar al
+        Arquitecto en silencio."""
+        session = DevelopmentSession(id="sess-1", project_id="proj-1")
+        arquitecto_agent = Agent(
+            id="arquitecto-1",
+            name="Arquitecto",
+            role=ARQUITECTO_ROLE,
+            prompt="prompt",
+            runtime_id="runtime-1",
+            status="idle",
+        )
+        monkeypatch.setattr(
+            transversal_module, "get_current_session", lambda: session
+        )
+        monkeypatch.setattr(
+            transversal_module, "list_agents", lambda _session: [arquitecto_agent]
+        )
+
+        dispatch_calls = []
+        monkeypatch.setattr(
+            transversal_module,
+            "dispatch_job",
+            lambda *a, **k: dispatch_calls.append(a),
+        )
+
+        with pytest.raises(RuntimeError, match="Documentador"):
+            dispatch_action("documentar")
+
+        assert dispatch_calls == []
+
+    def test_documentar_with_stopped_documentador_agent_fails_explicitly(
+        self, monkeypatch
+    ) -> None:
+        session = DevelopmentSession(id="sess-1", project_id="proj-1")
+        stopped_documentador_agent = Agent(
+            id="documentador-1",
+            name="Documentador",
+            role=DOCUMENTADOR_ROLE,
+            prompt="prompt",
+            runtime_id="runtime-1",
+            status="stopped",
+        )
+        monkeypatch.setattr(
+            transversal_module, "get_current_session", lambda: session
+        )
+        monkeypatch.setattr(
+            transversal_module, "list_agents", lambda _session: [stopped_documentador_agent]
+        )
+
+        with pytest.raises(RuntimeError, match="Documentador"):
+            dispatch_action("documentar")

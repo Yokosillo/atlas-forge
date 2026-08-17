@@ -418,6 +418,22 @@
     return request("POST", "/backlog/epic", { post: true, body: payload });
   }
 
+  /** `POST /backlog/epic/{epic_id}/us` (T-FB036-US02-02) — crea una User
+   * Story nueva desde cero bajo la Epic `epicId`, con
+   * `{id, title, objetivo, criterios_aceptacion, priority}`. `epicId`
+   * viene siempre de la URL, nunca de `payload` (el backend lo resuelve
+   * así — este cliente ni siquiera acepta un campo `epic_id` en el
+   * payload). 404 (`epicId` sin fichero de Epic real) / 400 (`id` con
+   * formato inválido, `priority` inválida, o contenido que no pasa el
+   * validador) / 409 (`id` duplicado) propagan el `detail` verbatim del
+   * backend. Éxito: 201 con `{id, title, epic_id, path}` del fichero
+   * creado. */
+  async function createUserStory(epicId, payload) {
+    return request("POST", "/backlog/epic/" + encodeURIComponent(epicId) + "/us", {
+      post: true, body: payload,
+    });
+  }
+
   /** `POST /backlog/{story_id}/launch-development` — lanza el desarrollo
    * de la User Story `story_id` con contexto ya resuelto por el backend
    * (objetivo + Tasks `TODO`), despachado al agente `agentId`. Bloqueante
@@ -541,6 +557,7 @@
     getBacklog: getBacklog,
     getBacklogItem: getBacklogItem,
     createEpic: createEpic,
+    createUserStory: createUserStory,
     launchDevelopment: launchDevelopment,
     analyzeEpicThreads: analyzeEpicThreads,
     enqueueTask: enqueueTask,
