@@ -540,6 +540,13 @@
     editItemInFlight: null,
     editItemError: null,
     editItemErrorFor: null,
+    // T-FB036-US02-04: formulario "+ Nueva Epic" — `null` = cerrado |
+    // objeto `{id, title, objetivo, fase, submitting, error}` = abierto
+    // (mismo patrón de estado que los formularios de Jobs/Plan). Los
+    // valores de los campos viven en el propio objeto para sobrevivir al
+    // re-render de `renderBacklogBody()` (mismo criterio que
+    // `manualJobDescription`/`filterTextInput`).
+    newEpicForm: null,
   };
 
   // Sección MODELOS (T-FB022-US10-02): catálogo con habilitado/deshabilitado
@@ -3624,8 +3631,36 @@
   }
 
   function renderBacklogViewToggle(wrap) {
-    if (backlogSection.report === null || backlogSection.report.empty) return;
     var header = h("div", "context-bar");
+    // T-FB036-US02-04: botón "+ Nueva Epic" SIEMPRE visible en la barra de
+    // controles — también con backlog vacío (es precisamente el caso donde
+    // más falta, criterio de aceptación 1 de US-FB036-02) y mientras el
+    // report sigue cargando. Abre el formulario inline (T6) sin llamada a
+    // backend.
+    var newEpicBtn = button("+ Nueva Epic", "backlog-new-epic-btn");
+    newEpicBtn.addEventListener("click", function () {
+      backlogSection.newEpicForm = {
+        id: "",
+        title: "",
+        objetivo: "",
+        fase: "",
+        submitting: false,
+        error: null,
+      };
+      renderBacklogBody();
+    });
+    header.appendChild(newEpicBtn);
+
+    if (backlogSection.report === null || backlogSection.report.empty) {
+      // Backlog vacío/cargando: sin toggles Lista/Por Fase ni filtros (no
+      // hay nada que listar ni filtrar) — solo el botón "+ Nueva Epic" y,
+      // si está abierto, el formulario inline debajo.
+      wrap.appendChild(header);
+      if (backlogSection.newEpicForm !== null) {
+        wrap.appendChild(renderNewEpicForm());
+      }
+      return;
+    }
     var flatBtn = button("Lista", "backlog-view-toggle");
     if (backlogSection.viewMode === "flat") flatBtn.className += " active";
     flatBtn.addEventListener("click", function () {
@@ -3642,6 +3677,150 @@
     header.appendChild(faseBtn);
     wrap.appendChild(header);
     renderBacklogFilterBar(wrap);
+    if (backlogSection.newEpicForm !== null) {
+      wrap.appendChild(renderNewEpicForm());
+    }
+  }
+
+  // T-FB036-US02-04: formulario inline "+ Nueva Epic" (estado 7 de la
+  // especificación UX, mismo patrón visual que `renderManualJobForm`).
+  // Campos: ID (`FB-xxx`, validación de formato en cliente), Título,
+  // Objetivo (textarea), Fase (opcional). "Crear" deshabilitado mientras
+  // falten ID/Título/Objetivo o el envío esté en vuelo (single-flight).
+  // Los valores viven en `backlogSection.newEpicForm` para sobrevivir al
+  // re-render de `renderBacklogBody()` (mismo criterio que
+  // `manualJobDescription`).
+  var NEW_EPIC_ID_PATTERN = /^FB-\d{3,}$/;
+
+  function renderNewEpicForm() {
+    var form = h("div", "jobs-form");
+    form.appendChild(h("div", "jobs-form-title", "Nueva Epic"));
+
+    var createBtn = button(
+      backlogSection.newEpicForm.submitting ? "Creando…" : "Crear",
+      "backlog-launch"
+    );
+    // Habilitación en vivo: se recalcula en cada `input` (mismo patrón que
+    // el botón "Ejecutar" de Scripts, `scriptsSection.commitMessage`) — sin
+    // re-renderizar todo el backlog en cada tecla. "Crear" se habilita solo
+    // cuando ID/Título/Objetivo están rellenos y el envío no está en vuelo.
+    function updateCreateBtnState() {
+      var missingRequired = !backlogSection.newEpicForm.id.trim() ||
+        !backlogSection.newEpicForm.title.trim() ||
+        !backlogSection.newEpicForm.objetivo.trim();
+      createBtn.disabled = missingRequired || backlogSection.newEpicForm.submitting;
+    }
+
+    form.appendChild(h("div", "field-label", "ID (formato FB-xxx)"));
+    var idInput = document.createElement("input");
+    idInput.type = "text";
+    idInput.className = "clickable backlog-new-epic-input";
+    idInput.placeholder = "FB-999";
+    idInput.value = backlogSection.newEpicForm.id;
+    idInput.addEventListener("input", function () {
+      backlogSection.newEpicForm.id = idInput.value;
+      updateCreateBtnState();
+    });
+    form.appendChild(idInput);
+
+    form.appendChild(h("div", "field-label", "Título"));
+    var titleInput = document.createElement("input");
+    titleInput.type = "text";
+    titleInput.className = "clickable backlog-new-epic-input";
+    titleInput.value = backlogSection.newEpicForm.title;
+    titleInput.addEventListener("input", function () {
+      backlogSection.newEpicForm.title = titleInput.value;
+      updateCreateBtnState();
+    });
+    form.appendChild(titleInput);
+
+    form.appendChild(h("div", "field-label", "Objetivo"));
+    var objetivoInput = document.createElement("textarea");
+    objetivoInput.className = "clickable backlog-new-epic-input";
+    objetivoInput.rows = 3;
+    objetivoInput.value = backlogSection.newEpicForm.objetivo;
+    objetivoInput.addEventListener("input", function () {
+      backlogSection.newEpicForm.objetivo = objetivoInput.value;
+      updateCreateBtnState();
+    });
+    form.appendChild(objetivoInput);
+
+    form.appendChild(h("div", "field-label", "Fase (opcional)"));
+    var faseInput = document.createElement("input");
+    faseInput.type = "text";
+    faseInput.className = "clickable backlog-new-epic-input";
+    faseInput.value = backlogSection.newEpicForm.fase;
+    faseInput.addEventListener("input", function () {
+      backlogSection.newEpicForm.fase = faseInput.value;
+      updateCreateBtnState();
+    });
+    form.appendChild(faseInput);
+
+    updateCreateBtnState();
+    createBtn.addEventListener("click", submitNewEpic);
+    form.appendChild(createBtn);
+
+    var cancelBtn = button("Cancelar", "backlog-launch");
+    if (backlogSection.newEpicForm.submitting) cancelBtn.disabled = true;
+    cancelBtn.addEventListener("click", function () {
+      // T11: cancelar descarta el estado del formulario SIN llamar al
+      // backend — vuelve al listado intacto.
+      backlogSection.newEpicForm = null;
+      renderBacklogBody();
+    });
+    form.appendChild(cancelBtn);
+
+    if (backlogSection.newEpicForm.error) {
+      // Error verbatim del backend (409 duplicado / 400 formato) — el
+      // formulario permanece abierto (T10, criterio de aceptación 3).
+      form.appendChild(h("p", "agent-error", backlogSection.newEpicForm.error));
+    }
+
+    return form;
+  }
+
+  // T10: envío del formulario — single-flight (`newEpicForm.submitting`,
+  // mismo patrón que `submitManualJob`). Éxito: cierra el formulario,
+  // refresca el listado completo y deja la Epic recién creada expandida.
+  // Error: formulario permanece abierto con el `detail` verbatim.
+  function submitNewEpic() {
+    var form = backlogSection.newEpicForm;
+    if (!form || form.submitting) return; // single-flight
+    var id = form.id.trim();
+    var title = form.title.trim();
+    var objetivo = form.objetivo.trim();
+    var fase = form.fase.trim();
+
+    // Validación de formato en cliente antes de enviar (patrón de la
+    // especificación UX) — el servidor la repite de todos modos (nunca se
+    // confía solo en la validación de cliente, criterio de T-FB036-US02-01).
+    if (!NEW_EPIC_ID_PATTERN.test(id)) {
+      form.error = "El ID debe tener formato FB-xxx (mínimo 3 dígitos tras FB-).";
+      renderBacklogBody();
+      return;
+    }
+
+    form.submitting = true;
+    form.error = null;
+    renderBacklogBody();
+
+    BackendClient.createEpic({ id: id, title: title, objetivo: objetivo, fase: fase })
+      .then(function (result) {
+        backlogSection.newEpicForm = null;
+        // Refrescar el listado completo para que la nueva Epic aparezca con
+        // datos consistentes (mismo criterio que el resto de acciones que
+        // mutan el backlog) y dejarla expandida.
+        return refreshBacklogReport().then(function () {
+          toggleEpicDetail(result.id);
+        });
+      })
+      .catch(function (error) {
+        var current = backlogSection.newEpicForm;
+        if (!current) return;
+        current.submitting = false;
+        current.error = buildErrorMessage(error);
+        renderBacklogBody();
+      });
   }
 
   // T-FB036-US01-01: barra de controles con buscador + filtro de
@@ -3909,7 +4088,12 @@
     }
     var allByEpic = backlogSection.report.by_epic || [];
     if (backlogSection.report.empty || allByEpic.length === 0) {
-      wrap.appendChild(h("p", "section-note", "El backlog está vacío (aún no hay Epics/User Stories)."));
+      // T-FB036-US02-04, caso borde de la especificación UX: en backlog
+      // vacío el botón "+ Nueva Epic" sí se muestra (ya está en la barra de
+      // controles, renderBacklogViewToggle) con el mensaje adaptado.
+      wrap.appendChild(
+        h("p", "section-note", "El backlog está vacío. Crea la primera Epic para empezar.")
+      );
       return;
     }
     var byEpic = filterBacklogEpics(allByEpic, backlogSection.report);

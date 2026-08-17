@@ -46,11 +46,18 @@ _MODELS_CACHE = TTLCache()
 @dataclass(frozen=True)
 class ModelEntry:
     """Una entrada del catalogo de modelos: nombre visible, identificador
-    real (el que se pasa a `--model`) y runtime asociado."""
+    real (el que se pasa a `--model`), runtime asociado, y tier opcional
+    (T-FB008-US12-01: mapeo dificultad↔modelo).
+
+    `tier` es un entero 1-5 que agrupa modelos por capacidad:
+    - tier 1: modelos básicos (bajo costo, menor capacidad)
+    - tier 5: modelos avanzados (alto costo, mayor capacidad)
+    Usado para resolver qué modelo usar dada una `difficulty` de Task."""
 
     id: str
     name: str
     runtime: str
+    tier: int | None = None
 
 
 class MalformedModelCatalogError(ValueError):
@@ -96,10 +103,24 @@ def _validate_model_entry(raw_entry: Any, index: int, seen_ids: set[str]) -> Mod
         )
     seen_ids.add(entry_id)
 
+    tier = raw_entry.get("tier")
+    if tier is not None:
+        try:
+            tier = int(tier)
+            if tier < 1 or tier > 5:
+                raise ValueError
+        except (ValueError, TypeError):
+            raise MalformedModelCatalogError(
+                f"La entrada en la posicion {index} del catalogo de modelos "
+                f"tiene un valor 'tier' invalido: '{tier}'. "
+                f"'tier' debe ser un entero entre 1 y 5, o ausente."
+            )
+
     return ModelEntry(
         id=entry_id,
         name=str(raw_entry["name"]),
         runtime=entry_runtime,
+        tier=tier,
     )
 
 
