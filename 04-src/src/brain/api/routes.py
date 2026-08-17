@@ -173,6 +173,11 @@ _STATE_DIR: Path | None = None
 # explícitamente entre casos sin depender del recolector de basura.
 _dispatch_queue_worker = None
 
+# T-FB024-US21-01: instancia del watcher de límite de sesión de Claude
+# Code, arrancada en `_lifespan` — mismo patrón que `_dispatch_queue_worker`
+# justo arriba.
+_session_limit_watcher = None
+
 
 def _resolve_workspace_root() -> Path:
     return _WORKSPACE_ROOT if _WORKSPACE_ROOT is not None else Path.cwd()
@@ -487,6 +492,9 @@ def _serialize_agent(agent: Agent) -> dict:
         "model": model,
         "session_name": session_name,
         "last_command_at": getattr(agent, "last_command_at", None) or None,
+        # T-FB024-US21-01: hora ISO 8601 de recuperación del límite de
+        # sesión, solo no-`None` mientras `status == "limited"`.
+        "limited_until": getattr(agent, "limited_until", None),
     }
 
 

@@ -2,7 +2,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from brain.architect.propose_tasks import ProposedTasks
-from brain.backlog.validator import validate_backlog_content
+from brain.backlog.validator_v2 import validate_backlog_content_v2
 
 
 @dataclass
@@ -66,7 +66,7 @@ def _validate_tasks_format(proposal: ProposedTasks) -> TaskValidationResult:
     errors: list[str] = []
     for task in proposal.tasks:
         content = _build_task_content(task)
-        result = validate_backlog_content(content)
+        result = validate_backlog_content_v2(content)
         if not result.valid:
             for err in result.errors:
                 errors.append(f"{task.id}: L{err.line}: {err.message}")

@@ -16,11 +16,25 @@ from brain.models import Agent
 # relanzarse desde cero (mismo mecanismo de `register_agent`) — no
 # confundir con `paused`, ya descartado arriba. Sin salida en v1 (criterio
 # de aceptación explícito de la Task).
+#
+# `limited` (T-FB024-US21-01, US-FB024-21): el agente Claude Code se
+# quedó sin límite de sesión (patrón textual real en el pane, bloqueo
+# total) — no elegible como `idle` para el Dispatcher mientras dura.
+# Alcanzable desde `idle` y desde `working` (el límite puede golpear en
+# cualquiera de los dos momentos). Vuelve a `idle` tras el ping automático
+# del watcher una vez pasada la hora de reset (criterio 7 de la US: "deja
+# de mostrarse en cuanto el agente vuelve a mostrar actividad normal") —
+# nunca a `working` directamente, el ping solo le pide continuar, no
+# hay forma de confirmar que retomó trabajo real hasta el siguiente ciclo
+# normal de la aplicación. `unavailable`/`stopped` siguen alcanzables
+# desde `limited`: el proceso tmux puede morir o detenerse a propósito
+# igual que en cualquier otro estado.
 _ALLOWED_TRANSITIONS: dict[str, set[str]] = {
-    "idle": {"working", "unavailable", "stopped"},
-    "working": {"idle", "unavailable", "stopped"},
+    "idle": {"working", "unavailable", "stopped", "limited"},
+    "working": {"idle", "unavailable", "stopped", "limited"},
     "unavailable": {"idle"},
     "stopped": set(),
+    "limited": {"idle", "unavailable", "stopped"},
 }
 
 
@@ -53,6 +67,26 @@ def mark_unavailable(agent: Agent) -> None:
 
 def mark_stopped(agent: Agent) -> None:
     _transition(agent, "stopped")
+
+
+def mark_limited(agent: Agent, limited_until: str) -> None:
+    """Transiciona `agent` a `limited` y registra `limited_until` (hora
+    ISO 8601 de recuperación, ya calculada por el llamador —
+    `brain.agents.session_limit`). El campo se fija ANTES de la
+    transición para que, si `_transition` lanza (estado de origen no
+    permitido), el agente no quede con un `limited_until` obsoleto sin
+    `status == "limited"` que lo respalde."""
+    agent.limited_until = limited_until
+    _transition(agent, "limited")
+
+
+def clear_session_limit(agent: Agent) -> None:
+    """Transiciona `agent` de vuelta a `idle` tras el ping automático del
+    watcher (T-FB024-US21-01, criterio 7) y limpia `limited_until` — un
+    agente ya no limitado no debe seguir exponiendo una hora de
+    recuperación obsoleta."""
+    _transition(agent, "idle")
+    agent.limited_until = None
 
 
 def get_agent_state(agent: Agent) -> dict[str, Any]:

@@ -76,7 +76,14 @@ def _generate_tasks_from_sections(
     us_title: str,
 ) -> list[ProposedTask]:
     us_id = review.story_id
-    us_num = us_id.split("-US")[-1] if "-US" in us_id else us_id.split("-")[-1]
+    # Extraer numero de US y Epic para generar T-FBxxx-USnn-mm
+    # us_id tiene formato US-FB999-01, extraer 999 y 01
+    us_parts = us_id.split("-")  # ["US", "FB999", "01"]
+    epic_num = ""
+    us_num = ""
+    if len(us_parts) >= 3:
+        epic_num = us_parts[1]  # "FB999"
+        us_num = us_parts[2]    # "01"
 
     templates = [
         {
@@ -138,7 +145,17 @@ def _generate_tasks_from_sections(
 
     tasks: list[ProposedTask] = []
     for i, tmpl in enumerate(templates, start=1):
-        task_id = f"{us_id}-{i:02d}"
+        # Formato correcto: T-FB999-US01-01 (no US-FB999-01-01)
+        task_id = f"T-{epic_num}-US{us_num}-{i:02d}"
+        # Dependencies usan el mismo formato
+        formatted_deps = []
+        for d in tmpl["deps"]:
+            if d == f"T-{us_id}-01":
+                # Convertir viejo formato a nuevo
+                formatted_deps.append(task_id[:-2] + "01")  # T-FB999-US01-01
+            else:
+                formatted_deps.append(d)
+
         task = ProposedTask(
             id=task_id,
             title=f"{task_id} · {tmpl['title_part']}",
@@ -149,7 +166,7 @@ def _generate_tasks_from_sections(
             criteria=tmpl["criteria"],
             priority=tmpl["priority"],
             difficulty=tmpl["difficulty"],
-            dependencies=[d.format(us_id=us_id) for d in tmpl["deps"]],
+            dependencies=formatted_deps,
         )
         tasks.append(task)
     return tasks

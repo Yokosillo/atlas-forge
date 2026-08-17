@@ -2,7 +2,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from brain.architect.propose_user_stories import ProposedUserStories
-from brain.backlog.validator import ValidationError, validate_backlog_content
+from brain.backlog.validator_v2 import validate_backlog_content_v2
 
 
 VERDICT_STATUSES = ("APROBADO", "APROBADO_CON_OBSERVACIONES", "RECHAZADO")
@@ -64,7 +64,7 @@ def _validate_format(proposal: ProposedUserStories) -> USValidationResult:
     errors: list[str] = []
     for story in proposal.stories:
         content = _build_us_content(story)
-        result = validate_backlog_content(content)
+        result = validate_backlog_content_v2(content)
         if not result.valid:
             for err in result.errors:
                 errors.append(f"{story.id}: L{err.line}: {err.message}")

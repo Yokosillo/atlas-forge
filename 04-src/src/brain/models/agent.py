@@ -10,3 +10,4 @@ class Agent:
     runtime_id: str
     status: str = "idle"
     last_command_at: str = ""
+    limited_until: str | None = None

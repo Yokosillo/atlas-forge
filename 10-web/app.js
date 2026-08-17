@@ -4559,6 +4559,11 @@
       backlogSection.selectedEpicId = null;
       backlogSection.epicDetail = null;
       backlogSection.epicDetailError = null;
+      // T-FB036-US10-01: al plegar la Epic se limpia el estado de
+      // "Proponer User Stories" — un error/resultado previo no debe
+      // reaparecer al reexpandir la misma Epic.
+      backlogSection.proposeStoriesError = null;
+      backlogSection.proposeStoriesResult = null;
       closeItemDetail();
       renderBacklogBody();
       return;

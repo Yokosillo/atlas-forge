@@ -122,7 +122,8 @@ def _split_scope_into_stories(
     stories: list[ProposedUserStory] = []
     epic_num = epic.epic_id.split("-")[-1] if "-" in epic.epic_id else epic.epic_id
     for idx, item in enumerate(scope_items, start=1):
-        us_id = f"US-{epic.epic_id}-{idx:02d}"
+        # Formato correcto: US-FB999-01 (no US-FB-999-01)
+        us_id = f"US-{epic.epic_id.replace('-', '')}-{idx:02d}"
         short = item.split("(")[0].strip().rstrip(".") if "(" in item else item.split(".")[0].strip()
         short = short.split("—")[0].strip()
         title = short[:80] if len(short) > 80 else short

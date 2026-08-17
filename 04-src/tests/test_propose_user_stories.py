@@ -92,7 +92,8 @@ class TestSplitScopeIntoStories:
         items = _parse_scope_items(epic.scope_v1)
         stories = _split_scope_into_stories(epic, items)
         ids = [s.id for s in stories]
-        assert ids == ["US-FB-999-01", "US-FB-999-02", "US-FB-999-03", "US-FB-999-04"]
+        # Formato correcto: US-FB999-01 (sin guion extra después de FB)
+        assert ids == ["US-FB999-01", "US-FB999-02", "US-FB999-03", "US-FB999-04"]
 
 
 # ------------------------------------------------------------------ Integration

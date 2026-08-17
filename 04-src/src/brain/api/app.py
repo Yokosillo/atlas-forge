@@ -55,6 +55,7 @@ from brain.core.session_registry import (
     get_current_session,
     resolve_startup_session,
 )
+from brain.agents.session_limit_watcher import SessionLimitWatcher
 from brain.dispatcher.architect_queue import launch_architect_queue_watcher
 from brain.dispatcher.dispatch_queue_worker import DispatchQueueWorker
 from brain.runtime.agent_runtime_registry import get_runtime_instance_for_agent

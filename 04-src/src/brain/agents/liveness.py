@@ -28,7 +28,15 @@ from brain.tmux.manager import DEFAULT_SOCKET_NAME
 # agente `stopped` con su runtime ya detenido a propósito no representa
 # ningún fallo que reportar — comprobarlo evita depender de que la
 # excepción se dispare y haya que capturarla en cada llamador.
-_STATUSES_THAT_CAN_BECOME_UNAVAILABLE = {"idle", "working"}
+#
+# `limited` incluido (T-FB024-US21-01): si el proceso tmux de un agente
+# limitado muere externamente mientras espera su ping (crash, kill
+# manual), `SessionLimitWatcher` nunca lo detectaría por sí solo — su
+# ciclo se limita a saltarse los panes no capturables
+# (`_resolve_pane_text` devuelve `None`), dejándolo `limited` para
+# siempre. Este chequeo, ya ejecutado en cada `GET /agents`, cierra ese
+# hueco sin necesitar lógica nueva.
+_STATUSES_THAT_CAN_BECOME_UNAVAILABLE = {"idle", "working", "limited"}
 
 
 def refresh_agent_liveness(agent: Agent, socket_name: str = DEFAULT_SOCKET_NAME) -> Agent:
