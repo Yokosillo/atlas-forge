@@ -1,11 +1,11 @@
 """Capa de gobierno específico de proyecto (T-FB005-US01-05).
 
-El rol de cada agente (Critic, Developer) se define en dos capas, AMBAS
+El rol de cada agente (Arquitecto, Developer) se define en dos capas, AMBAS
 construidas por Factory Brain antes de arrancar el proceso, nunca por
 decisión del propio agente (01-documentacion/04-agentes.md, "Rol base vs.
 gobierno específico de proyecto"):
 
-1. Rol base: `CRITIC_PROMPT`/`DEVELOPER_PROMPT` (`agents/critic.py`,
+1. Rol base: `ARQUITECTO_PROMPT`/`DEVELOPER_PROMPT` (`agents/arquitecto.py`,
    `agents/developer.py`) — completo y autosuficiente, con protocolo de
    reporte genérico. Funciona para cualquier proyecto.
 2. Gobierno específico del proyecto: este módulo. Si el proyecto activo

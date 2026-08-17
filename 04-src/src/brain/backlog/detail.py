@@ -239,6 +239,11 @@ def build_item_detail(graph: BacklogGraph, item_id: str) -> dict | None:
         "epic": item.epic,
         "state": "IN_PROGRESS" if is_drifted else item.state,
         "priority": item.priority,
+        # T-FB008-US11-02: dificultad estimada de la Task (`Crítica`/
+        # `Alta`/`Media`/`Baja`, `T-FB008-US11-01`) — `None` para una User
+        # Story (el campo no existe en su esquema, nunca se asigna ahí) o
+        # para una Task todavía no puntuada, mismo criterio que `priority`.
+        "difficulty": item.difficulty,
         "fase": item.fase,
         "dependencies": [
             {

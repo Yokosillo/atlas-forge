@@ -1130,7 +1130,7 @@ def post_job_cancel(job_id: str) -> dict:
 
 @router.post("/plans", status_code=201)
 def post_plans(body: CreatePlanRequest) -> dict:
-    """Solicita al Critic un plan para `goal` (identificador de User
+    """Solicita al Arquitecto un plan para `goal` (identificador de User
     Story), reutilizando `build_job_plan_for_story` (T-FB008-US04-01) sin
     reimplementar la heurística de desglose. No despacha ningún Job
     todavía — el plan se presenta en estado `proposed`, tal como ya
@@ -1163,7 +1163,7 @@ def get_plans() -> list[dict]:
     Sin esto, un cliente que pierde la referencia al `plan_id` actual (la
     app cerrada y matada en segundo plano, o la TUI que nunca lo tuvo en
     primer lugar — ver T-FB016-US01-18) no tenía forma de descubrir qué
-    plan seguía `proposed`/`approved` sin pedirle uno nuevo al Critic,
+    plan seguía `proposed`/`approved` sin pedirle uno nuevo al Arquitecto,
     arriesgando duplicar trabajo.
 
     Ningún plan se elimina de la lista tras decidirse — un plan ya

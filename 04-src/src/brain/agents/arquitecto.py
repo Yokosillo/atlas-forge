@@ -53,7 +53,7 @@ ARQUITECTO_PROMPT = (
     "\n"
     "## Protocolo de veredicto\n"
     "Cuando revises trabajo del Developer, escribe tu decisión en "
-    ".claude/state/critic_output.txt con el formato:\n"
+    ".claude/state/arquitecto_output.txt con el formato:\n"
     "ESTADO: [APROBADO | APROBADO_CON_OBSERVACIONES | RECHAZADO]\n"
     "JUSTIFICACIÓN:\n"
     "<2-4 líneas>\n"

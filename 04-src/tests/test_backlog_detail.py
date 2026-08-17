@@ -31,7 +31,10 @@ _US = (
 )
 
 
-def _task(task_id: str, story_id: str, state: str, dependencies: str = "[]") -> str:
+def _task(
+    task_id: str, story_id: str, state: str, dependencies: str = "[]", difficulty: str | None = None
+) -> str:
+    difficulty_line = f"difficulty: {difficulty}\n" if difficulty is not None else ""
     return (
         "---\n"
         f"id: {task_id}\n"
@@ -42,6 +45,7 @@ def _task(task_id: str, story_id: str, state: str, dependencies: str = "[]") -> 
         "epic: FB-999\n"
         f"user_story: {story_id}\n"
         "priority: Alta\n"
+        f"{difficulty_line}"
         "---\n\n"
         f"# {task_id} · Task de ejemplo\n\n"
         "## Objetivo\n\nHacer algo.\n\n"
@@ -290,3 +294,46 @@ def test_build_item_detail_does_not_write_any_file(tmp_path: Path) -> None:
 
     assert before == after
     assert "state: DONE" in after
+
+
+# ---------------------------------------------------------------------
+# difficulty (T-FB008-US11-02)
+# ---------------------------------------------------------------------
+
+
+def test_build_item_detail_exposes_difficulty_for_a_scored_task(tmp_path: Path) -> None:
+    _write(tmp_path, "user-stories", "US-FB999-01-historia.md", _US)
+    _write(
+        tmp_path, "tasks", "T-FB999-US01-01-primera.md",
+        _task("T-FB999-US01-01", "US-FB999-01", "TODO", difficulty="Alta"),
+    )
+
+    graph = load_backlog(tmp_path)
+    detail = build_item_detail(graph, "T-FB999-US01-01")
+
+    assert detail is not None
+    assert detail["difficulty"] == "Alta"
+
+
+def test_build_item_detail_exposes_none_difficulty_for_an_unscored_task(tmp_path: Path) -> None:
+    _write(tmp_path, "user-stories", "US-FB999-01-historia.md", _US)
+    _write(
+        tmp_path, "tasks", "T-FB999-US01-01-primera.md",
+        _task("T-FB999-US01-01", "US-FB999-01", "TODO"),
+    )
+
+    graph = load_backlog(tmp_path)
+    detail = build_item_detail(graph, "T-FB999-US01-01")
+
+    assert detail is not None
+    assert detail["difficulty"] is None
+
+
+def test_build_item_detail_exposes_none_difficulty_for_a_user_story(tmp_path: Path) -> None:
+    _write(tmp_path, "user-stories", "US-FB999-01-historia.md", _US)
+
+    graph = load_backlog(tmp_path)
+    detail = build_item_detail(graph, "US-FB999-01")
+
+    assert detail is not None
+    assert detail["difficulty"] is None

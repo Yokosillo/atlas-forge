@@ -44,7 +44,7 @@ def create_job(
     Validación de rol al encadenar (T-FB008-US07-01): si el agente que
     ejecutó `previous_job` es `Developer` y el agente destino también es
     `Developer`, el encadenado se rechaza con `JobCreationError` (mensaje
-    explícito) — el resultado de un Developer debe encadenarse a un Critic,
+    explícito) — el resultado de un Developer debe encadenarse a un Arquitecto,
     no a otro Developer. Es la regla mínima ya conocida por el dominio; el
     resto de combinaciones de roles no se restringen (Cualquier otra
     combinación de roles no se restringe por esta Task, alcance acotado).
@@ -84,7 +84,7 @@ def create_job(
         if previous_agent_role == DEVELOPER_ROLE and agent.role == DEVELOPER_ROLE:
             raise JobCreationError(
                 f"No se puede encadenar el Job '{previous_job.id}': el "
-                f"resultado de un Developer debe encadenarse a un Critic, "
+                f"resultado de un Developer debe encadenarse a un Arquitecto, "
                 f"no a otro Developer."
             )
 

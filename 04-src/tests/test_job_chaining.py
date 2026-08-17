@@ -81,7 +81,7 @@ def test_create_job_rejects_chaining_developer_result_into_another_developer() -
     session = _active_session_with_agent(developer)
     previous_job = _completed_job_with_result("def add(a, b): return a + b")
 
-    with pytest.raises(JobCreationError, match="debe encadenarse a un Critic"):
+    with pytest.raises(JobCreationError, match="debe encadenarse a un Arquitecto"):
         create_job(
             "implement something else",
             developer,

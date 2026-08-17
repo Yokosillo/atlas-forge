@@ -1,6 +1,6 @@
 """Formato estructurado de veredicto del Arquitecto (T-FB022-US05-01).
 
-Reemplaza el prompt de texto libre de `agents/critic.py` por un formato
+Reemplaza el prompt de texto libre de `agents/arquitecto.py` por un formato
 parseable con tres estados: APROBADO, APROBADO_CON_OBSERVACIONES,
 RECHAZADO, con justificación y siguiente prompt accionable para el
 Developer.

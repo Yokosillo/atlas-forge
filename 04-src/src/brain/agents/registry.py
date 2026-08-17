@@ -30,9 +30,9 @@ def register_agent(
     (T-FB004-US01-02/US02-01) en `project_path`, y lo asigna a `session`
     (T-FB003-US01-02).
 
-    No asume ningún rol concreto (Developer/Critic/otro futuro) — recibe
+    No asume ningún rol concreto (Developer/Arquitecto/otro futuro) — recibe
     `role` y `prompt` como parámetros, tal como pide la Task. Las
-    especializaciones concretas (`agents/developer.py`, `agents/critic.py`)
+    especializaciones concretas (`agents/developer.py`, `agents/arquitecto.py`)
     fijan el `role`/`prompt` y llaman a esta función.
 
     El agente se crea en estado `idle` y su runtime queda vivo, listo para
@@ -75,7 +75,7 @@ def register_agent_with_reuse(
     uno ya existente si lo hay.
 
     Patrón compartido por las especializaciones de rol único por sesión
-    (Developer, Critic, y futuros roles fijos análogos): si ya existe un
+    (Developer, Arquitecto, y futuros roles fijos análogos): si ya existe un
     `Agent` con ese `role` asignado a `session` y **sigue vivo**, se
     devuelve tal cual sin volver a registrar ni relanzar su runtime desde
     cero — la sesión tmux ya viva sigue siendo la misma. Si no existe, o el
@@ -84,12 +84,12 @@ def register_agent_with_reuse(
 
     Extraído a partir de T-FB005-US01-02 (Developer) para no duplicar este
     bloque de búsqueda en cada especialización de rol (T-FB005-US02-01,
-    Critic, lo reutiliza tal cual).
+    Arquitecto, lo reutiliza tal cual).
 
     ## Solo se reutiliza un agente vivo (T-FB005-US01-06)
 
     Bug real corregido: antes de este cambio, la búsqueda por `role` no
-    comprobaba el `status`, así que si el Critic estaba `stopped` se
+    comprobaba el `status`, así que si el Arquitecto estaba `stopped` se
     devolvía tal cual (con su runtime muerto) en lugar de relanzarlo. Ahora
     solo se reutiliza si el agente encontrado está `idle` o
     `working`; si está `stopped`/`unavailable` se trata como si no
@@ -103,7 +103,7 @@ def register_agent_with_reuse(
     consumidor real del dominio: `dispatch.dispatch_plan._find_agent_by_role`
     (`dispatcher/job_plan_dispatch.py`) resuelve el agente destinatario de
     un paso con `next(...)` sobre `list_agents(session)` filtrando por
-    `role`. Si convivieran un Critic `stopped` (más antiguo, primero en la
+    `role`. Si convivieran un Arquitecto `stopped` (más antiguo, primero en la
     lista) y uno `idle` nuevo, ese `next` devolvería siempre al `stopped` y
     el despacho usaría su runtime muerto. Sustituyendo se garantiza que el
     primero (y único) agente con ese `role` es siempre el vivo, coherente

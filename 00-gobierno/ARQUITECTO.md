@@ -153,9 +153,9 @@ caso por la cola. **Retirado (T-FB030-US03-03, 2026-08-14):**
 `watch_worker.sh` ya no existe en el repo — ningún proceso remanente
 dependía de él (verificado, no corría activo), y su única función
 (avisar al Arquitecto de un cierre) la cubre en exclusiva la cola de
-`FB-030` desde entonces. `watch_critic.sh` NO se retiró: cubre la
-dirección contraria (Arquitecto/Critic → Developer, reenvío de
-`SIGUIENTE_PROMPT_PARA_WORKER` vigilando `critic_output.txt`), un caso
+`FB-030` desde entonces. `watch_arquitecto_verdict.sh` NO se retiró: cubre la
+dirección contraria (Arquitecto/Crítico → Developer, reenvío de
+`SIGUIENTE_PROMPT_PARA_WORKER` vigilando `arquitecto_output.txt`), un caso
 que esta Epic no sustituye — sigue siendo el mecanismo activo para ese
 flujo.
 

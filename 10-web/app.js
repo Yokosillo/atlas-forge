@@ -319,7 +319,7 @@
     bodyWrap: null,
   };
 
-  // Sección PLAN (T-FB021-US05-01): solicitud del plan del Critic, vista
+  // Sección PLAN (T-FB021-US05-01): solicitud del plan del Arquitecto, vista
   // completa y aprobación/rechazo — paridad con `PlanScreen`/`PlanViewModel`.
   // `currentPlan` es el plan mostrado (plan_id + goal + status + steps); el
   // filtro de `WS /ws/plans` (punto 3) descarta todo evento cuyo `plan_id`
@@ -665,7 +665,7 @@
         "p",
         null,
         "Factory Brain necesita hablar con el backend antes de poder mostrar " +
-          "agentes, Jobs o el plan del Critic. Comprueba que el servicio esté en " +
+          "agentes, Jobs o el plan del Arquitecto. Comprueba que el servicio esté en " +
           "marcha y vuelve a intentarlo."
       )
     );
@@ -2219,7 +2219,7 @@
     });
     form.appendChild(descArea);
 
-    // Job previo opcional (encadenamiento Developer → Critic, punto 3):
+    // Job previo opcional (encadenamiento Developer → Arquitecto, punto 3):
     // SOLO se ofrece como candidato un Job `completed` con resultado — el
     // único estado que `create_job(..., previous_job=...)` acepta encadenar
     // (igual que Android, que solo muestra la acción cuando
@@ -2710,7 +2710,7 @@
   // del backlog (no texto libre sin validar).
   function renderPlansForm(wrap) {
     var form = h("div", "plans-form");
-    form.appendChild(h("div", "field-label", "Pedir un plan al Critic"));
+    form.appendChild(h("div", "field-label", "Pedir un plan al Arquitecto"));
 
     // T-FB024-US04-02: selector de User Stories TODO en vez de texto libre.
     if (plansSection.todoStories === null || plansSection.todoStoriesLoading) {
@@ -5025,6 +5025,10 @@
     if (detail.epic) {
       box.appendChild(h("div", "job-detail-field", "Epic: " + detail.epic));
     }
+    // T-FB008-US11-02: mismo criterio que `renderItemDetail` — esta Task
+    // anidada es siempre `kind === "T"` (nunca una User Story llega
+    // aquí), así que se muestra sin condición extra.
+    box.appendChild(h("div", "job-detail-field", "Dificultad: " + (detail.difficulty || "Sin puntuar")));
     box.appendChild(h("div", "job-detail-field", "Objetivo: " + (detail.objetivo || "(sin objetivo declarado)")));
     box.appendChild(
       h(
@@ -5089,6 +5093,13 @@
     box.appendChild(h("div", "job-detail-field", "Estado: " + (detail.state || "desconocido")));
     if (detail.epic) {
       box.appendChild(h("div", "job-detail-field", "Epic: " + detail.epic));
+    }
+    // T-FB008-US11-02: solo para Task (el campo no existe en el esquema
+    // de User Story, `build_item_detail` siempre devuelve `null` ahí) —
+    // "Sin puntuar" explícito en vez de omitir el campo en silencio
+    // (criterio de aceptación explícito de la Task).
+    if (detail.kind === "T") {
+      box.appendChild(h("div", "job-detail-field", "Dificultad: " + (detail.difficulty || "Sin puntuar")));
     }
     box.appendChild(h("div", "job-detail-field", "Objetivo: " + (detail.objetivo || "(sin objetivo declarado)")));
     box.appendChild(
