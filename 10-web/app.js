@@ -473,9 +473,14 @@
     // hay scroll pendiente.
     pendingBlockedScrollEpicId: null,
     pendingBlockedScrollItems: null,
-    // T-FB024-US09-02: historial de jobs para la US abierta en detalle.
-    usJobs: null,
-    usJobsError: null,
+    // T-FB036-US01-10: id del elemento del DOM al que hacer scroll en
+    // cuanto el detalle de la Epic (y, para una Task, también el de su
+    // US padre) termine de renderizarse tras un clic en el panel
+    // "Próximo foco" — mecanismo independiente del de
+    // `pendingBlockedScrollEpicId` de arriba (badge "N bloqueadas") para
+    // no acoplar ambos flujos, aunque el patrón sea similar. `null` = no
+    // hay scroll pendiente.
+    pendingChainScrollElementId: null,
     // T-FB024-US09-03: formulario manual de Job en detalle de US.
     manualJobAgents: null,
     manualJobAgentsError: null,
@@ -3616,12 +3621,25 @@
     panel.appendChild(header);
 
     if (!backlogSection.backlogFocusCollapsed) {
-      var chainText = chain
-        .map(function (entry) {
-          return entry.id;
-        })
-        .join(" → ");
-      panel.appendChild(h("p", "backlog-focus-chain", chainText));
+      // T-FB036-US01-10: cada ID de la cadena es un enlace clicable (antes
+      // texto plano) — reutiliza `expandEpicAndScrollToChainItem` para
+      // expandir la Epic (y, si es una Task, también su US padre) y hacer
+      // scroll hasta ese item concreto. Mismo efecto visual que antes
+      // (separados por "→"), ahora con cada ID interactivo.
+      var chainLine = h("p", "backlog-focus-chain");
+      chain.forEach(function (entry, idx) {
+        var link = h("span", "backlog-focus-chain-link", entry.id);
+        link.tabIndex = 0;
+        link.setAttribute("role", "button");
+        link.addEventListener("click", function () {
+          expandEpicAndScrollToChainItem(entry);
+        });
+        chainLine.appendChild(link);
+        if (idx < chain.length - 1) {
+          chainLine.appendChild(document.createTextNode(" → "));
+        }
+      });
+      panel.appendChild(chainLine);
       panel.appendChild(
         h(
           "p",
@@ -4466,6 +4484,17 @@
           backlogSection.pendingBlockedScrollEpicId = null;
           backlogSection.pendingBlockedScrollItems = null;
         }
+        // T-FB036-US01-10: si hay un scroll pendiente hacia una fila de
+        // User Story concreta (panel "Próximo foco"), dispararlo ahora
+        // que `epicDetail` ya se renderizó. El caso de una Task
+        // pendiente (que necesita además expandir su US padre) lo
+        // resuelve `expandEpicAndScrollToChainItem` por su cuenta, no
+        // aquí.
+        if (backlogSection.pendingChainScrollElementId !== null) {
+          var pendingId = backlogSection.pendingChainScrollElementId;
+          backlogSection.pendingChainScrollElementId = null;
+          scrollToBacklogElementById(pendingId);
+        }
       })
       .catch(function (error) {
         if (backlogSection.selectedEpicId !== epicId) return;
@@ -4474,6 +4503,7 @@
           backlogSection.pendingBlockedScrollEpicId = null;
           backlogSection.pendingBlockedScrollItems = null;
         }
+        backlogSection.pendingChainScrollElementId = null;
         renderBacklogBody();
       });
   }
@@ -4520,14 +4550,149 @@
     }
   }
 
+  // T-FB036-US01-10: scroll genérico a un elemento del DOM ya renderizado
+  // por su id — envoltura fina sobre `scrollIntoView`, reutilizada por
+  // `expandEpicAndScrollToChainItem` (panel "Próximo foco") para US y,
+  // tras expandir también la US padre, para Task.
+  function scrollToBacklogElementById(elementId) {
+    var target = document.getElementById(elementId);
+    if (target) {
+      target.scrollIntoView({ behavior: "smooth", block: "center" });
+    }
+  }
+
+  // T-FB036-US01-10: pulsar un ID del panel "Próximo foco" expande su
+  // Epic (si no lo estaba) y hace scroll hasta ese item concreto — mismo
+  // patrón de "expandir + scroll pendiente" que
+  // `expandEpicAndScrollToBlocked`, pero apuntando a UN id concreto de la
+  // cadena en vez de "el primero bloqueado", y con soporte explícito
+  // para Task (criterio de aceptación: "expande su Epic y la User Story
+  // padre correspondiente, y hace scroll hasta esa Task concreta").
+  //
+  // `chainItem` es una entrada de `report.max_leverage_chain`
+  // (`{id, kind, epic, priority, fase}`, `brain.backlog.report._summary`
+  // — no requiere ampliar el backend, tal como pide la Task).
+  function expandEpicAndScrollToChainItem(chainItem) {
+    var epicId = epicIdFromLabel(chainItem.epic);
+    if (!epicId) return; // item "(sin epic)": no hay Epic real que expandir.
+
+    if (chainItem.kind === "T") {
+      expandEpicAndScrollToChainTask(epicId, chainItem.id);
+      return;
+    }
+
+    var targetElementId = "backlog-us-" + chainItem.id;
+    var epicAlreadyExpanded = backlogSection.selectedEpicId === epicId &&
+      backlogSection.epicDetail !== null;
+    if (epicAlreadyExpanded) {
+      scrollToBacklogElementById(targetElementId);
+      return;
+    }
+    backlogSection.pendingChainScrollElementId = targetElementId;
+    toggleEpicDetail(epicId);
+  }
+
+  // Resuelve la User Story padre de `taskId` SIN ampliar el backend
+  // (`GET /backlog/{task_id}` nunca expone `user_story` para una Task,
+  // confirmado leyendo `build_item_detail` antes de implementar — la
+  // relación solo se expone al revés, desde la US) — expande la Epic
+  // primero (si hace falta), luego consulta `GET /backlog/{us_id}` de
+  // cada User Story de `epicDetail.user_stories` hasta encontrar la que
+  // lista `taskId` entre sus `tasks[]`, expande esa US concreta
+  // (`toggleItemDetail`) y hace scroll a la Task ya visible dentro de su
+  // detalle. Nunca adivina la US por convención de nombre de fichero
+  // (`T-<epic>-US<nn>-<mm>`) — ya verificado en `T-FB036-US01-04` que
+  // esa convención no es universal en el backlog real.
+  function expandEpicAndScrollToChainTask(epicId, taskId) {
+    var epicAlreadyExpanded = backlogSection.selectedEpicId === epicId &&
+      backlogSection.epicDetail !== null;
+    if (epicAlreadyExpanded) {
+      findParentUserStoryAndScrollToTask(backlogSection.epicDetail, taskId);
+      return;
+    }
+    backlogSection.selectedEpicId = epicId;
+    backlogSection.epicDetail = null;
+    backlogSection.epicDetailError = null;
+    closeItemDetail();
+    renderBacklogBody();
+
+    BackendClient.getBacklogItem(epicId)
+      .then(function (detail) {
+        if (backlogSection.selectedEpicId !== epicId) return;
+        backlogSection.epicDetail = detail;
+        renderBacklogBody();
+        findParentUserStoryAndScrollToTask(detail, taskId);
+      })
+      .catch(function (error) {
+        if (backlogSection.selectedEpicId !== epicId) return;
+        backlogSection.epicDetailError = buildErrorMessage(error);
+        renderBacklogBody();
+      });
+  }
+
+  function findParentUserStoryAndScrollToTask(epicDetail, taskId) {
+    var userStories = (epicDetail && epicDetail.user_stories) || [];
+    if (userStories.length === 0) return;
+
+    var found = false;
+    userStories.forEach(function (userStory) {
+      if (found) return;
+      BackendClient.getBacklogItem(userStory.id)
+        .then(function (usDetail) {
+          if (found) return;
+          var tasks = usDetail.tasks || [];
+          var hasTask = tasks.some(function (t) { return t.id === taskId; });
+          if (hasTask) {
+            found = true;
+            // Expande esa User Story concreta (si no lo estaba ya) y, en
+            // cuanto su detalle esté en el DOM, hace scroll a la Task.
+            if (backlogSection.selectedItemId !== userStory.id) {
+              toggleItemDetail(userStory.id);
+            }
+            // `toggleItemDetail` reconstruye el DOM de forma asíncrona
+            // (fetch propio) — esperar a que `itemDetail` refleje esta US
+            // antes de intentar el scroll, mismo criterio que el resto de
+            // este fichero (nunca asumir que el DOM ya tiene la fila).
+            waitForTaskInDomAndScroll(taskId);
+          }
+        })
+        .catch(function () {
+          // Fallo puntual al consultar una US concreta: se ignora y se
+          // sigue probando con el resto — un error de red en una US no
+          // debe impedir localizar la Task en otra.
+        });
+    });
+  }
+
+  // Sondeo simple y acotado del DOM: `toggleItemDetail` es asíncrono
+  // (fetch + render), así que el elemento `backlog-task-<id>` puede no
+  // existir todavía en el instante en que se pide el scroll. Reintenta
+  // cada 100ms hasta 3s (30 intentos) — mismo orden de magnitud que el
+  // resto de esperas de UI de esta pantalla, sin bloquear el hilo
+  // principal (usa `setTimeout`, no un bucle síncrono).
+  function waitForTaskInDomAndScroll(taskId) {
+    var elementId = "backlog-task-" + taskId;
+    var attempts = 0;
+    function tryScroll() {
+      var target = document.getElementById(elementId);
+      if (target) {
+        target.scrollIntoView({ behavior: "smooth", block: "center" });
+        return;
+      }
+      attempts += 1;
+      if (attempts < 30) {
+        setTimeout(tryScroll, 100);
+      }
+    }
+    tryScroll();
+  }
+
   function closeItemDetail() {
     backlogSection.selectedItemId = null;
     backlogSection.itemDetail = null;
     backlogSection.itemDetailError = null;
     backlogSection.launchError = null;
     backlogSection.launchResult = null;
-    backlogSection.usJobs = null;
-    backlogSection.usJobsError = null;
     backlogSection.manualJobAgents = null;
     backlogSection.manualJobError = null;
     backlogSection.manualJobResult = null;
@@ -5073,7 +5238,6 @@
         renderBacklogBody();
         if (detail.kind === "US") {
           refreshDeveloperAgents();
-          loadJobsForUS(itemId);
         }
       })
       .catch(function (error) {
@@ -5262,6 +5426,10 @@
         tasks.forEach(function (task) {
           var taskSelected = backlogSection.selectedNestedTaskId === task.id;
           var taskCard = h("div", "job-card" + (taskSelected ? " job-card-selected" : ""));
+          // T-FB036-US01-10: id de anclaje para el scroll del panel
+          // "Próximo foco" a una Task concreta — mismo patrón que
+          // `itemCard.id = "backlog-us-" + userStory.id` para User Story.
+          taskCard.id = "backlog-task-" + task.id;
           var taskLine = h("div", "job-line" + (taskSelected ? " job-line-selected" : ""));
           taskLine.appendChild(h("span", null, task.id + " — " + task.state));
           // T-FB036-US08-01: mismos controles en línea que la fila de
@@ -5296,9 +5464,6 @@
       // visual que el resto de colapsables de esta pantalla (panel "Próximo
       // foco"/"Cola de despacho").
       box.appendChild(renderAdvancedOptionsCollapsible(detail.id));
-
-      // T-FB024-US09-02: historial de ejecuciones de esta US.
-      box.appendChild(renderUSJobHistory());
     } else {
       // Task individual: botón "Marcar para desarrollo" (si TODO y no
       // encolada) / "Quitar de la cola" (si ya encolada) — criterio de
@@ -5466,25 +5631,6 @@
       return dep.state !== "DONE";
     });
   }
-
-  // T-FB024-US09-02: carga los Jobs del histórico de la sesión y filtra
-  // los que conciernen a esta US (la descripción contiene el US id).
-  function loadJobsForUS(usId) {
-    backlogSection.usJobs = null;
-    backlogSection.usJobsError = null;
-    BackendClient.getJobs()
-      .then(function (jobs) {
-        backlogSection.usJobs = (jobs || []).filter(function (job) {
-          return String(job.description || "").indexOf(usId) >= 0;
-        });
-        if (state.section === "backlog") renderBacklogBody();
-      })
-      .catch(function (error) {
-        backlogSection.usJobsError = buildErrorMessage(error);
-        if (state.section === "backlog") renderBacklogBody();
-      });
-  }
-
   // T-FB024-US09-03: carga los agentes activos (sin stopped) de la sesion
   // para el formulario manual de Job.
   function loadManualJobAgents() {
@@ -5591,37 +5737,6 @@
     }
     return form;
   }
-
-  // T-FB024-US09-02: historial de ejecuciones de la US expandida.
-  function renderUSJobHistory() {
-    var box = h("div", "job-detail");
-    box.appendChild(h("div", "job-detail-label", "Historial de ejecuciones"));
-
-    if (backlogSection.usJobsError) {
-      box.appendChild(h("p", "agent-error", backlogSection.usJobsError));
-      return box;
-    }
-    var jobs = backlogSection.usJobs;
-    if (jobs === null) {
-      box.appendChild(h("p", "section-note", "Cargando…"));
-      return box;
-    }
-    if (jobs.length === 0) {
-      box.appendChild(h("p", "section-note", "Sin ejecuciones registradas."));
-      return box;
-    }
-
-    jobs.forEach(function (job) {
-      var statusColor = job.status === "completed" ? "ok" : job.status === "failed" || job.status === "cancelled" ? "ko" : "run";
-      var line = h("div", "job-line job-status-" + statusColor, "[" + job.status + "] " + (job.agent_id || "") + " — " + String(job.description || "").split("\n")[0].slice(0, 80));
-      box.appendChild(line);
-      if (job.result) {
-        box.appendChild(h("div", "job-result", String(job.result).slice(0, 500)));
-      }
-    });
-    return box;
-  }
-
   // T-FB024-US09-03: formulario manual de creacion de Job como accion
   // secundaria en el detalle de la US.
   function renderManualJobForm(usId) {
@@ -5772,9 +5887,6 @@
         backlogSection.manualJobResult = job;
         backlogSection.manualJobDescription = "";
         renderBacklogBody();
-        // Recargar el historial de jobs para la US.
-        var usId = backlogSection.selectedItemId;
-        if (usId) loadJobsForUS(usId);
       })
       .catch(function (error) {
         backlogSection.creatingManualJob = false;
