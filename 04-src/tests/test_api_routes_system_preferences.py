@@ -9,7 +9,11 @@ from fastapi.testclient import TestClient
 
 import brain.api.routes as routes_module
 from brain.api import create_app
-from brain.system_preferences import DEFAULT_MAX_SIMULTANEOUS_DEVELOPERS
+from brain.system_preferences import (
+    DEFAULT_MAX_SIMULTANEOUS_DEVELOPERS,
+    DEFAULT_DIFFICULTY_MODEL_MAP,
+    DEFAULT_TUI_ENABLED,
+)
 
 
 @pytest.fixture
@@ -23,7 +27,11 @@ def test_get_system_preferences_returns_default_without_saved_file(isolated_stat
     client = TestClient(create_app())
     response = client.get("/system/preferences")
     assert response.status_code == 200
-    assert response.json() == {"max_simultaneous_developers": DEFAULT_MAX_SIMULTANEOUS_DEVELOPERS}
+    assert response.json() == {
+        "max_simultaneous_developers": DEFAULT_MAX_SIMULTANEOUS_DEVELOPERS,
+        "difficulty_model_map": DEFAULT_DIFFICULTY_MODEL_MAP,
+        "tui_enabled": DEFAULT_TUI_ENABLED,
+    }
 
 
 def test_put_system_preferences_persists_and_survives_reload(isolated_state_dir) -> None:
@@ -56,3 +64,22 @@ def test_put_system_preferences_rejects_non_numeric_value(isolated_state_dir) ->
     response = client.put("/system/preferences", json={"max_simultaneous_developers": "muchos"})
 
     assert response.status_code == 422  # validación de tipo de Pydantic/FastAPI
+
+
+def test_put_system_preferences_persists_tui_enabled(isolated_state_dir) -> None:
+    client = TestClient(create_app())
+
+    put_response = client.put("/system/preferences", json={"tui_enabled": True})
+    assert put_response.status_code == 200
+    assert put_response.json()["tui_enabled"] is True
+
+    get_response = client.get("/system/preferences")
+    assert get_response.status_code == 200
+    assert get_response.json()["tui_enabled"] is True
+
+    put_response_false = client.put("/system/preferences", json={"tui_enabled": False})
+    assert put_response_false.status_code == 200
+    assert put_response_false.json()["tui_enabled"] is False
+
+    get_response_after = client.get("/system/preferences")
+    assert get_response_after.json()["tui_enabled"] is False
