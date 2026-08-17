@@ -185,7 +185,11 @@ def _dispatch_agent_action(
 
     dispatch_job(job, agent, runtime_instance, socket_name=socket_name)
 
-    _persist_action_report(action_id, job)
+    # T-FB025-US08-02: auditar-oss produce 5 ficheros, no 1
+    if action_id == ActionType.AUDITAR_OSS:
+        _persist_auditor_oss_reports(job)
+    else:
+        _persist_action_report(action_id, job)
 
     return job
 
@@ -566,6 +570,68 @@ def _persist_index_action_report(
     )
     report_path.write_text(report, encoding="utf-8")
     return report_path
+
+
+def _persist_auditor_oss_reports(job: Job) -> None:
+    """Persiste los 5 ficheros de salida del Auditor-OSS en
+    `07-informes/US-FB025-08/<timestamp>/`, sin sobrescribir ejecuciones
+    anteriores (T-FB025-US08-02).
+
+    Los 5 ficheros esperados son:
+    - OPEN_SOURCE_REVIEW.md
+    - GITHUB_IMPROVEMENTS.md
+    - REPOSITORY_SCORE.md
+    - FIRST_IMPRESSION.md
+    - TOP_100_IMPROVEMENTS.md
+
+    El Job.result contiene la salida del agente. Se espera que incluya
+    estos 5 ficheros (separados por un marcador o como secciones con
+    encabezado '# FILENAME.md')."""
+    story_id = "US-FB025-08"
+    root = _default_reports_root()
+    story_dir = root / story_id
+    story_dir.mkdir(parents=True, exist_ok=True)
+
+    # Crear directorio timestamped para esta ejecución
+    ts = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H%M%S")
+    exec_dir = story_dir / ts
+    exec_dir.mkdir(parents=True, exist_ok=True)
+
+    # Ficheros esperados (en orden alfabético para consistencia)
+    expected_files = [
+        "FIRST_IMPRESSION.md",
+        "GITHUB_IMPROVEMENTS.md",
+        "OPEN_SOURCE_REVIEW.md",
+        "REPOSITORY_SCORE.md",
+        "TOP_100_IMPROVEMENTS.md",
+    ]
+
+    result_text = job.result or ""
+
+    # Parser simple: buscar cada fichero como una sección marcada con
+    # "# FILENAME.md" y extraer contenido hasta el siguiente fichero o fin
+    for filename in expected_files:
+        marker = f"# {filename}\n"
+        if marker in result_text:
+            # Extraer contenido entre este marcador y el siguiente fichero
+            start = result_text.index(marker) + len(marker)
+            # Buscar el siguiente marcador de fichero
+            remaining = result_text[start:]
+            next_marker_pos = None
+            for other_filename in expected_files:
+                if other_filename != filename:
+                    other_marker = f"# {other_filename}\n"
+                    if other_marker in remaining:
+                        pos = remaining.index(other_marker)
+                        if next_marker_pos is None or pos < next_marker_pos:
+                            next_marker_pos = pos
+            if next_marker_pos is not None:
+                content = remaining[:next_marker_pos]
+            else:
+                content = remaining
+            # Escribir fichero, removiendo trailing whitespace
+            file_path = exec_dir / filename
+            file_path.write_text(content.rstrip() + "\n", encoding="utf-8")
 
 
 class _FakeProject:
