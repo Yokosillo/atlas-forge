@@ -53,6 +53,7 @@ class BacklogItem:
     state: str
     dependencies: tuple[str, ...]
     priority: str | None
+    difficulty: str | None
     fase: str | None
     path: Path
     user_story: str | None = None

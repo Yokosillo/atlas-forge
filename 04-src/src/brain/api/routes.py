@@ -20,6 +20,17 @@ from brain.agents.stop import AgentRuntimeNotFoundError, stop_agent
 from brain.api.events import jobs_hub, plans_hub
 from brain.api.plan_registry import get_plan, get_plan_lock, list_plans, register_plan
 from brain.backlog.detail import build_epic_detail, build_item_detail, is_epic_item_id
+from brain.backlog.create import (
+    BacklogValidationError as CreateBacklogValidationError,
+    EpicAlreadyExistsError,
+    EpicNotFoundError,
+    InvalidEpicIdError,
+    InvalidPriorityError as CreateInvalidPriorityError,
+    InvalidUserStoryIdError,
+    UserStoryAlreadyExistsError,
+    create_epic,
+    create_user_story,
+)
 from brain.backlog.edit import (
     BacklogValidationError,
     InvalidFieldValueError,
@@ -198,6 +209,31 @@ class CreateJobRequest(BaseModel):
     # para el flujo de Plan (ver `post_jobs`). Sin él, comportamiento
     # idéntico al actual.
     story_id: str | None = None
+
+
+class CreateEpicRequest(BaseModel):
+    # T-FB036-US02-01: campos sueltos del formulario "+ Nueva Epic"
+    # (T-FB036-US02-04, todavía sin implementar) — `id` se valida en
+    # servidor contra `EPIC_ID_PATTERN` (`brain.backlog.create`), nunca
+    # solo en cliente.
+    id: str
+    title: str
+    objetivo: str
+    fase: str | None = None
+
+
+class CreateUserStoryRequest(BaseModel):
+    # T-FB036-US02-02: campos sueltos del formulario "+ Nueva User Story"
+    # (T-FB036-US02-05, todavía sin implementar) — deliberadamente SIN
+    # campo `epic_id`: la Epic padre viene siempre de la URL
+    # (`POST /backlog/epic/{epic_id}/us`), nunca de un valor que el
+    # cliente pudiera enviar en el body (criterio de aceptación explícito
+    # de la Task).
+    id: str
+    title: str
+    objetivo: str
+    criterios_aceptacion: str
+    priority: str | None = None
 
 
 class LaunchDevelopmentRequest(BaseModel):
@@ -1596,6 +1632,94 @@ def put_backlog_item_state(item_id: str, body: dict) -> dict:
         promoted_epics = promotion.promoted_epics
 
     return {"item_id": item_id, "state": new_state, "promoted_epics": promoted_epics}
+
+
+@router.post("/backlog/epic", status_code=201)
+def post_backlog_epic(body: CreateEpicRequest) -> dict:
+    """Crea una Epic nueva desde cero (T-FB036-US02-01, US-FB036-02):
+    escribe `02-backlog/epics/{id}-{slug(title)}.md` a partir de campos
+    sueltos, pasando por el mismo validador determinista que usa el
+    Arquitecto (`brain.backlog.create.create_epic`) antes de persistir —
+    precondición de backend para el formulario "+ Nueva Epic"
+    (`T-FB036-US02-04`, todavía sin implementar).
+
+    Declarada ANTES de `GET /backlog/{item_id}` a propósito (mismo
+    criterio que `POST /backlog/{task_id}/enqueue`/`PUT /backlog/{item_id}/priority`
+    más arriba): `epic` como segmento fijo tras `/backlog/`, nunca
+    capturado por la ruta con `{item_id}` variable.
+
+    400 si `id` no tiene formato `FB-\\d{3,}` (validado en servidor,
+    nunca solo en cliente — criterio de aceptación explícito) o si el
+    contenido generado no pasa el validador determinista (`detail`
+    verbatim). 409 si ya existe un fichero `{id}*.md` en `epics/` — no
+    sobreescribe. 201 con `{id, title, path}` del fichero creado, para
+    que el frontend pueda expandir la Epic recién creada sin un fetch
+    adicional."""
+    project = _active_project_or_404()
+    backlog_path = Path(project.path) / "02-backlog"
+
+    try:
+        path = create_epic(backlog_path, body.id, body.title, body.objetivo, body.fase)
+    except InvalidEpicIdError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+    except EpicAlreadyExistsError as error:
+        raise HTTPException(status_code=409, detail=str(error)) from error
+    except CreateBacklogValidationError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+
+    return {"id": body.id, "title": body.title, "path": str(path)}
+
+
+@router.post("/backlog/epic/{epic_id}/us", status_code=201)
+def post_backlog_epic_user_story(epic_id: str, body: CreateUserStoryRequest) -> dict:
+    """Crea una User Story nueva dentro de la Epic `epic_id`
+    (T-FB036-US02-02, US-FB036-02): escribe
+    `02-backlog/user-stories/{id}-{slug(title)}.md` a partir de campos
+    sueltos, pasando por el mismo validador determinista que usa el
+    Arquitecto (`brain.backlog.create.create_user_story`) antes de
+    persistir — precondición de backend para el formulario "+ Nueva User
+    Story" (`T-FB036-US02-05`, todavía sin implementar).
+
+    `epic_id` viene SIEMPRE de la URL, nunca de un campo del body — no
+    existe ningún `epic_id` en `CreateUserStoryRequest` (criterio de
+    aceptación explícito: "el `epic_id` del fichero creado coincide
+    siempre con el de la URL, nunca con un valor distinto que el cliente
+    pudiera enviar en el body").
+
+    404 si `epic_id` no tiene ningún fichero de Epic real en `epics/`
+    (mismo criterio de glob y mismo mensaje que ya usa
+    `POST /backlog/epic/{epic_id}/propose-stories` más abajo — no tiene
+    sentido crear una US bajo una Epic inexistente). 400 si `id` no tiene
+    formato `US-FBNNN-nn`, si `priority` no pertenece al conjunto cerrado
+    (ni es `null`), o si el contenido generado no pasa el validador
+    determinista (`detail` verbatim en los tres casos). 409 si ya existe
+    un fichero `{id}*.md` en `user-stories/` — no sobreescribe. 201 con
+    `{id, title, epic_id, path}` del fichero creado."""
+    project = _active_project_or_404()
+    backlog_path = Path(project.path) / "02-backlog"
+
+    try:
+        path = create_user_story(
+            backlog_path,
+            epic_id,
+            body.id,
+            body.title,
+            body.objetivo,
+            body.criterios_aceptacion,
+            body.priority,
+        )
+    except EpicNotFoundError as error:
+        raise HTTPException(status_code=404, detail=str(error)) from error
+    except InvalidUserStoryIdError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+    except CreateInvalidPriorityError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+    except UserStoryAlreadyExistsError as error:
+        raise HTTPException(status_code=409, detail=str(error)) from error
+    except CreateBacklogValidationError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+
+    return {"id": body.id, "title": body.title, "epic_id": epic_id, "path": str(path)}
 
 
 @router.get("/backlog/{item_id}")

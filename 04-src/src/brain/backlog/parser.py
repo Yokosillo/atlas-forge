@@ -205,6 +205,7 @@ def _parse_legacy_format(text: str, path: Path, item_id: str) -> BacklogItem:
         state=state,
         dependencies=dependencies,
         priority=priority,
+        difficulty=None,
         fase=fase,
         path=path,
     )
@@ -254,6 +255,10 @@ def parse_backlog_item(path: Path) -> BacklogItem:
         if priority is not None and not isinstance(priority, str):
             priority = None
 
+        difficulty = data.get("difficulty")
+        if difficulty is not None and not isinstance(difficulty, str):
+            difficulty = None
+
         fase = data.get("fase")
         if fase is not None and not isinstance(fase, str):
             fase = None
@@ -264,7 +269,7 @@ def parse_backlog_item(path: Path) -> BacklogItem:
 
         return BacklogItem(id=item_id, kind=_item_kind(item_id), epic=epic,
                            state=state, dependencies=dependencies,
-                           priority=priority, fase=fase, path=path,
+                           priority=priority, difficulty=difficulty, fase=fase, path=path,
                            user_story=user_story)
 
     return _parse_legacy_format(text, path, item_id)

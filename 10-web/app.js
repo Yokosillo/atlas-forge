@@ -516,6 +516,12 @@
     dispatchQueue: null,
     dispatchQueueError: null,
     dispatchQueueCollapsed: false,
+    // T-FB036-US07-01: desplegable "Opciones avanzadas" del detalle de una
+    // US (Lanzar desarrollo + Crear Job manual) — colapsado por defecto.
+    // No persiste entre distintos items: se resetea a `true` al expandir
+    // cualquier detalle nuevo (toggleItemDetail/toggleNestedTaskDetail),
+    // "menos ruido por defecto" para cada detalle.
+    advancedOptionsCollapsed: true,
     // T-FB008-US10-03: detalle de una Task individual expandida DENTRO
     // del detalle de su propia User Story — slot de estado SEPARADO de
     // `selectedItemId`/`itemDetail` (el de la propia US): antes de esta
@@ -4740,6 +4746,10 @@
     backlogSection.itemDetailError = null;
     backlogSection.launchError = null;
     backlogSection.launchResult = null;
+    // T-FB036-US07-01: cada detalle nuevo empieza con "Opciones avanzadas"
+    // colapsado — no se arrastra el estado abierto/cerrado de la US/Task
+    // anterior.
+    backlogSection.advancedOptionsCollapsed = true;
     // T-FB024-US15-02: reinicia el selector de Story del formulario de Job
     // manual al abrir cualquier detalle nuevo — se recalcula abajo si la
     // Story recién abierta está en TODO.
@@ -4793,6 +4803,9 @@
     backlogSection.nestedTaskDetail = null;
     backlogSection.nestedTaskDetailError = null;
     backlogSection.enqueueTaskError = null;
+    // T-FB036-US07-01: mismo criterio que `toggleItemDetail` — cada detalle
+    // nuevo (aquí, una Task anidada) empieza con el desplegable colapsado.
+    backlogSection.advancedOptionsCollapsed = true;
     renderBacklogBody();
 
     BackendClient.getBacklogItem(taskId)
@@ -4844,6 +4857,39 @@
   // objetivo, criterios de aceptación, y — solo para una User Story — la
   // lista de sus Tasks con estado + el formulario "Lanzar desarrollo"
   // (criterio de aceptación 4).
+  // T-FB036-US07-01: desplegable "Opciones avanzadas" del detalle de una
+  // User Story — agrupa "Lanzar desarrollo" (Job directo) y "Crear Job
+  // manual" (genérico), que pasan a ser acciones secundarias tras la
+  // consolidación que deja "Marcar para desarrollo" como acción principal.
+  // Colapsado por defecto (`advancedOptionsCollapsed`), mismo patrón visual
+  // que los otros colapsables de esta pantalla (panel "Próximo foco"/"Cola
+  // de despacho": `.backlog-focus-panel`/`-header`/`-title`/`-toggle`).
+  // El estado abierto/cerrado NO persiste entre distintas Tasks/US: cada
+  // detalle nuevo lo reinicia a colapsado (ver `toggleItemDetail`/
+  // `toggleNestedTaskDetail`), criterio 4 de la Task.
+  function renderAdvancedOptionsCollapsible(storyId) {
+    var panel = h("div", "backlog-focus-panel");
+    var header = h("div", "backlog-focus-header");
+    header.appendChild(h("span", "backlog-focus-title", "Opciones avanzadas"));
+    var toggleBtn = button(
+      backlogSection.advancedOptionsCollapsed ? "Mostrar" : "Ocultar",
+      "backlog-focus-toggle"
+    );
+    toggleBtn.addEventListener("click", function () {
+      backlogSection.advancedOptionsCollapsed = !backlogSection.advancedOptionsCollapsed;
+      renderBacklogBody();
+    });
+    header.appendChild(toggleBtn);
+    panel.appendChild(header);
+
+    if (!backlogSection.advancedOptionsCollapsed) {
+      panel.appendChild(renderLaunchDevelopmentForm(storyId));
+      panel.appendChild(renderManualJobForm(storyId));
+    }
+
+    return panel;
+  }
+
   function renderItemDetail() {
     var box = h("div", "job-detail");
     if (backlogSection.itemDetailError) {
@@ -4931,20 +4977,20 @@
           box.appendChild(taskCard);
         });
       }
-      box.appendChild(renderLaunchDevelopmentForm(detail.id));
+      // T-FB036-US07-01: "Marcar para desarrollo" es la acción PRINCIPAL
+      // del detalle — se pinta primero y siempre visible (criterio de
+      // aceptación 1), sin necesidad de desplegar nada.
+      box.appendChild(renderEnqueueAllControls(detail.id));
+
+      // T-FB036-US07-01: "Lanzar desarrollo" y "Crear Job manual" quedan
+      // agrupados bajo "Opciones avanzadas", colapsado por defecto — siguen
+      // accesibles con un clic (criterio de aceptación 2), mismo patrón
+      // visual que el resto de colapsables de esta pantalla (panel "Próximo
+      // foco"/"Cola de despacho").
+      box.appendChild(renderAdvancedOptionsCollapsible(detail.id));
 
       // T-FB024-US09-02: historial de ejecuciones de esta US.
       box.appendChild(renderUSJobHistory());
-
-      // T-FB024-US09-03: formulario manual de creacion de Job.
-      box.appendChild(renderManualJobForm(detail.id));
-
-      // T-FB008-US10-03, criterio de aceptación 2 (US-FB008-10): marcar
-      // TODA la Story para desarrollo de una sola llamada — camino
-      // alternativo al flujo de Plan/aprobación, sin requerir elegir un
-      // agente concreto (el Dispatcher de fondo, T-FB008-US10-02, ya
-      // decide a qué Developer libre asignar cada Task encolada).
-      box.appendChild(renderEnqueueAllControls(detail.id));
     } else {
       // Task individual: botón "Marcar para desarrollo" (si TODO y no
       // encolada) / "Quitar de la cola" (si ya encolada) — criterio de

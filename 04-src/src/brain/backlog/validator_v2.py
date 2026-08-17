@@ -40,6 +40,7 @@ class ValidationResultV2:
 _VALID_STATES = {"TODO", "IN_PROGRESS", "REVIEW", "DONE", "POSTERGADA"}
 _VALID_TYPES = {"epic", "user_story", "task"}
 _VALID_PRIORITIES = {"Crítica", "Alta", "Media", "Baja"}
+_VALID_DIFFICULTIES = {"Crítica", "Alta", "Media", "Baja"}
 
 _ID_PATTERN = re.compile(
     r"^(FB-\d{3,}|US-FB\d{3,}-\d{2}[A-Z]?|T-FB\d{3,}(?:-US\d{2}[A-Z]?)?-\d{2}[A-Z]?)$"
@@ -193,6 +194,27 @@ def _validate_priority(data: dict, file_type: str) -> list[ValidationErrorV2]:
     return errors
 
 
+def _validate_difficulty(data: dict, file_type: str) -> list[ValidationErrorV2]:
+    errors: list[ValidationErrorV2] = []
+    if file_type != "task":
+        return errors
+
+    difficulty = data.get("difficulty")
+    if difficulty is None:
+        return errors
+    if not isinstance(difficulty, str):
+        errors.append(ValidationErrorV2(
+            0,
+            f"campo 'difficulty' debe ser string o null, no {type(difficulty).__name__}"
+        ))
+    elif difficulty not in _VALID_DIFFICULTIES:
+        errors.append(ValidationErrorV2(
+            0,
+            f"campo 'difficulty' '{difficulty}' no valido — debe ser: {', '.join(sorted(_VALID_DIFFICULTIES))}"
+        ))
+    return errors
+
+
 def _validate_epic(data: dict, file_type: str) -> list[ValidationErrorV2]:
     errors: list[ValidationErrorV2] = []
     if file_type not in ("user_story", "task"):
@@ -285,6 +307,7 @@ def validate_backlog_content_v2(content: str, filename: str = "") -> ValidationR
     errors.extend(_validate_state(data))
     errors.extend(_validate_dependencies(data))
     errors.extend(_validate_priority(data, resolved_type))
+    errors.extend(_validate_difficulty(data, resolved_type))
     errors.extend(_validate_epic(data, resolved_type))
     errors.extend(_validate_user_story(data, resolved_type))
 
