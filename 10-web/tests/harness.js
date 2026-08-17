@@ -21,6 +21,15 @@
  *     });
  *   });
  *
+ * El callback también recibe `projectPath`: ruta real en disco del
+ * proyecto activo sembrado por el backend aislado (segundo token de la
+ * línea `READY <base_url> <project_path>`, ver
+ * `run_isolated_test_backend.py`). Solo hace falta cuando el escenario
+ * necesita un estado que ningún endpoint HTTP permite crear hoy — p. ej.
+ * `dependencies` en una User Story, campo que `CreateUserStoryRequest`
+ * no acepta (T-FB036-US01-10) — y el test escribe el frontmatter
+ * directamente con `fs`, en vez de mockear nada del backend real.
+ *
  * `withBackend` se encarga de: arrancar el backend aislado (subproceso
  * Python, `scripts/run_isolated_test_backend.py`), lanzar Chromium
  * headless, crear una página nueva, ejecutar el callback, y cerrar todo
@@ -98,13 +107,15 @@ function launchBackend(options) {
       stdoutBuffer += chunk.toString("utf-8");
       if (settled) return;
 
-      const readyMatch = stdoutBuffer.match(/READY (\S+)/);
+      const readyMatch = stdoutBuffer.match(/READY (\S+)(?: (\S+))?/);
       if (readyMatch) {
         settled = true;
         clearTimeout(timeout);
         const baseUrl = readyMatch[1];
+        const projectPath = readyMatch[2] || null;
         resolve({
           baseUrl,
+          projectPath,
           stop: () =>
             new Promise((resolveStop) => {
               child.once("exit", () => resolveStop());
@@ -177,7 +188,7 @@ async function withBackend(callback, options) {
 
   try {
     const page = await browser.newPage();
-    await callback({ page, baseUrl: backend.baseUrl, browser });
+    await callback({ page, baseUrl: backend.baseUrl, browser, projectPath: backend.projectPath });
   } finally {
     await browser.close();
     await backend.stop();

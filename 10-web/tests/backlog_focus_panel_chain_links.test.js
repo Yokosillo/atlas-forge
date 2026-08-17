@@ -6,18 +6,80 @@
  * un id concreto de la cadena en vez de "el primero bloqueado".
  *
  * Backlog sintético con una cadena real MIXTA (Task -> User Story), sin
- * forzar el cálculo: una Task raíz sin dependencias y una User Story
- * que depende de ella — `find_max_leverage_chain` (backend real) produce
- * la cadena de forma natural. Ningún endpoint se mockea. */
+ * forzar el cálculo de `find_max_leverage_chain`: una Task raíz sin
+ * dependencias y una User Story que depende de ella. La US se crea vía
+ * HTTP (`POST /backlog/epic/{epic}/us`) y luego su frontmatter se
+ * reescribe con `fs` para fijar `dependencies: [T-FB940-US01-01]` —
+ * `CreateUserStoryRequest` no tiene ese campo (a diferencia del de
+ * Task), así que no hay ningún endpoint que lo permita hoy; escribir el
+ * fichero directamente es la única vía sin mockear el backend ni ampliar
+ * su superficie HTTP solo para un test (fuera del alcance de esta
+ * Task). */
 
 "use strict";
 
 const assert = require("assert");
+const fs = require("fs");
+const path = require("path");
 const { withBackend, waitVisible } = require("./harness");
 
 async function test_chain_links_are_clickable_and_navigate_to_task_and_us() {
-  await withBackend(async ({ page, baseUrl }) => {
+  await withBackend(async ({ page, baseUrl, projectPath }) => {
+    assert.ok(projectPath, "El backend aislado debe exponer la ruta real del proyecto activo.");
+
     await page.goto(baseUrl + "/ui/");
+
+    // Siembra del backlog real vía los endpoints ya cerrados
+    // (T-FB036-US02-01/02/03): Epic -> Task raíz (sin dependencias) ->
+    // User Story (sin dependencias todavía, el endpoint no lo permite).
+    await page.evaluate(async () => {
+      await fetch("/backlog/epic", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: "FB-940", title: "Epic de la cadena", objetivo: "Objetivo." }),
+      });
+      await fetch("/backlog/epic/FB-940/us", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          id: "US-FB940-01", title: "US raiz", objetivo: "H.", criterios_aceptacion: "C.",
+        }),
+      });
+      await fetch("/backlog/us/US-FB940-01/task", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          id: "T-FB940-US01-01", title: "Task raiz", objetivo: "O.", descripcion: "D.",
+          criterios_aceptacion: "C.",
+        }),
+      });
+      await fetch("/backlog/epic/FB-940/us", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          id: "US-FB940-02", title: "US bloqueada", objetivo: "H2.", criterios_aceptacion: "C2.",
+        }),
+      });
+    });
+
+    // La US ya existe en disco (creada vía HTTP arriba) — se reescribe su
+    // frontmatter para añadir la dependencia real hacia la Task raíz,
+    // produciendo así la cadena mixta Task -> US de forma que
+    // `find_max_leverage_chain` (backend real, sin tocar) la calcule de
+    // forma natural en la siguiente petición.
+    // El fichero real es `{us_id}-{slug(title)}.md` (ver `create_user_story`
+    // en `04-src/src/brain/backlog/create.py`), no `US-FB940-02.md` a
+    // secas — se localiza por glob del prefijo, mismo criterio que usa
+    // `_find_existing` en el propio backend.
+    const storiesDir = path.join(projectPath, "02-backlog", "user-stories");
+    const usFilename = fs.readdirSync(storiesDir).find((name) => name.startsWith("US-FB940-02"));
+    assert.ok(usFilename, `No se encontró el fichero de US-FB940-02 en ${storiesDir}`);
+    const usPath = path.join(storiesDir, usFilename);
+    const original = fs.readFileSync(usPath, "utf-8");
+    assert.ok(original.includes("dependencies: []"), `Frontmatter inesperado, no se encontró 'dependencies: []': ${original}`);
+    fs.writeFileSync(usPath, original.replace("dependencies: []", "dependencies: [T-FB940-US01-01]"));
+
+    await page.reload();
     await waitVisible(page, ".section-tab");
 
     const tabs = await page.$$(".section-tab");

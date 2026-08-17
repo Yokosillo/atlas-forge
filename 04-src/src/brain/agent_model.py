@@ -57,6 +57,12 @@ from pathlib import Path
 from brain.runtime.agent_runtime_registry import (
     get_runtime_instance_for_agent,
 )
+from brain.runtime_model_contract import (
+    RuntimeType,
+    runtime_model_change_idle_only,
+    runtime_supports_model_change,
+    runtime_supports_model_read,
+)
 from brain.tmux import (
     DEFAULT_SOCKET_NAME,
     capture_pane_lines,
@@ -129,11 +135,12 @@ def resolve_runtime_for_model(
 def get_active_model(
     agent_id: str, *, socket_name: str | None = None
 ) -> str | None:
-    """Lee el modelo activo desde la barra de estado de OpenCode.
+    """Lee el modelo activo desde la barra de estado de OpenCode (lectura pasiva).
 
-    Devuelve el texto extraido tras `"Build · "` (nombre del modelo +
-    proveedor), o `None` si:
-    - El runtime no es OpenCode.
+    Usa contrato de capacidades (T-FB005-US07-01) para verificar que el
+    runtime soporta lectura pasiva de modelo. Devuelve el texto extraido
+    tras `"Build · "` (nombre del modelo + proveedor), o `None` si:
+    - El runtime no soporta lectura pasiva de modelo (contrato).
     - El agente no tiene runtime registrado.
     - La sesion tmux no esta viva.
     - El patron `"Build · "` no aparece en el pane.
@@ -143,7 +150,10 @@ def get_active_model(
     rt = get_runtime_instance_for_agent(agent_id)
     if rt is None:
         return None
-    if rt.runtime.type != "opencode":
+
+    # Usar contrato de capacidades en lugar de comprobación ad-hoc de "opencode"
+    runtime_type = RuntimeType(rt.runtime.type)
+    if not runtime_supports_model_read(runtime_type):
         return None
 
     session_name = rt.session_name
@@ -258,7 +268,10 @@ def set_active_model(
     *,
     socket_name: str | None = None,
 ) -> bool:
-    """Cambia el modelo activo de un agente OpenCode en ejecucion.
+    """Cambia el modelo activo de un agente en ejecucion.
+
+    Usa contrato de capacidades (T-FB005-US07-01) para verificar que el
+    runtime soporta cambio de modelo. Por ahora solo OpenCode lo soporta.
 
     Flujo real confirmado por el usuario:
     1. Ctrl+P → abre el selector de comandos de OpenCode.
@@ -270,10 +283,17 @@ def set_active_model(
     Cada paso se verifica (captura del pane antes y despues). Si algun
     paso falla, se devuelve `False` sin lanzar excepcion.
 
-    El agente debe estar en ejecucion (sesion tmux viva) y ser OpenCode.
-    No modifica el estado del agente (sigue `idle`/`working`)."""
+    El agente debe estar en ejecucion (sesion tmux viva) y su runtime
+    debe soportar cambio de modelo. No modifica el estado del agente
+    (sigue `idle`/`working` — aunque T-FB024-US11-11 restringe esto a
+    estado idle por seguridad)."""
     rt = get_runtime_instance_for_agent(agent_id)
-    if rt is None or rt.runtime.type != "opencode":
+    if rt is None:
+        return False
+
+    # Usar contrato de capacidades en lugar de comprobación ad-hoc
+    runtime_type = RuntimeType(rt.runtime.type)
+    if not runtime_supports_model_change(runtime_type):
         return False
 
     session_name = rt.session_name

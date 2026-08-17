@@ -134,7 +134,16 @@ def main() -> None:
                         socket_name=isolated_socket,
                     )
 
-            print(f"READY {base_url}", flush=True)
+            # Segundo token opcional en la misma línea `READY`: ruta real
+            # del proyecto activo en disco. `harness.js` ya captura solo
+            # el primer token con `/READY (\S+)/`, así que añadir este
+            # segundo campo no rompe ningún test existente — los tests
+            # que lo necesiten (p. ej. T-FB036-US01-10, escribir el
+            # frontmatter de una User Story con `dependencies` reales,
+            # campo que ningún endpoint HTTP acepta hoy) pueden leerlo;
+            # el resto lo ignora igual que ignoraba cualquier resto de
+            # línea antes de este cambio.
+            print(f"READY {base_url} {project_path}", flush=True)
             # Espera hasta señal de cierre O a que el llamador cierre su
             # extremo de stdin (EOF) — cualquiera de los dos dispara el
             # cierre limpio del `with` (apaga uvicorn, mata el socket

@@ -4990,11 +4990,12 @@
     if (backlogSection.proposeStoriesResult) {
       var storiesResult = backlogSection.proposeStoriesResult;
       var storyIds = (storiesResult.stories || []).map(function (s) { return s.id; }).join(", ");
+      var storyWord = storiesResult.num_stories === 1 ? "User Story" : "User Stories";
       proposeStoriesWrap.appendChild(
         h(
           "p",
           "job-hint",
-          storiesResult.num_stories + " User Story" + (storiesResult.num_stories === 1 ? "" : "s") +
+          storiesResult.num_stories + " " + storyWord +
           " propuesta" + (storiesResult.num_stories === 1 ? "" : "s") +
           (storyIds ? ": " + storyIds : "") +
           " — el listado se ha refrescado."
