@@ -45,6 +45,7 @@ from fastapi.staticfiles import StaticFiles
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from brain.api import routes as routes_module
+from brain.api.cache_bust import get_cache_bust_version
 from brain.api.events import jobs_hub, plans_hub, register_event_loops
 from brain.api.routes import router
 from brain.core.reconciliation_log import append_reconciliation_log
@@ -282,7 +283,20 @@ def create_app() -> FastAPI:
     class _SPAStaticFiles(StaticFiles):
         async def get_response(self, path, scope):
             try:
-                return await super().get_response(path, scope)
+                response = await super().get_response(path, scope)
+                # T-FB021-US01-03: inyectar cache-bust version en HTML servido
+                if path in ("index.html", "agent-pane.html"):
+                    # Lee el fichero y reemplaza el placeholder
+                    file_path = self.directory / path
+                    if file_path.is_file():
+                        from fastapi.responses import HTMLResponse
+                        body = file_path.read_bytes()
+                        cache_version = get_cache_bust_version(WEB_ROOT)
+                        body = body.replace(
+                            b"{{CACHE_BUST_VERSION}}", cache_version.encode("utf-8")
+                        )
+                        return HTMLResponse(content=body)
+                return response
             except StarletteHTTPException as exc:
                 if exc.status_code == 404:
                     return await super().get_response("index.html", scope)

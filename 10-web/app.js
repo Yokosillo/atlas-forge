@@ -2829,7 +2829,10 @@
     } else {
       approveLabel = "Aprobar plan completo";
     }
-    var approveBtn = button(approveLabel, "plan-approve");
+    var approveBtn = button(
+      approveLabel,
+      "plan-approve" + (plansSection.approvePending ? " plan-approve-pending" : "")
+    );
     if (plansSection.approving) approveBtn.disabled = true;
     approveBtn.addEventListener("click", requestApprove);
     actions.appendChild(approveBtn);

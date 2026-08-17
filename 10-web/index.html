@@ -4,7 +4,7 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Factory Brain</title>
-  <link rel="stylesheet" href="/ui/style.css?v=20260809a" />
+  <link rel="stylesheet" href="/ui/style.css?v={{CACHE_BUST_VERSION}}" />
 </head>
 <body>
   <header class="topbar">
@@ -21,10 +21,10 @@
        `/ui/`. Una ruta relativa resolvería distinto según cuántos
        segmentos tenga la URL activa; una ruta absoluta bajo /ui/ es
        correcta siempre. -->
-  <script src="/ui/backend-client.js?v=20260809a"></script>
+  <script src="/ui/backend-client.js?v={{CACHE_BUST_VERSION}}"></script>
   <!-- T-FB021-US04-01: reconexión WebSocket, cargado ANTES que app.js
        (la sección Jobs construye `new ReconnectingWebSocket(...)`). -->
-  <script src="/ui/reconnecting-websocket.js?v=20260809a"></script>
-  <script src="/ui/app.js?v=20260809a"></script>
+  <script src="/ui/reconnecting-websocket.js?v={{CACHE_BUST_VERSION}}"></script>
+  <script src="/ui/app.js?v={{CACHE_BUST_VERSION}}"></script>
 </body>
 </html>

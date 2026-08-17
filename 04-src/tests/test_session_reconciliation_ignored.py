@@ -62,7 +62,7 @@ def test_ignored_lists_reason_for_other_project_session(
 ) -> None:
     project_path = tmp_path / "mi-proyecto"
     project_path.mkdir()
-    session = DevelopmentSession(id="s1", project_id=str(project_path))
+    session = _active_session(project_path)
 
     other_project_session = "arquitecto-otro-proyecto-distinto"
     create_session(other_project_session, str(tmp_path), socket_name=isolated_socket)
@@ -78,7 +78,7 @@ def test_reconciled_session_is_not_listed_as_ignored(
 ) -> None:
     project_path = tmp_path / "mi-proyecto"
     project_path.mkdir()
-    session = DevelopmentSession(id="s1", project_id=str(project_path))
+    session = _active_session(project_path)
 
     developer_session_name = f"developer-1-{project_path.name}"
     create_session(developer_session_name, str(tmp_path), socket_name=isolated_socket)
@@ -95,7 +95,7 @@ def test_no_sessions_at_all_returns_both_lists_empty(
 ) -> None:
     project_path = tmp_path / "mi-proyecto"
     project_path.mkdir()
-    session = DevelopmentSession(id="s1", project_id=str(project_path))
+    session = _active_session(project_path)
 
     reconciled, ignored = reconcile_session_agents(session, socket_name=isolated_socket)
 

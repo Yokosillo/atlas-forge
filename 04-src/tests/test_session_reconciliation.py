@@ -213,3 +213,46 @@ def test_reconciled_agent_receives_a_real_job_successfully(
         job = response.json()
         assert job["status"] == "completed"
         assert "cooperative result" in job["result"]
+
+
+def test_lifespan_writes_a_reconciliation_log_entry_reflecting_the_reconciled_agent(
+    tmp_path: Path, isolated_socket: str, monkeypatch
+) -> None:
+    """T-FB037-US02-01, criterio de aceptación explícito de la Task:
+    reiniciar `brain-api` con al menos un agente vivo (sesión tmux
+    reconocible) y confirmar que la entrada de log resultante refleja el
+    número correcto de sesiones reenganchadas. `with TestClient(...)`
+    dispara `_lifespan` real, igual que el resto de este fichero."""
+    import json
+
+    from brain.core.reconciliation_log import reconciliation_log_path
+
+    project, _session = _active_project_and_session(
+        tmp_path, monkeypatch, "proyecto-con-log-real"
+    )
+
+    developer_session_name = f"developer-1-{project.name}"
+    unrelated_session_name = "una-sesion-tmux-cualquiera-ajena"
+    create_session(developer_session_name, str(tmp_path), socket_name=isolated_socket)
+    create_session(unrelated_session_name, str(tmp_path), socket_name=isolated_socket)
+
+    with TestClient(create_app()) as client:
+        response = client.get("/agents")
+        assert response.status_code == 200
+        assert len(response.json()) == 1  # confirma que sí hubo reconciliación real
+
+    log_path = reconciliation_log_path(project.path, project.name)
+    assert log_path.is_file()
+
+    lines = log_path.read_text(encoding="utf-8").splitlines()
+    assert len(lines) == 1
+    entry = json.loads(lines[0])
+
+    assert entry["total_sessions"] == 2
+    assert entry["reconciled_count"] == 1
+    assert entry["reconciled"] == ["Developer-1"]
+    assert entry["ignored_count"] == 1
+    assert entry["ignored"] == [
+        {"session_name": unrelated_session_name, "reason": "nombre_no_reconocido"}
+    ]
+    assert "ts" in entry and entry["ts"]

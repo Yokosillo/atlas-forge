@@ -551,6 +551,25 @@ body {
   line-height: 1.25;
 }
 
+/* "Aprobar plan" en estado de CONFIRMACIÓN pendiente (T-FB021-US05-04):
+   primer clic -> la etiqueta del MISMO botón pasa a "¿Aprobar plan
+   completo?... Confirmar aprobación". Antes, ese cambio de estado no tenía
+   ninguna señal visual además del texto — el usuario pulsaba una vez y no
+   percibía que el botón había pasado a confirmar, buscaba un botón nuevo
+   que no existía y solo veía "Rechazar" con identidad propia (bug real
+   2026-08-16). Mismo patrón que `.plan-cancel` (borde + color + fondo de
+   confirmación), pero en el tinte VERDE de aprobación de la interfaz
+   (`--status-idle`, mismo color que la barra de progreso del plan) — el
+   rojo destructivo queda reservado para cancelar/rechazar, para que el
+   botón de confirmar nunca se confunda con una acción destructiva. El
+   texto de confirmación crece hacia la izquierda sin desplazar el borde
+   derecho que se vuelve a pulsar (misma lección que `.plan-cancel`). */
+.plan-actions .plan-approve.plan-approve-pending {
+  border: 1px solid #2e7d32;
+  color: #2e7d32;
+  background: #e8f5e9;
+}
+
 /* "Cancelar plan" (T-FB021-US05-02): comparte el patrón "el aviso crece en
    la etiqueta" con "Cancelar Job"/"Detener", pero es UNA ACCIÓN DISTINTA,
    de alcance distinto (detiene el despacho de un plan, no un Job suelto ni
