@@ -63,7 +63,7 @@ class TestIsIndependentValue:
         task = ProposedTask(
             id="T-001", title="Test", epic_id="FB-001", us_id="US-001",
             objective="Exponer un endpoint", description="Crear ruta",
-            criteria=[], priority="Alta",
+            criteria=[], priority="Alta", difficulty="Media",
         )
         assert _is_independent_value(task)
 
@@ -71,7 +71,7 @@ class TestIsIndependentValue:
         task = ProposedTask(
             id="T-002", title="Test", epic_id="FB-001", us_id="US-001",
             objective="Construir API", description="Implementar",
-            criteria=[], priority="Alta",
+            criteria=[], priority="Alta", difficulty="Media",
         )
         assert _is_independent_value(task)
 
@@ -80,7 +80,7 @@ class TestIsIndependentValue:
             id="T-003", title="Test", epic_id="FB-001", us_id="US-001",
             objective="Implementar la logica central de validacion",
             description="Funcion pura sin dependencias externas",
-            criteria=[], priority="Alta",
+            criteria=[], priority="Alta", difficulty="Media",
         )
         assert not _is_independent_value(task)
 
@@ -143,6 +143,7 @@ class TestProposeTasksFromUserStory:
             assert task.description, f"Task {task} should have a description"
             assert len(task.criteria) >= 1, f"Task {task} should have criteria"
             assert task.priority in ("Critica", "Alta", "Media", "Baja")
+            assert task.difficulty in ("Critica", "Alta", "Media", "Baja"), f"Task {task.id} should have a valid difficulty"
 
     def test_no_task_has_independent_value(self, tmp_path: Path):
         review = _fixture_review_ready()
@@ -199,6 +200,7 @@ class TestProposeTasksFromUserStory:
             description="Propuesta LLM.",
             criteria=["Criterio LLM"],
             priority="Critica",
+            difficulty="Alta",
         )
 
         def fake_llm(rev, eid, fp):

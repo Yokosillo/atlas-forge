@@ -14,6 +14,7 @@ class ProposedTask:
     description: str
     criteria: list[str]
     priority: str  # "Crítica", "Alta", "Media", "Baja"
+    difficulty: str  # "Crítica", "Alta", "Media", "Baja"
     dependencies: list[str] = field(default_factory=list)
 
 
@@ -93,6 +94,7 @@ def _generate_tasks_from_sections(
                 "No tiene dependencias de infraestructura externa.",
             ],
             "priority": "Critica",
+            "difficulty": "Critica",
             "deps": [],
         },
         {
@@ -111,6 +113,7 @@ def _generate_tasks_from_sections(
                 "La conexion no introduce logica de negocio duplicada.",
             ],
             "priority": "Critica",
+            "difficulty": "Alta",
             "deps": [f"T-{us_id}-01"],
         },
         {
@@ -128,6 +131,7 @@ def _generate_tasks_from_sections(
                 "Los criterios de aceptacion de la US son verificables.",
             ],
             "priority": "Alta",
+            "difficulty": "Alta",
             "deps": [f"T-{us_id}-02"],
         },
     ]
@@ -144,6 +148,7 @@ def _generate_tasks_from_sections(
             description=tmpl["description"],
             criteria=tmpl["criteria"],
             priority=tmpl["priority"],
+            difficulty=tmpl["difficulty"],
             dependencies=[d.format(us_id=us_id) for d in tmpl["deps"]],
         )
         tasks.append(task)

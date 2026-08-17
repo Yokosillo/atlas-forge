@@ -2178,6 +2178,7 @@ def post_propose_tasks(us_id: str) -> dict:
             "description": task.description,
             "criteria": task.criteria,
             "priority": task.priority,
+            "difficulty": task.difficulty,
             "dependencies": task.dependencies,
         })
 

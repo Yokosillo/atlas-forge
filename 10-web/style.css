@@ -994,6 +994,17 @@ body {
   overflow-wrap: break-word;
   word-break: break-word;
 }
+/* T-FB036-US01-10: cada ID de la cadena es clicable — mismo patrón
+   visual que `.plan-history-line` (color de enlace + subrayado al
+   pasar el ratón), para que se distinga de inmediato como interactivo
+   frente al resto de texto plano del panel. */
+.backlog-focus-chain-link {
+  cursor: pointer;
+  color: #1a73e8;
+}
+.backlog-focus-chain-link:hover {
+  text-decoration: underline;
+}
 .backlog-focus-note {
   margin: 0;
   font-size: 12px;

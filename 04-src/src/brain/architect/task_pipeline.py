@@ -42,6 +42,8 @@ def _yaml_block_list(items: list[str]) -> str:
 def _build_task_content(task) -> str:
     criteria_text = "\n".join(f"- {c}" for c in task.criteria)
     deps_block = _yaml_block_list(task.dependencies) if task.dependencies else " []"
+    difficulty = getattr(task, 'difficulty', None)
+    difficulty_line = f"difficulty: {difficulty}\n" if difficulty else ""
     return (
         "---\n"
         f"id: {task.id}\n"
@@ -52,6 +54,7 @@ def _build_task_content(task) -> str:
         f"state: TODO\n"
         f"dependencies:{deps_block}\n"
         f"priority: {task.priority}\n"
+        f"{difficulty_line}"
         "---\n\n"
         f"## Objetivo\n\n{task.objective}\n\n"
         f"## Descripción\n\n{task.description}\n\n"
