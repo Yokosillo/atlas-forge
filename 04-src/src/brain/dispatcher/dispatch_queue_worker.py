@@ -54,6 +54,7 @@ import re
 import threading
 from pathlib import Path
 
+from brain.agent_model import get_active_model, resolve_runtime_for_model, set_active_model
 from brain.backlog.parser import load_backlog
 from brain.backlog.report import priority_rank
 from brain.core.session_lifecycle import list_agents
@@ -72,7 +73,9 @@ from brain.dispatcher.job_plan_dispatch import (
     _NoAgentAvailableError,
     _find_agent_by_role,
 )
+from brain.dispatcher.model_selection import get_models_for_difficulty
 from brain.models import Agent, DevelopmentSession
+from brain.models_catalog import load_model_catalog
 from brain.runtime.agent_runtime_registry import get_runtime_instance_for_agent
 from brain.tmux.manager import DEFAULT_SOCKET_NAME
 
@@ -127,6 +130,93 @@ def _update_task_file_state(tasks_dir: Path, task_id: str, new_state: str) -> No
     task_path.write_text(updated, encoding="utf-8")
 
 
+def _pick_developer_for_difficulty(
+    session: DevelopmentSession,
+    difficulty: str | None,
+    project_root: Path | str,
+    socket_name: str = DEFAULT_SOCKET_NAME,
+) -> tuple[Agent, str] | None:
+    """Elige el Developer `idle` más adecuado para una Task de cierta
+    dificultad, aplicando la lógica de T-FB008-US12-02:
+
+    1. Si no hay dificultad, retorna cualquier Developer `idle` ("sin requisito")
+    2. Consulta get_models_for_difficulty para saber qué tier se requiere
+    3. Busca entre TODOS los Developers `idle` cuyo modelo ya encaja
+       (criterio 3: sin cambiar modelo innecesariamente)
+    4. Si no hay uno que encaje, intenta cambiar el modelo de un Developer
+       `idle` de OpenCode (runtime que soporta cambio)
+    5. Si no se puede cambiar a OpenCode, registra degradación (devuelve con
+       reason="degradado...")
+
+    Retorna tupla (agent, dispatch_reason) o None si no hay Developer elegible.
+    Nunca intenta cambiar modelo en un agente `working`."""
+    from brain.core.session_lifecycle import list_agents
+
+    # Obtiene TODOS los Developers `idle` disponibles (no solo el primero)
+    idle_developers = [
+        agent for agent in list_agents(session)
+        if isinstance(agent, Agent) and agent.role == _DEVELOPER_ROLE and agent.status == "idle"
+    ]
+
+    if not idle_developers:
+        return None
+
+    # Sin dificultad explícita: retorna cualquier Developer `idle`
+    if not difficulty:
+        return (idle_developers[0], "sin requisito de dificultad")
+
+    try:
+        # Consulta qué modelo/tier se requiere para esta dificultad
+        required_models = get_models_for_difficulty(difficulty, project_root)
+    except (KeyError, Exception):
+        # Dificultad no reconocida o error consultando mapeo — se procede
+        # con degradación (usa el primer Developer disponible tal como está)
+        return (idle_developers[0], f"dificultad '{difficulty}' no reconocida, degradado")
+
+    if not required_models:
+        # No hay modelos disponibles en el catálogo para este tier
+        return (idle_developers[0], f"no hay modelos disponibles para dificultad '{difficulty}', degradado")
+
+    # PASO 3: Busca un Developer cuyo modelo ya encaja (sin cambiar)
+    required_ids = {m.id for m in required_models}
+    required_names = {m.name for m in required_models}
+
+    for agent in idle_developers:
+        current_model = get_active_model(agent.id, socket_name=socket_name)
+        if current_model:
+            # Matching: si el modelo actual contiene nombre/id de un modelo requerido
+            for req_model in required_models:
+                if (req_model.name in current_model or
+                    req_model.id in current_model or
+                    req_model.name.lower() in current_model.lower()):
+                    return (agent, f"encaja directo: modelo actual satisface dificultad '{difficulty}'")
+
+    # PASO 4: Si ninguno encaja, intenta cambiar el modelo de un Developer OpenCode
+    for agent in idle_developers:
+        runtime_instance = get_runtime_instance_for_agent(agent.id)
+        if runtime_instance and runtime_instance.runtime.type == "opencode":
+            # OpenCode soporta cambio de modelo — intenta aplicarlo
+            target_model = required_models[0]  # Elige el primer modelo requerido
+            try:
+                success = set_active_model(agent.id, target_model.id, socket_name=socket_name)
+                if success:
+                    return (agent, f"cambio de modelo aplicado: {target_model.id} para dificultad '{difficulty}'")
+            except Exception:
+                pass  # Continúa con el siguiente Developer si falla
+
+    # PASO 5: Si nadie de OpenCode pudo cambiar, degradación con el primer disponible
+    # (runtime que no soporta cambio de modelo)
+    return (idle_developers[0], f"runtime no soporta cambio de modelo, degradado con modelo actual")
+
+
+def _get_task_difficulty(graph, task_id: str) -> str | None:
+    """Extrae la dificultad de una Task del grafo del backlog."""
+    item = graph.items.get(task_id)
+    if item and item.kind == "T":
+        return item.difficulty
+    return None
+
+
 def run_dispatch_cycle(
     project_root: Path | str,
     project_name: str,
@@ -161,14 +251,18 @@ def run_dispatch_cycle(
     if entry is None:
         return None
 
-    try:
-        agent = _find_agent_by_role(session, _DEVELOPER_ROLE)
-    except _NoAgentAvailableError:
+    # Elige Developer basado en dificultad de la Task (T-FB008-US12-02)
+    task_id = entry.task_id
+    difficulty = _get_task_difficulty(graph, task_id)
+    result = _pick_developer_for_difficulty(session, difficulty, project_root, socket_name)
+    if result is None:
         # Sin Developer `idle` ahora mismo (todos ocupados, o ninguno en
         # la sesión) — criterio explícito: "no intenta despachar nada
         # hasta que alguno quede idle". La entrada sigue `queued`, se
         # reintenta en el siguiente ciclo.
         return None
+
+    agent, dispatch_reason = result
 
     runtime_instance = get_runtime_instance_for_agent(agent.id)
     if runtime_instance is None:
@@ -177,8 +271,7 @@ def run_dispatch_cycle(
         # despachar de forma segura este ciclo; se reintenta después.
         return None
 
-    task_id = entry.task_id
-    mark_dispatched(project_root, project_name, task_id, agent_id=agent.id, agent_name=agent.name)
+    mark_dispatched(project_root, project_name, task_id, agent_id=agent.id, agent_name=agent.name, dispatch_reason=dispatch_reason)
     _update_task_file_state(tasks_dir, task_id, "IN_PROGRESS")
 
     task_title = task_id

@@ -1,5 +1,6 @@
-"""Tests de `POST /backlog/epic` (T-FB036-US02-01) y
-`POST /backlog/epic/{epic_id}/us` (T-FB036-US02-02), ambos bajo
+"""Tests de `POST /backlog/epic` (T-FB036-US02-01),
+`POST /backlog/epic/{epic_id}/us` (T-FB036-US02-02) y
+`POST /backlog/us/{us_id}/task` (T-FB036-US02-03), los tres bajo
 US-FB036-02 · "Crear una Epic, User Story o Task nueva sin salir de la
 pantalla Backlog".
 
@@ -312,3 +313,207 @@ def test_post_backlog_epic_us_invalid_priority_returns_400(
 
     assert response.status_code == 400
     assert "Urgentísima" in response.json()["detail"]
+
+
+# ---------------------------------------------------------------------
+# POST /backlog/us/{us_id}/task (T-FB036-US02-03)
+# ---------------------------------------------------------------------
+
+
+def test_post_backlog_us_task_with_valid_fields_and_existing_us_creates_the_real_file(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """Criterio de aceptación central de la Task: crear una US real
+    (vía los dos endpoints ya cerrados, T-FB036-US02-01/-02), crear una
+    Task sobre ella vía este endpoint, confirmar el fichero en disco con
+    `user_story`/`epic` correctos."""
+    project_path = _active_project(tmp_path, monkeypatch)
+
+    client = TestClient(create_app())
+    client.post("/backlog/epic", json={"id": "FB-900", "title": "Epic real", "objetivo": "Objetivo."})
+    us_response = client.post(
+        "/backlog/epic/FB-900/us",
+        json={"id": "US-FB900-01", "title": "US real", "objetivo": "H.", "criterios_aceptacion": "C."},
+    )
+    assert us_response.status_code == 201
+
+    response = client.post(
+        "/backlog/us/US-FB900-01/task",
+        json={
+            "id": "T-FB900-US01-01",
+            "title": "Task de prueba",
+            "objetivo": "Objetivo real.",
+            "descripcion": "Descripción real.",
+            "criterios_aceptacion": "- Criterio uno.",
+            "priority": "Alta",
+            "dependencies": ["T-FB900-US01-02"],
+        },
+    )
+
+    assert response.status_code == 201
+    body = response.json()
+    assert body["id"] == "T-FB900-US01-01"
+    assert body["title"] == "Task de prueba"
+    assert body["us_id"] == "US-FB900-01"
+    assert body["epic_id"] == "FB-900"
+
+    created_path = Path(body["path"])
+    assert created_path.is_file()
+    assert created_path == project_path / "02-backlog" / "tasks" / "T-FB900-US01-01-task-de-prueba.md"
+
+    content = created_path.read_text(encoding="utf-8")
+    assert "id: T-FB900-US01-01" in content
+    assert "type: task" in content
+    assert "user_story: US-FB900-01" in content
+    assert "epic: FB-900" in content
+    assert "priority: Alta" in content
+    assert "- T-FB900-US01-02" in content
+    assert "## Objetivo" in content
+    assert "## Descripción" in content
+    assert "## Criterios de aceptación" in content
+    assert "## Bugs encontrados" in content
+
+    result = validate_backlog_file_v2(created_path)
+    assert result.valid, result.errors
+
+
+def test_post_backlog_us_task_nonexistent_us_returns_404_without_writing_anything(
+    tmp_path: Path, monkeypatch
+) -> None:
+    project_path = _active_project(tmp_path, monkeypatch)
+
+    client = TestClient(create_app())
+    response = client.post(
+        "/backlog/us/US-FB999-01/task",
+        json={
+            "id": "T-FB999-US01-01", "title": "Task huerfana", "objetivo": "O.",
+            "descripcion": "D.", "criterios_aceptacion": "C.",
+        },
+    )
+
+    assert response.status_code == 404
+    assert "US-FB999-01" in response.json()["detail"]
+    assert not (project_path / "02-backlog" / "tasks").exists()
+
+
+def test_post_backlog_us_task_under_orphan_user_story_returns_null_epic_id(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """Criterio de aceptación explícito: una Task creada bajo una US
+    huérfana (sin `epic` en su frontmatter) se crea igualmente, con
+    `epic_id: null` en la respuesta."""
+    project_path = _active_project(tmp_path, monkeypatch)
+    stories_dir = project_path / "02-backlog" / "user-stories"
+    stories_dir.mkdir(parents=True)
+    (stories_dir / "US-FB901-01-huerfana.md").write_text(
+        "---\nid: US-FB901-01\ntype: user_story\ntitle: US huerfana\nstate: TODO\n"
+        "dependencies: []\npriority: Alta\n---\n\n## Historia\n\nHistoria.\n",
+        encoding="utf-8",
+    )
+
+    client = TestClient(create_app())
+    response = client.post(
+        "/backlog/us/US-FB901-01/task",
+        json={
+            "id": "T-FB901-US01-01", "title": "Task huerfana", "objetivo": "O.",
+            "descripcion": "D.", "criterios_aceptacion": "C.",
+        },
+    )
+
+    assert response.status_code == 201
+    body = response.json()
+    assert body["epic_id"] is None
+    content = Path(body["path"]).read_text(encoding="utf-8")
+    assert "epic: null" in content
+    result = validate_backlog_file_v2(Path(body["path"]))
+    assert result.valid, result.errors
+
+
+def test_post_backlog_us_task_duplicate_id_returns_409_without_overwriting(
+    tmp_path: Path, monkeypatch
+) -> None:
+    _active_project(tmp_path, monkeypatch)
+
+    client = TestClient(create_app())
+    client.post("/backlog/epic", json={"id": "FB-900", "title": "Epic", "objetivo": "Objetivo."})
+    client.post(
+        "/backlog/epic/FB-900/us",
+        json={"id": "US-FB900-01", "title": "US", "objetivo": "H.", "criterios_aceptacion": "C."},
+    )
+    first = client.post(
+        "/backlog/us/US-FB900-01/task",
+        json={"id": "T-FB900-US01-01", "title": "Primera Task", "objetivo": "O.", "descripcion": "D.", "criterios_aceptacion": "C."},
+    )
+    assert first.status_code == 201
+    created_path = Path(first.json()["path"])
+    original_content = created_path.read_text(encoding="utf-8")
+
+    second = client.post(
+        "/backlog/us/US-FB900-01/task",
+        json={"id": "T-FB900-US01-01", "title": "Segunda Task mismo id", "objetivo": "O2.", "descripcion": "D2.", "criterios_aceptacion": "C2."},
+    )
+
+    assert second.status_code == 409
+    assert "T-FB900-US01-01" in second.json()["detail"]
+    assert created_path.read_text(encoding="utf-8") == original_content
+
+
+def test_post_backlog_us_task_us_id_from_url_never_overridden_by_body(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """Análogo al test de `epic_id` inmutable de `POST /backlog/epic/{epic_id}/us`:
+    el `us_id` del fichero creado coincide siempre con el de la URL,
+    nunca con un valor distinto que el cliente pudiera enviar en el
+    body — el propio `CreateTaskRequest` no tiene campo `us_id`."""
+    _active_project(tmp_path, monkeypatch)
+
+    client = TestClient(create_app())
+    client.post("/backlog/epic", json={"id": "FB-900", "title": "Epic", "objetivo": "Objetivo."})
+    client.post(
+        "/backlog/epic/FB-900/us",
+        json={"id": "US-FB900-01", "title": "US uno", "objetivo": "H.", "criterios_aceptacion": "C."},
+    )
+    client.post(
+        "/backlog/epic/FB-900/us",
+        json={"id": "US-FB900-02", "title": "US dos", "objetivo": "H.", "criterios_aceptacion": "C."},
+    )
+
+    response = client.post(
+        "/backlog/us/US-FB900-01/task",
+        json={
+            "id": "T-FB900-US01-01",
+            "title": "Task",
+            "objetivo": "O.",
+            "descripcion": "D.",
+            "criterios_aceptacion": "C.",
+            "us_id": "US-FB900-02",  # campo extra no declarado — debe ignorarse
+        },
+    )
+
+    assert response.status_code == 201
+    body = response.json()
+    assert body["us_id"] == "US-FB900-01"
+    content = Path(body["path"]).read_text(encoding="utf-8")
+    assert "user_story: US-FB900-01" in content
+    assert "user_story: US-FB900-02" not in content
+
+
+def test_post_backlog_us_task_invalid_id_format_returns_400(
+    tmp_path: Path, monkeypatch
+) -> None:
+    _active_project(tmp_path, monkeypatch)
+
+    client = TestClient(create_app())
+    client.post("/backlog/epic", json={"id": "FB-900", "title": "Epic", "objetivo": "Objetivo."})
+    client.post(
+        "/backlog/epic/FB-900/us",
+        json={"id": "US-FB900-01", "title": "US", "objetivo": "H.", "criterios_aceptacion": "C."},
+    )
+
+    response = client.post(
+        "/backlog/us/US-FB900-01/task",
+        json={"id": "T-FB900-01-01", "title": "T", "objetivo": "O.", "descripcion": "D.", "criterios_aceptacion": "C."},
+    )
+
+    assert response.status_code == 400
+    assert "T-FB900-01-01" in response.json()["detail"]

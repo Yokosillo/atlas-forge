@@ -93,7 +93,9 @@ class QueueEntry:
     parser. `agent_id`/`agent_name`/`result` quedan `None` hasta que el
     Dispatcher (`T-FB008-US10-02`) despache la entrada — esta Task deja
     los campos ya definidos para que ese Dispatcher no tenga que cambiar
-    el esquema del fichero."""
+    el esquema del fichero. `dispatch_reason` (T-FB008-US12-02) registra
+    por qué se eligió ese Developer/modelo: "encaja directo" / "cambio de
+    modelo aplicado" / "degradado por falta de runtime adecuado"."""
 
     task_id: str
     us_id: str | None
@@ -104,6 +106,7 @@ class QueueEntry:
     agent_name: str | None = None
     result: str | None = None
     dispatched_at: str | None = None
+    dispatch_reason: str | None = None
 
 
 def dispatch_queue_path(project_root: Path | str, project_name: str) -> Path:
@@ -213,6 +216,7 @@ def mark_dispatched(
     agent_id: str,
     agent_name: str,
     ts: str | None = None,
+    dispatch_reason: str | None = None,
 ) -> None:
     """Transiciona la entrada `queued` de `task_id` a `dispatched`, con el
     agente que la tomó — usado por el Dispatcher (`T-FB008-US10-02`, no
@@ -220,7 +224,8 @@ def mark_dispatched(
     que esta Task ya fija. No lanza si `task_id` no está en la cola
     (`queued` ya consumido por una carrera con otro despacho) — el
     Dispatcher decide si eso es un caso a loguear, no responsabilidad de
-    este módulo."""
+    este módulo. `dispatch_reason` (T-FB008-US12-02) documenta motivo de
+    selección del Developer/modelo."""
     path = dispatch_queue_path(project_root, project_name)
     with _write_lock:
         entries = _read_all(path)
@@ -230,6 +235,7 @@ def mark_dispatched(
                 entry.agent_id = agent_id
                 entry.agent_name = agent_name
                 entry.dispatched_at = ts if ts is not None else datetime.now(timezone.utc).isoformat()
+                entry.dispatch_reason = dispatch_reason
         _write_all(path, entries)
 
 

@@ -26,9 +26,13 @@ from brain.backlog.create import (
     EpicNotFoundError,
     InvalidEpicIdError,
     InvalidPriorityError as CreateInvalidPriorityError,
+    InvalidTaskIdError,
     InvalidUserStoryIdError,
+    TaskAlreadyExistsError,
     UserStoryAlreadyExistsError,
+    UserStoryNotFoundError,
     create_epic,
+    create_task,
     create_user_story,
 )
 from brain.backlog.edit import (
@@ -234,6 +238,24 @@ class CreateUserStoryRequest(BaseModel):
     objetivo: str
     criterios_aceptacion: str
     priority: str | None = None
+
+
+class CreateTaskRequest(BaseModel):
+    # T-FB036-US02-03: campos sueltos del formulario "+ Nueva Task"
+    # (T-FB036-US02-06, todavía sin implementar) — deliberadamente SIN
+    # campo `epic_id`/`us_id`: `us_id` viene siempre de la URL
+    # (`POST /backlog/us/{us_id}/task`) y `epic_id` se resuelve leyendo
+    # el frontmatter de esa misma US (campo `epic`), nunca de un valor
+    # que el cliente pudiera enviar en el body — evita la inconsistencia
+    # de una Task declarando una Epic distinta a la de su US real
+    # (criterio de aceptación explícito de la Task).
+    id: str
+    title: str
+    objetivo: str
+    descripcion: str
+    criterios_aceptacion: str
+    priority: str | None = None
+    dependencies: list[str] | None = None
 
 
 class LaunchDevelopmentRequest(BaseModel):
@@ -1720,6 +1742,69 @@ def post_backlog_epic_user_story(epic_id: str, body: CreateUserStoryRequest) -> 
         raise HTTPException(status_code=400, detail=str(error)) from error
 
     return {"id": body.id, "title": body.title, "epic_id": epic_id, "path": str(path)}
+
+
+@router.post("/backlog/us/{us_id}/task", status_code=201)
+def post_backlog_us_task(us_id: str, body: CreateTaskRequest) -> dict:
+    """Crea una Task nueva dentro de la User Story `us_id`
+    (T-FB036-US02-03, US-FB036-02): escribe
+    `02-backlog/tasks/{id}-{slug(title)}.md` a partir de campos sueltos,
+    pasando por el mismo validador determinista que usa el Arquitecto
+    (`brain.backlog.create.create_task`) antes de persistir —
+    precondición de backend para el formulario "+ Nueva Task"
+    (`T-FB036-US02-06`, todavía sin implementar).
+
+    `us_id` viene SIEMPRE de la URL, nunca de un campo del body — no
+    existe ningún `us_id` en `CreateTaskRequest`, mismo criterio ya
+    aplicado a `epic_id` en `POST /backlog/epic/{epic_id}/us`.
+    `epic_id` NUNCA se pide al cliente en absoluto (ni en URL ni en
+    body): se resuelve leyendo el frontmatter de la propia US
+    encontrada (`create_task`), evitando que una Task declare una Epic
+    distinta a la de su US real. Caso borde explícito (ya documentado en
+    la especificación UX, sección "Casos borde"): si la US es huérfana
+    (sin `epic` en su frontmatter), la Task se crea igualmente con
+    `epic_id: null` en la respuesta — no bloquea la creación.
+
+    404 si `us_id` no tiene ningún fichero de User Story real en
+    `user-stories/`. 400 si `id` no tiene formato `T-FBNNN-USnn-mm`, si
+    `priority` no pertenece al conjunto cerrado (ni es `null`), o si el
+    contenido generado (incluidas `dependencies`, si se envían) no pasa
+    el validador determinista (`detail` verbatim en los tres casos). 409
+    si ya existe un fichero `{id}*.md` en `tasks/` — no sobreescribe.
+    201 con `{id, title, us_id, epic_id, path}` del fichero creado."""
+    project = _active_project_or_404()
+    backlog_path = Path(project.path) / "02-backlog"
+
+    try:
+        path, epic_id = create_task(
+            backlog_path,
+            us_id,
+            body.id,
+            body.title,
+            body.objetivo,
+            body.descripcion,
+            body.criterios_aceptacion,
+            body.priority,
+            body.dependencies,
+        )
+    except UserStoryNotFoundError as error:
+        raise HTTPException(status_code=404, detail=str(error)) from error
+    except InvalidTaskIdError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+    except CreateInvalidPriorityError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+    except TaskAlreadyExistsError as error:
+        raise HTTPException(status_code=409, detail=str(error)) from error
+    except CreateBacklogValidationError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+
+    return {
+        "id": body.id,
+        "title": body.title,
+        "us_id": us_id,
+        "epic_id": epic_id,
+        "path": str(path),
+    }
 
 
 @router.get("/backlog/{item_id}")

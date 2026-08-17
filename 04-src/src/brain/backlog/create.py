@@ -1,12 +1,11 @@
-"""Creación de items de backlog nuevos desde cero (T-FB036-US02-01/-02,
+"""Creación de items de backlog nuevos desde cero (T-FB036-US02-01/-02/-03,
 US-FB036-02 · "Crear una Epic, User Story o Task nueva sin salir de la
 pantalla Backlog") — a diferencia de `brain.backlog.edit` (cambia un
 campo de un item YA existente), este módulo escribe el fichero completo
 por primera vez.
 
-Epic y User Story están cubiertas (`T-FB036-US02-01`/`-02`); Task es una
-Task separada de la misma Story (`T-FB036-US02-03`), todavía sin
-implementar."""
+Epic, User Story y Task están las tres cubiertas (`T-FB036-US02-01`/
+`-02`/`-03`)."""
 
 from __future__ import annotations
 
@@ -15,17 +14,23 @@ from pathlib import Path
 
 import yaml
 
+from brain.backlog.parser import parse_frontmatter
 from brain.backlog.validator_v2 import validate_backlog_content_v2
 from brain.runtime import sanitize_session_name_part
 
 EPIC_ID_PATTERN = re.compile(r"^FB-\d{3,}$")
-# Mismo patrón que `_US_ID_PATTERN` del validador determinista
-# (`brain.backlog.validator_v2`) — no importado de ahí porque ese módulo
-# lo mantiene privado (con `_`); se replica aquí en vez de exponerlo solo
-# para este uso, mismo criterio ya aplicado por `architect_queue.py`
-# reimplementando su propia sanitización en vez de importar la de
-# `runtime/generic.py` en su día.
+# Mismos patrones que `_US_ID_PATTERN`/el segmento Task de `_ID_PATTERN`
+# del validador determinista (`brain.backlog.validator_v2`) — no
+# importados de ahí porque ese módulo los mantiene privados (con `_`);
+# se replican aquí en vez de exponerlos solo para este uso, mismo
+# criterio ya aplicado por `architect_queue.py` reimplementando su
+# propia sanitización en vez de importar la de `runtime/generic.py` en
+# su día. `TASK_ID_PATTERN` exige siempre el segmento `-US\d{2}` (a
+# diferencia del patrón general del validador, que lo deja opcional para
+# un caso legado) — toda Task creada por este módulo vive siempre bajo
+# una User Story real, nunca huérfana de US.
 US_ID_PATTERN = re.compile(r"^US-FB\d{3,}-\d{2}[A-Z]?$")
+TASK_ID_PATTERN = re.compile(r"^T-FB\d{3,}-US\d{2}[A-Z]?-\d{2}[A-Z]?$")
 VALID_PRIORITIES = ("Crítica", "Alta", "Media", "Baja")
 
 
@@ -69,6 +74,32 @@ class UserStoryAlreadyExistsError(ValueError):
         self.us_id = us_id
         self.existing_path = existing_path
         super().__init__(f"Ya existe una User Story con id '{us_id}': {existing_path}")
+
+
+class InvalidTaskIdError(ValueError):
+    """El `id` recibido no tiene el formato `T-FB\\d{3,}-US\\d{2}-\\d{2}` —
+    mismo criterio de rechazo explícito que `InvalidUserStoryIdError`,
+    para Task."""
+
+
+class UserStoryNotFoundError(ValueError):
+    """No existe ningún fichero `{us_id}*.md` en
+    `02-backlog/user-stories/` — el llamador debe traducir esto a 404
+    (no se puede crear una Task bajo una User Story que no existe)."""
+
+    def __init__(self, us_id: str) -> None:
+        self.us_id = us_id
+        super().__init__(f"No existe ningun fichero de User Story con id '{us_id}'.")
+
+
+class TaskAlreadyExistsError(ValueError):
+    """Ya existe un fichero `{id}*.md` en `02-backlog/tasks/` — no se
+    sobreescribe, el llamador debe traducir esto a 409."""
+
+    def __init__(self, task_id: str, existing_path: Path) -> None:
+        self.task_id = task_id
+        self.existing_path = existing_path
+        super().__init__(f"Ya existe una Task con id '{task_id}': {existing_path}")
 
 
 class InvalidPriorityError(ValueError):
@@ -276,3 +307,126 @@ def create_user_story(
     path = stories_dir / filename
     path.write_text(content, encoding="utf-8")
     return path
+
+
+def _build_task_content(
+    task_id: str,
+    us_id: str,
+    epic_id: str | None,
+    title: str,
+    objetivo: str,
+    descripcion: str,
+    criterios_aceptacion: str,
+    priority: str | None,
+    dependencies: list[str],
+) -> str:
+    # Mismo criterio que `_build_epic_content`/`_build_user_story_content`:
+    # `yaml.safe_dump`, nunca concatenación manual — evita el mismo bug de
+    # `title`/`epic`/etc. con `:` rompiendo el YAML generado
+    # (T-FB036-US02-01). `epic_id` puede ser `None` (US huérfana, criterio
+    # de aceptación 3/4 de la Task) — `yaml.safe_dump` lo serializa como
+    # `epic: null`, campo PRESENTE (satisface `_REQUIRED_FIELDS["task"]`
+    # del validador, que solo exige la clave, no un valor no nulo) pero
+    # sin ID real, coherente con el resto del backlog para items sin
+    # Epic.
+    frontmatter = yaml.safe_dump(
+        {
+            "id": task_id,
+            "type": "task",
+            "title": title,
+            "state": "TODO",
+            "dependencies": dependencies,
+            "epic": epic_id,
+            "user_story": us_id,
+            "priority": priority,
+        },
+        sort_keys=False,
+        allow_unicode=True,
+        default_flow_style=False,
+    )
+    return (
+        f"---\n{frontmatter}---\n\n"
+        f"# {task_id} · {title}\n\n"
+        f"## Objetivo\n\n{objetivo}\n\n"
+        f"## Descripción\n\n{descripcion}\n\n"
+        f"## Criterios de aceptación\n\n{criterios_aceptacion}\n\n"
+        f"## Bugs encontrados\n\nTODO\n"
+    )
+
+
+def create_task(
+    backlog_path: str | Path,
+    us_id: str,
+    task_id: str,
+    title: str,
+    objetivo: str,
+    descripcion: str,
+    criterios_aceptacion: str,
+    priority: str | None = None,
+    dependencies: list[str] | None = None,
+) -> tuple[Path, str | None]:
+    """Crea el fichero real de una Task nueva en
+    `<backlog_path>/tasks/{task_id}-{slug(title)}.md`, bajo la User Story
+    `us_id` (T-FB036-US02-03).
+
+    `epic_id` NUNCA se pide al llamador — se resuelve leyendo el
+    frontmatter de la propia US encontrada (campo `epic`), evitando la
+    inconsistencia de que la Task declare una Epic distinta a la de su
+    US real (criterio de aceptación explícito de la Task). Caso borde
+    explícito (US huérfana, ya documentado en la especificación UX,
+    sección "Casos borde"): si la US no tiene `epic` en su frontmatter
+    (o está vacío), la Task se crea igualmente con `epic_id=None` — no
+    bloquea la creación.
+
+    Validación en cinco fases, nunca toca disco si falla: (1) `task_id`
+    contra `TASK_ID_PATTERN` (`InvalidTaskIdError`); (2) `us_id` tiene un
+    fichero de User Story real en `user-stories/`
+    (`UserStoryNotFoundError`); (3) `priority` pertenece al conjunto
+    cerrado o es `None` (`InvalidPriorityError`); (4) ningún fichero
+    `{task_id}*.md` ya existente en `tasks/` (`TaskAlreadyExistsError`);
+    (5) el contenido generado (incluidas `dependencies`, si se pasan)
+    contra `validate_backlog_content_v2` (`BacklogValidationError`,
+    mensajes verbatim — cubre también el formato de cada ID de
+    `dependencies`, sin duplicar esa validación aquí).
+
+    Devuelve `(path, epic_id)` — `epic_id` es `None` si la US es
+    huérfana, para que el llamador (capa HTTP) pueda incluirlo tal cual
+    en la respuesta `{..., "epic_id": null}`."""
+    if not TASK_ID_PATTERN.match(task_id):
+        raise InvalidTaskIdError(
+            f"'{task_id}' no es un id de Task válido — debe tener el formato T-FBNNN-USnn-mm."
+        )
+
+    stories_dir = Path(backlog_path) / "user-stories"
+    us_path = _find_existing(stories_dir, us_id)
+    if us_path is None:
+        raise UserStoryNotFoundError(us_id)
+
+    us_frontmatter = parse_frontmatter(us_path.read_text(encoding="utf-8"))
+    epic_id = us_frontmatter.get("epic") or None
+
+    if priority is not None and priority not in VALID_PRIORITIES:
+        raise InvalidPriorityError(
+            f"'{priority}' no es una prioridad válida — debe ser una de "
+            f"{', '.join(VALID_PRIORITIES)} o null (sin prioridad)."
+        )
+
+    tasks_dir = Path(backlog_path) / "tasks"
+    existing = _find_existing(tasks_dir, task_id)
+    if existing is not None:
+        raise TaskAlreadyExistsError(task_id, existing)
+
+    filename = f"{task_id}-{_slug(title)}.md"
+    content = _build_task_content(
+        task_id, us_id, epic_id, title, objetivo, descripcion, criterios_aceptacion,
+        priority, dependencies or [],
+    )
+
+    result = validate_backlog_content_v2(content, filename=filename)
+    if not result.valid:
+        raise BacklogValidationError([error.message for error in result.errors])
+
+    tasks_dir.mkdir(parents=True, exist_ok=True)
+    path = tasks_dir / filename
+    path.write_text(content, encoding="utf-8")
+    return path, epic_id

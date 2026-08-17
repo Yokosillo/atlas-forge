@@ -255,7 +255,7 @@ def test_run_dispatch_cycle_marks_failed_without_blocking_the_queue_when_no_agen
     _write_task_yaml(backlog / "tasks", "T-FB999-US01-01", "US-FB999-01", "TODO", priority="Alta")
     enqueue_task(backlog_root, "proj", task_id="T-FB999-US01-01", us_id="US-FB999-01", priority="Alta")
 
-    # Sesión SIN agentes asignados, pero con `_find_agent_by_role`
+    # Sesión SIN agentes asignados, pero con `_pick_developer_for_difficulty`
     # monkeypatcheado para forzar un agente "fantasma" CON runtime
     # registrado (para superar el guard de `runtime_instance is None`) —
     # `create_job` lo rechaza igualmente porque no pertenece a `session`
@@ -277,12 +277,12 @@ def test_run_dispatch_cycle_marks_failed_without_blocking_the_queue_when_no_agen
 
     import brain.dispatcher.dispatch_queue_worker as worker_module
 
-    original = worker_module._find_agent_by_role
-    worker_module._find_agent_by_role = lambda *a, **k: phantom_agent
+    original = worker_module._pick_developer_for_difficulty
+    worker_module._pick_developer_for_difficulty = lambda *a, **k: (phantom_agent, "test")
     try:
         dispatched_task_id = run_dispatch_cycle(backlog_root, "proj", session)
     finally:
-        worker_module._find_agent_by_role = original
+        worker_module._pick_developer_for_difficulty = original
 
     assert dispatched_task_id == "T-FB999-US01-01"
     entries = get_queue(backlog_root, "proj")
