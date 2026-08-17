@@ -261,6 +261,85 @@ def test_build_backlog_report_by_epic_uses_real_title_from_frontmatter(
     assert by_epic["FB-101"] == "FB-101"
 
 
+# ---------------------------------------------------------------------------
+# T-FB036-US02-04: Epics sin hijos (recién creadas) en el listado agrupado
+# ---------------------------------------------------------------------------
+
+
+def test_build_backlog_report_includes_an_epic_without_children(tmp_path: Path) -> None:
+    """Bug real de T-FB036-US02-04: una Epic recién creada (sin US/Tasks)
+    no aparecía en `by_epic` — el listado agrupado solo se poblaba desde
+    los items hijos (US/Task), así que el criterio "la Epic aparece
+    expandida tras crearla" quedaba sin tarjeta que expandir. Tras el fix,
+    una Epic sin hijos aparece igualmente en `by_epic` con conteos vacíos
+    (`user_stories`/`tasks` = {}), su título real, `unblock_degree` (1.0,
+    nada que desbloquear) y `fase`, y el backlog NO es `empty` (hay una
+    tarjeta real que mostrar)."""
+    from brain.backlog.report import build_backlog_report
+
+    backlog = tmp_path / "02-backlog"
+    _write(
+        backlog,
+        "epics",
+        "FB-600-epic-sin-hijos.md",
+        "---\nid: FB-600\ntype: epic\ntitle: Epic Sin Hijos\nstate: TODO\n"
+        "dependencies: []\nfase: Fase 1.0\n---\n\n# FB-600 · Epic Sin Hijos\n\n"
+        "## Objetivo\n\nObjetivo de prueba.\n",
+    )
+
+    report = build_backlog_report(backlog)
+
+    assert report["empty"] is False
+    assert report["by_epic"] == [
+        {
+            "epic": "FB-600",
+            "epic_label": "Epic Sin Hijos",
+            "user_stories": {},
+            "tasks": {},
+            "unblock_degree": 1.0,
+            "fase": "Fase 1.0",
+        }
+    ]
+
+
+def test_build_backlog_report_empty_epic_coexists_with_populated_ones(
+    tmp_path: Path,
+) -> None:
+    """Misma Epic con hijos y sin hijos conviven en `by_epic` sin
+    duplicarse: la entrada de la Epic con hijos se puebla desde sus items,
+    la de la Epic sin hijos se crea con conteos vacíos — nunca dos entradas
+    para el mismo id."""
+    from brain.backlog.report import build_backlog_report
+
+    backlog = _synthetic_backlog(tmp_path)
+    _write(
+        backlog,
+        "epics",
+        "FB-100-epic-real.md",
+        _EPIC_FRONTMATTER.format(epic_id="FB-100", title="Uno De Verdad"),
+    )
+    _write(
+        backlog,
+        "epics",
+        "FB-600-epic-sin-hijos.md",
+        "---\nid: FB-600\ntype: epic\ntitle: Epic Sin Hijos\nstate: TODO\n"
+        "dependencies: []\n---\n\n# FB-600 · Epic Sin Hijos\n\n"
+        "## Objetivo\n\nObjetivo de prueba.\n",
+    )
+
+    report = build_backlog_report(backlog)
+
+    by_epic = {entry["epic"]: entry for entry in report["by_epic"]}
+    assert list(by_epic) == ["FB-100", "FB-101", "FB-600"]
+    # FB-100 sigue poblada desde sus items (5 US/Tasks en total), sin
+    # duplicarse con la entrada de Epic sin hijos.
+    assert by_epic["FB-100"]["user_stories"] == {"DONE": 1}
+    assert by_epic["FB-100"]["tasks"] == {"TODO": 2}
+    # FB-600, recién creada sin hijos, entra con conteos vacíos.
+    assert by_epic["FB-600"]["user_stories"] == {}
+    assert by_epic["FB-600"]["tasks"] == {}
+
+
 def test_build_backlog_report_lists_lista_sorted_by_priority(tmp_path: Path) -> None:
     report = build_backlog_report(_synthetic_backlog(tmp_path))
 

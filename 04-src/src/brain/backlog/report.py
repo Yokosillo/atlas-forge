@@ -37,7 +37,7 @@ from brain.backlog.parser import (
 from brain.backlog.promote import detect_reopened_drift_in_graph
 from brain.models.backlog import ITEM_KIND_EPIC, ITEM_KIND_TASK, ITEM_KIND_USER_STORY
 
-BACKLOG_STATUS_NO_DATA_TEXT = "Sin datos: el backlog no tiene aún US/Tasks."
+BACKLOG_STATUS_NO_DATA_TEXT = "Sin datos: el backlog no tiene aún Epics/US/Tasks."
 
 _PRIORITY_RANK = {"Crítica": 0, "Alta": 1, "Media": 2, "Baja": 3}
 _PRIORITY_LABEL = {0: "Crítica", 1: "Alta", 2: "Media", 3: "Baja", 4: "Sin prioridad"}
@@ -190,6 +190,22 @@ def build_backlog_report(backlog_path: str | Path) -> dict:
         )
         target = entry["user_stories"] if item.kind == ITEM_KIND_USER_STORY else entry["tasks"]
         target[item.state] = target.get(item.state, 0) + 1
+    # T-FB036-US02-04: una Epic recién creada (sin US/Tasks todavía) debe
+    # aparecer igualmente en el listado agrupado. El bucle de arriba solo
+    # puebla `by_epic` desde los items hijos (US/Task), así que una Epic sin
+    # hijos nunca generaba entrada — el criterio "la Epic aparece expandida
+    # tras crearla" quedaba sin tarjeta que expandir (bug real reportado en
+    # la Task). Se añaden aquí las Epics con hijos (ya presentes) y las sin
+    # hijos (con conteos vacíos), nunca se duplican entradas.
+    for epic_item in epics_items:
+        if epic_item.id in by_epic:
+            continue
+        by_epic[epic_item.id] = {
+            "epic": epic_item.id,
+            "epic_label": _epic_label_from_file(backlog_path, epic_item.id),
+            "user_stories": {},
+            "tasks": {},
+        }
     epics_sorted = sorted(by_epic.values(), key=lambda e: e["epic"])
 
     for entry in epics_sorted:
@@ -224,7 +240,12 @@ def build_backlog_report(backlog_path: str | Path) -> dict:
 
     result = {
         "backlog_path": str(Path(backlog_path)),
-        "empty": len(user_stories) + len(tasks) == 0,
+        # T-FB036-US02-04: `empty` es False con una sola Epic real (aunque
+        # aún no tenga US/Tasks) — un backlog con una Epic recién creada no
+        # es "vacío": el listado agrupado tiene una tarjeta que mostrar y
+        # expandir. Un backlog sin ningún item (ni Epics ni US/Tasks) sigue
+        # siendo `empty=True`, mismo criterio que antes para ese caso.
+        "empty": len(epics_items) + len(user_stories) + len(tasks) == 0,
         "total": {
             "items": len(user_stories) + len(tasks),
             "epics": _state_counts(epics_items),

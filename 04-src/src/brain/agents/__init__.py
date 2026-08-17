@@ -17,6 +17,12 @@ from brain.agents.developer import (
     build_developer_prompt,
     register_developer,
 )
+from brain.agents.documentador import (
+    DOCUMENTADOR_PROMPT,
+    DOCUMENTADOR_ROLE,
+    build_documentador_prompt,
+    register_documentador,
+)
 from brain.agents.tester import (
     TESTER_PROMPT,
     TESTER_ROLE,
@@ -54,6 +60,8 @@ __all__ = [
     "AUDITOR_OSS_ROLE",
     "DEVELOPER_PROMPT",
     "DEVELOPER_ROLE",
+    "DOCUMENTADOR_PROMPT",
+    "DOCUMENTADOR_ROLE",
     "InvalidAgentTransitionError",
     "MAX_SIMULTANEOUS_DEVELOPERS",
     "RoleConfig",
@@ -64,6 +72,7 @@ __all__ = [
     "build_arquitecto_prompt",
     "build_auditor_oss_prompt",
     "build_developer_prompt",
+    "build_documentador_prompt",
     "build_tester_prompt",
     "build_ux_prompt",
     "get_agent_state",
@@ -82,6 +91,7 @@ __all__ = [
     "register_arquitecto",
     "register_auditor_oss",
     "register_developer",
+    "register_documentador",
     "register_role",
     "register_tester",
     "register_ux",

@@ -4139,9 +4139,15 @@
 
   // `todoCount === 0` — extraída para reutilizar tanto en `doneClass`
   // como en la agrupación "Terminadas" sin duplicar la fórmula.
+  // T-FB036-US02-04: una Epic SIN items (recién creada, sin US/Tasks aún)
+  // no cuenta como "terminada" — no hay nada DONE que celebrar, es una
+  // Epic pendiente vacía: debe renderizarse como tarjeta activa (y no
+  // quedar oculta bajo el grupo "Terminadas (N)" plegado por defecto,
+  // que rompía el criterio "la Epic aparece expandida tras crearla").
   function epicIsDone(epic) {
+    var totalCount = sumCounts(epic.user_stories) + sumCounts(epic.tasks);
     var todoCount = (epic.user_stories && epic.user_stories.TODO || 0) + (epic.tasks && epic.tasks.TODO || 0);
-    return todoCount === 0;
+    return totalCount > 0 && todoCount === 0;
   }
 
   function renderBacklogEpicCard(wrap, epic) {

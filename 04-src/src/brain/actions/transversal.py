@@ -9,7 +9,9 @@ mismo criterio que `POST /jobs`). La persistencia del informe en
 pipeline lo hace en `dispatch_plan`.
 
 Acciones definidas:
-  - `documentar`       → despacha Job al Arquitecto (US-FB025-01, Hilo 3)
+  - `documentar`       → despacha Job a la instancia de Documentador ya
+    lanzada (T-FB024-US20-01, US-FB025-01, Hilo 3; antes despachaba al
+    Arquitecto con el prompt de `DOCUMENTADOR.md` prestado)
   - `analizar-arquitectura` → despacha Job al Arquitecto (US-FB025-02, Hilo 3)
   - `sugerir-ideas`    → despacha Job al Arquitecto (US-FB025-03, Hilo 3)
   - `testear`          → ejecuta `pytest` determinista (US-FB025-04, Hilo 3)
@@ -25,6 +27,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from brain.agents.arquitecto import ARQUITECTO_ROLE
+from brain.agents.documentador import DOCUMENTADOR_ROLE
 from brain.agents.ux import UX_ROLE
 from brain.core.session_lifecycle import list_agents
 from brain.core.session_registry import get_current_session
@@ -33,13 +36,13 @@ from brain.dispatcher.job_dispatch import dispatch_job
 from brain.dispatcher.job_history_registry import record_job
 from brain.dispatcher.job_orchestration import create_and_record_job
 from brain.dispatcher.job_report import write_job_report
-from brain.models import Agent, Job
+from brain.models import Agent, Job, ScriptRunResult
 from brain.runtime.agent_runtime_registry import get_runtime_instance_for_agent
 from brain.workspace.active_project import (
     ProjectNotDiscoveredError,
     get_active_project,
 )
-from brain.workspace.generic_scripts import _run_project_tests
+from brain.workspace.generic_scripts import _run_project_tests, run_subprocess, DEFAULT_SCRIPT_TIMEOUT_SECONDS
 from brain.local_tools import ScribeUnavailableError, index_documents
 
 _ACTION_DESCRIPTIONS: dict[str, str] = {
@@ -99,6 +102,11 @@ _ACTION_DESCRIPTIONS: dict[str, str] = {
         "Recolecta ficheros de documentación, backlog y código fuente "
         "relevantes y genera un índice temático accesible por Developer "
         "y Arquitecto."
+    ),
+    "testear-ui": (
+        "Ejecuta la suite de tests de interfaz web (Puppeteer) del proyecto. "
+        "Verifica la funcionalidad real de la web mediante navegación headless, "
+        "sin intervención manual."
     ),
 }
 
@@ -166,6 +174,7 @@ _STORY_ID_MAP = {
     "sugerir-ideas": "US-FB025-03",
     "testear": "US-FB025-04",
     "auditar-ux": "US-FB025-06",
+    "testear-ui": "US-FB022-15",
     "indexar": "US-FB025-07",
 }
 
@@ -185,6 +194,7 @@ class ActionType:
     SUGERIR_IDEAS = "sugerir-ideas"
     TESTEAR = "testear"
     AUDITAR_UX = "auditar-ux"
+    TESTEAR_UI = "testear-ui"
     INDEXAR = "indexar"
 
 
@@ -194,6 +204,7 @@ ACCIONES_DISPONIBLES: tuple[str, ...] = (
     ActionType.SUGERIR_IDEAS,
     ActionType.TESTEAR,
     ActionType.AUDITAR_UX,
+    ActionType.TESTEAR_UI,
     ActionType.INDEXAR,
 )
 
@@ -204,7 +215,12 @@ ACCIONES_DISPONIBLES: tuple[str, ...] = (
 # `analizar-arquitectura`/`sugerir-ideas` con Arquitecto, en vez del
 # `subprocess.run(["opencode", "run", "--auto", ...])` headless previo.
 _ACTION_ROLE_MAP = {
-    "documentar": ARQUITECTO_ROLE,
+    # T-FB024-US20-01: `documentar` pasa de despachar al Arquitecto (con
+    # el prompt de DOCUMENTADOR.md prestado) a despachar a una instancia
+    # independiente del rol `documentador` — mismo mecanismo genérico que
+    # ya usa `auditar-ux` con UX, sin cambios en `_dispatch_agent_action`/
+    # `_find_agent_by_role`.
+    "documentar": DOCUMENTADOR_ROLE,
     "analizar-arquitectura": ARQUITECTO_ROLE,
     "sugerir-ideas": ARQUITECTO_ROLE,
     "auditar-ux": UX_ROLE,
@@ -213,14 +229,16 @@ _ACTION_ROLE_MAP = {
 _ROLE_DISPLAY_NAME = {
     ARQUITECTO_ROLE: "Arquitecto",
     UX_ROLE: "UX",
+    DOCUMENTADOR_ROLE: "Documentador",
 }
 
 
 def dispatch_action(action_id: str, socket_name: str = "default") -> dict:
     """Despacha una acción transversal de proyecto.
 
-    Para acciones que requieren agente (`documentar`, `analizar-arquitectura`,
-    `sugerir-ideas` → Arquitecto; `auditar-ux` → UX, T-FB024-US13-03):
+    Para acciones que requieren agente (`documentar` → Documentador,
+    T-FB024-US20-01; `analizar-arquitectura`/`sugerir-ideas` →
+    Arquitecto; `auditar-ux` → UX, T-FB024-US13-03):
     encuentra el agente del rol correspondiente en la sesión activa, crea y
     despacha un Job con la descripción predefinida, y persiste el informe
     en `07-informes/`. Si no hay ninguna instancia lanzada de ese rol,
@@ -230,6 +248,9 @@ def dispatch_action(action_id: str, socket_name: str = "default") -> dict:
     Para `testear`: ejecuta la suite de tests del proyecto de forma
     determinista (sin LLM), y persiste el resultado en `07-informes/`.
 
+    Para `testear-ui`: ejecuta la suite de tests de interfaz (Puppeteer)
+    de forma determinista (sin LLM), y persiste el resultado en `07-informes/`.
+
     Para `indexar`: recolecta ficheros del proyecto y genera un índice
     temático vía Scribe (modelo local Ollama, T-FB025-US07-01), sin gastar
     tokens de los agentes principales.
@@ -237,6 +258,9 @@ def dispatch_action(action_id: str, socket_name: str = "default") -> dict:
     Devuelve un dict con el resultado de la acción."""
     if action_id == ActionType.TESTEAR:
         return _dispatch_test_action()
+
+    if action_id == ActionType.TESTEAR_UI:
+        return _dispatch_test_ui_action()
 
     if action_id == ActionType.INDEXAR:
         return _dispatch_index_action()
@@ -295,6 +319,95 @@ def _dispatch_test_action() -> dict:
 
     return {
         "action": "testear",
+        "success": result.success,
+        "exit_code": result.exit_code,
+        "stdout": result.stdout,
+        "stderr": result.stderr,
+        "error_message": result.error_message,
+    }
+
+
+def _run_web_tests(project_path: str) -> ScriptRunResult:
+    """Ejecuta los tests de interfaz web (Puppeteer) del proyecto
+    (T-FB022-US15-03) como paso determinista. No es parte del razonamiento
+    del Tester — es un script genérico que corre la suite completa.
+
+    Devuelve `ScriptRunResult` con `success=True` si todos los tests
+    pasan (exit_code 0), o `success=False` con el detalle de fallos en
+    `stdout`/`stderr`. Si no se encuentra un runner de tests web disponible,
+    devuelve un resultado de error explícito, nunca una excepción no
+    controlada."""
+    web_tests_dir = Path(project_path) / "10-web" / "tests"
+    if not web_tests_dir.is_dir():
+        return ScriptRunResult(
+            success=False,
+            exit_code=None,
+            stdout="",
+            stderr="",
+            error_message=(
+                "No se encontró el directorio de tests de interfaz "
+                f"(esperado: {web_tests_dir}). Se necesita "
+                "`10-web/tests/run.js` con la suite de tests."
+            ),
+        )
+
+    run_js_path = web_tests_dir / "run.js"
+    if not run_js_path.exists():
+        return ScriptRunResult(
+            success=False,
+            exit_code=None,
+            stdout="",
+            stderr="",
+            error_message=(
+                f"No se encontró {run_js_path}. Se necesita el runner "
+                "de tests Puppeteer."
+            ),
+        )
+
+    command = ["node", str(run_js_path)]
+    return run_subprocess(
+        command,
+        project_path,
+        DEFAULT_SCRIPT_TIMEOUT_SECONDS,
+        action_description="la suite de tests de interfaz web (Puppeteer)",
+    )
+
+
+def _dispatch_test_ui_action() -> dict:
+    """Ejecuta la suite de tests de interfaz web (Puppeteer) del proyecto
+    de forma determinista (sin LLM), y persiste el resultado en
+    `07-informes/US-FB022-15/` con timestamp."""
+    project = get_active_project()
+    if project is None:
+        raise ProjectNotDiscoveredError("No hay ningún proyecto activo.")
+
+    result = _run_web_tests(project.path)
+
+    story_id = "US-FB022-15"
+    root = _default_reports_root()
+    story_dir = root / story_id
+    story_dir.mkdir(parents=True, exist_ok=True)
+
+    ts = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H%M%S")
+    ts_path = story_dir / f"testear-ui-{ts}.md"
+    report = (
+        f"# Informe de acción · testear-ui\n\n"
+        f"Fecha: {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S UTC')}\n"
+        f"Proyecto: {project.name}\n"
+        f"Éxito: {'sí' if result.success else 'no'}\n"
+    )
+    if result.exit_code is not None:
+        report += f"Exit code: {result.exit_code}\n"
+    report += "\n## Salida\n\n"
+    report += f"```\n{result.stdout}\n```\n"
+    if result.stderr:
+        report += f"\n### Stderr\n\n```\n{result.stderr}\n```\n"
+    if result.error_message:
+        report += f"\n### Error\n\n{result.error_message}\n"
+    ts_path.write_text(report, encoding="utf-8")
+
+    return {
+        "action": "testear-ui",
         "success": result.success,
         "exit_code": result.exit_code,
         "stdout": result.stdout,
