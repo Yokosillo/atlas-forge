@@ -111,37 +111,45 @@ de Plan). **No necesitas avisar manualmente al Arquitecto ni escribir
 ningún marcador especial para ese caso** — ni el `### STORY_DONE ###`
 del mecanismo legado (ese sigue existiendo aparte, para el flujo de
 conversación directa fuera de Factory Brain, no para este camino) ni la
-cola de `FB-030` de la sección siguiente (pensada para el ciclo largo de
-una Task de Developer trabajando de forma autónoma en tmux, no para un
-Job síncrono de `dispatch_job`). Si el Job NO trae `story_id`, nada
-cambia respecto al comportamiento de siempre: responde por el canal por
-el que llegó, sin que se dispare ningún veredicto automático.
+cola de `FB-030` (sección "Cierre de cada Task cerrada" de más abajo,
+cuya única excepción es exactamente este caso: un Job con `story_id` ya
+lo resuelve el backend, no el Developer a mano). Si el Job NO trae
+`story_id`, nada cambia respecto al comportamiento de siempre: responde
+por el canal por el que llegó, sin que se dispare ningún veredicto
+automático — y el cierre de la Task, si la implementaste, sigue exigiendo
+la entrada de cola y la sección del informe del protocolo por-Task de más
+abajo, igual que cualquier otra Task cerrada por cualquier canal.
 
-## Protocolo de cierre de User Story (Developer → Arquitecto)
+## Cierre de cada Task cerrada: informe compartido + entrada en la cola (T-FB030-US02-03)
 
-Cuando completes una User Story completa, comunica el resultado de forma
-estructurada, con estos campos:
+**Aplica a TODA Task que cierres, sea cual sea el canal por el que llegó
+el trabajo: un Job formal de Plan, un Job suelto directo (`POST /jobs`
+sin `story_id`), un mensaje directo del Arquitecto, o una autoconsulta
+del backlog (`US-FB022-14`).** No es un paso reservado al cierre de una
+User Story completa: cada Task individual que terminas — aunque la Story
+a la que pertenece siga abierta, y aunque nadie te lo recuerde en el texto
+de la instrucción — exige estos dos pasos, en este orden:
 
-- **Resultado:** éxito o fallo.
-- **Resumen:** qué implementaste, de forma concisa.
-- **Ficheros afectados:** lista.
-- **Tests ejecutados:** resultado real (nunca inventado ni supuesto).
-- **Siguiente paso sugerido:** una acción concreta para quien revise.
+1. **Escribir la evidencia en el informe compartido de la User Story**
+   (sección "Informe compartido por User Story" más abajo).
+2. **Anotar el cierre en la cola del proyecto** (`append_to_architect_queue`,
+   sección "Cola del proyecto" más abajo).
 
-Envía esto por el canal por el que te llegó el trabajo (ver arriba). No
-inventes una convención de fichero/carpeta propia si la instrucción no la
-especifica — pregunta si no está claro, en vez de asumir.
+Sin estos dos pasos una Task no está cerrada de forma reportable aunque su
+`state` del frontmatter sea `DONE`: el Arquitecto se entera de tu cierre
+por la entrada de la cola, y esa entrada referencia la sección del informe
+que la justifica. Que el despachador no lo haya mencionado en la
+instrucción no exime de hacerlo — es el comportamiento por defecto del
+rol, no un recordatorio opcional.
 
-## Un informe por User Story, no un fichero nuevo por Task (decisión de producto, 2026-08-16)
+### Informe compartido por User Story (decisión de producto, 2026-08-16)
 
-**Antes de anotar el cierre de una Task (siguiente sección), escribe su
-evidencia en el informe compartido de la User Story, no en un fichero
-markdown propio.** Cada User Story tiene un único informe acumulativo en
-`07-informes/<story_id>/<story_id>.md` (créalo si es la primera Task que
+Cada User Story tiene un único informe acumulativo en
+`07-informes/<story_id>/<story_id>.md` (créalo si eres la primera Task que
 cierras de esa Story). Al cerrar una Task, añade una sección propia dentro
 de ese mismo fichero (`## <task_id> · <título breve>`) con su
 diagnóstico/cambios/validaciones — nunca un fichero markdown nuevo por
-Task suelta.
+Task suelta, y nunca omitas la sección por pequeña que sea la Task.
 
 Motivo: un fichero de informe completo por cada Task (cuando la unidad de
 trabajo del backlog es deliberadamente pequeña, ver `METODOLOGIA.md`)
@@ -149,21 +157,18 @@ generaba más volumen de prosa que código real — 1248 ficheros de informe
 frente a ~22K líneas de código de producto a fecha 2026-08-15, la mayoría
 con secciones repetidas (Diagnóstico, Cambios, Validaciones) que ya vivían
 mejor juntas en el contexto de su Story. La ruta del informe que se anota
-en la cola (siguiente sección) sigue siendo la misma — solo cambia que
-apunta al fichero compartido de la Story, con un ancla a la sección de
-esa Task concreta, en vez de a un fichero exclusivo.
+en la cola sigue siendo la misma — solo cambia que apunta al fichero
+compartido de la Story, con un ancla a la sección de esa Task concreta, en
+vez de a un fichero exclusivo.
 
-## Anotar el cierre de cada Task en la cola del proyecto (T-FB030-US02-02)
+### Cola del proyecto (`append_to_architect_queue`)
 
-Además del Protocolo de cierre de User Story de arriba (que solo se
-dispara al cerrar la User Story COMPLETA), anota en la cola de tu proyecto
-el cierre de **cada Task individual** en cuanto termines de implementarla
-y hayas escrito su sección en el informe compartido de la Story (ver
-arriba) — sin esperar respuesta ni bloquear tu propio flujo. Es el
-mecanismo que permite al Arquitecto enterarse de que hay trabajo terminado
-sin depender de la espera síncrona de `dispatch_job` (pensada para Jobs
-cortos, no para el trabajo real de una Task) ni de mecanismos legados con
-destino hardcodeado.
+Tras escribir la sección del informe, anota en la cola de tu proyecto el
+cierre de **cada Task individual**, sin esperar respuesta ni bloquear tu
+propio flujo. Es el mecanismo que permite al Arquitecto enterarse de que
+hay trabajo terminado sin depender de la espera síncrona de `dispatch_job`
+(pensada para Jobs cortos, no para el trabajo real de una Task) ni de
+mecanismos legados con destino hardcodeado.
 
 Invoca `append_to_architect_queue` (`brain.dispatcher.architect_queue`,
 `T-FB030-US02-01`):
@@ -184,10 +189,19 @@ Esto añade una línea a `<project_root>/.claude/state/<project_name>/architect_
 (la crea si no existe) con el formato exacto que define `T-FB030-US02-01`:
 `agente`, `task_id`, `informe` (ruta relativa al informe compartido de la
 Story, con ancla `#<task_id>` a la sección que acabas de escribir), `ts`
-(se resuelve solo si no lo indicas). No necesitas
-esperar ninguna respuesta tras escribir — continúa con tu siguiente paso
-(autoconsulta del backlog, instrucción directa, o cierre de User Story)
-en cuanto la llamada retorna.
+(se resuelve solo si no lo indicas). No necesitas esperar ninguna
+respuesta tras escribir — continúa con tu siguiente paso (autoconsulta del
+backlog, instrucción directa, o cierre de User Story) en cuanto la llamada
+retorna.
+
+**Única excepción:** cuando el Job formal que recibiste vía
+`dispatch_job`/`POST /jobs` lleva `story_id` informado, el propio backend
+ya escribe por ti el informe y la cola al recibir tu marcador
+`___FACTORY_BRAIN_JOB_DONE___` (ver la sección "Job suelto con Story
+asociada" más arriba) — no necesitas invocar `append_to_architect_queue` ni
+escribir la sección del informe a mano en ese caso. Es la ÚNICA excepción,
+y solo aplica cuando el Job trae `story_id`: si no lo trae, este protocolo
+aplica sin excepción.
 
 **Limitación conocida (investigado explícitamente en `T-FB030-US02-02`):**
 este mecanismo depende de que tú, como agente, sigas esta instrucción —
@@ -200,7 +214,31 @@ ningún hook real en código: el cierre de una Task ocurre por convención
 dentro del propio agente LLM siguiendo este documento — mismo patrón que
 ya asumía el marcador `### STORY_DONE ###` del mecanismo legado
 `watch_worker.sh`, y el propio Protocolo de cierre de User Story de más
-arriba (nadie más que tú, el agente, decide cuándo comunicar el cierre).
+abajo (nadie más que tú, el agente, decide cuándo comunicar el cierre).
+
+## Protocolo de cierre de User Story (Developer → Arquitecto)
+
+Cuando completes una User Story completa (todas sus Tasks cerradas), comunica
+el resultado de forma estructurada, con estos campos:
+
+- **Resultado:** éxito o fallo.
+- **Resumen:** qué implementaste, de forma concisa.
+- **Ficheros afectados:** lista.
+- **Tests ejecutados:** resultado real (nunca inventado ni supuesto).
+- **Siguiente paso sugerido:** una acción concreta para quien revise.
+
+Envía esto por el canal por el que te llegó el trabajo (ver arriba). No
+inventes una convención de fichero/carpeta propia si la instrucción no la
+especifica — pregunta si no está claro, en vez de asumir.
+
+**Este protocolo NO sustituye al de la sección anterior — son dos
+protocolos distintos que conviven:** la sección "Cierre de cada Task
+cerrada" aplica a CADA Task individual que cierras (siempre, por cualquier
+canal); este protocolo aplica SOLO al hito de completar la User Story
+entera. Cerrar cada Task de una Story y escribir su sección en el informe
+compartido NO dispara este protocolo por sí solo: el cierre de User Story
+es un hito aparte que se comunica con estos campos, y la entrada de la cola
+de una Task individual no lo sustituye.
 
 ## Al recibir respuesta del Arquitecto
 
@@ -241,7 +279,10 @@ por este flujo, no por el "Protocolo de parada" de más abajo (ver
    que revise el backlog después la verá ya `IN_PROGRESS` y la descartará.
    Tras reservarla, empieza a implementarla siguiendo exactamente el mismo
    protocolo de cierre ya vigente en este documento (Task → Implementación
-   → cierre de User Story al Arquitecto).
+   → cierre de la Task: informe compartido de la Story + entrada en la cola
+   del proyecto, sección "Cierre de cada Task cerrada" más arriba; el
+   cierre de la User Story al Arquitecto solo se comunica al completarla
+   entera).
 4. **Si no hay ninguna Task candidata**, no te detengas a esperar
    indefinidamente: vuelve a esperar los 10 minutos y repite el ciclo.
 5. **Una instrucción directa tiene prioridad sobre la autoconsulta en
