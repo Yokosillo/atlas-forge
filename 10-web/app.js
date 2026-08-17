@@ -87,7 +87,13 @@
   // un asset real (ver `app.py::_SPAStaticFiles`), así que esto es
   // puramente de enrutado en el cliente: no hay servidor de rutas nuevo.
   var DEFAULT_SECTION = "backlog";
-  var ROUTE_SECTIONS = ["backlog", "roles", "arquitecto", "plan", "scripts", "acciones", "agents", "jobs", "models", "configuracion"];
+  // "agents" ya NO es una ruta válida (T-FB024-US11-12): esa sección
+  // (agentsSection/renderAgentActions) era código inalcanzable desde la
+  // navegación real (nunca tuvo pestaña visible) con un diseño ya
+  // superado por US-FB005-07 — eliminada del fichero. Sin esta entrada,
+  // visitar `/ui/agents` directamente cae al `DEFAULT_SECTION` en vez de
+  // intentar cargar una sección que ya no existe.
+  var ROUTE_SECTIONS = ["backlog", "roles", "arquitecto", "plan", "scripts", "acciones", "jobs", "models", "configuracion"];
 
   function sectionFromPath(pathname) {
     // "/ui/roles" -> "roles"; "/ui/" o "/ui" -> sección por defecto.
@@ -112,7 +118,7 @@
     // Valor inicial resuelto desde la URL real (T-FB024), no un literal
     // fijo — así recargar la página respeta la sección en la que estabas.
     section: sectionFromPath(window.location.pathname),
-    sections: { agents: null, jobs: null, plan: null, scripts: null, backlog: null, models: null, roles: null, configuracion: null },
+    sections: { jobs: null, plan: null, scripts: null, backlog: null, models: null, roles: null, configuracion: null },
     showPicker: false,
     pickerReason: "initial", // "initial" (onboarding) | "change" (voluntario)
     pendingBacklogCount: 0, // T-FB024-US01-02: numero de Epics/US con TODO>0
@@ -168,46 +174,58 @@
     modelIndexDirty: false,
     // T-FB024-US12-02: agent_id de Developer con confirmación de
     // "Eliminar" pendiente (doble pulsación) | null. Mismo patrón que
-    // `agentsSection.stopPendingFor`/`plansSection.cancelPendingFor`: el
-    // aviso crece en la etiqueta del propio botón, sin desplazar el resto
-    // del layout entre el primer y el segundo clic.
+    // `plansSection.cancelPendingFor`: el aviso crece en la etiqueta del
+    // propio botón, sin desplazar el resto del layout entre el primer y
+    // el segundo clic.
     devStopPendingFor: null,
     saving: false,
     saveError: null,
-    // Modal fallback de "Copiar comando de conexión" si clipboard.writeText falla.
-    detalleAgent: null,
-    detalleCopied: false,
-    // T-FB024-US11-05: agent_id en curso de "Consultar modelo" (Claude
-    // Code, bajo demanda vía /status) | null — mientras está en curso, el
-    // botón de esa fila muestra "Consultando…" y queda deshabilitado
-    // (single-flight, misma acción no puede dispararse dos veces
-    // solapada). statusModelByAgentId guarda el último resultado
-    // consultado por agent_id ({model, error}), mostrado bajo el botón
-    // tras la respuesta — nunca se dispara automáticamente ni se limpia
-    // por polling, solo por una nueva consulta explícita.
-    statusModelQueryPendingFor: null,
-    statusModelByAgentId: {},
     // Límite de Developer simultáneos (US-FB024-12, GET /system/preferences)
     // — null hasta que responda el backend, buildUnifiedRows usa el default
     // local mientras tanto (ver DEFAULT_MAX_SIMULTANEOUS_DEVELOPERS).
     maxSimultaneousDevelopers: null,
-    // "Revisar si está bloqueado": single-flight del POST /jobs al Arquitecto.
-    reviewingBlockedAgentId: null,
-    reviewBlockedError: null,
+    // "Despertar": single-flight del POST /agents/{id}/send-keys (empujón al pane).
+    awakeningAgentId: null,
+    awakenError: null,
+    // T-FB005-US07-03: runtime elegido por fila ANTES de lanzar
+    // (`chosenRuntimeByRow[rowKey]` = "opencode"|"claude-code"|"codex") —
+    // el runtime es una elección explícita y obligatoria para un agente
+    // no lanzado (nunca se infiere en silencio del modelo); una vez lanzado
+    // queda fijo (se muestra como texto, sin control de cambio en caliente).
+    // Se guarda por `rowKeyFor(agent)` para que cada fila (Developer-1/2/3,
+    // Arquitecto, UX, ...) tenga su propia elección.
+    chosenRuntimeByRow: {},
+    // T-FB005-US07-03: cambio de modelo en caliente de un agente OpenCode
+    // vivo (idle) — single-flight por `agent_id` en vuelo, con el
+    // resultado/error del `PUT /agents/{id}/model` real.
+    changeModelInFlight: null,
+    changeModelError: null,
+    changeModelResult: null, // {agentId, model, changed}
+    // T-FB024-US11-12 (ajuste de diseño): selector de modelo INLINE para
+    // un agente OpenCode vivo en idle, mismo patrón visual que
+    // `renderRuntimeSelector` (dropdown directo en la fila, sin botón
+    // previo que abrir) — `liveModelOptionsByAgentId[agent.id]` cachea el
+    // catálogo ya cargado (`GET /agents/{id}/available-models`, evita
+    // recargarlo en cada tick de polling); `liveModelIndexByAgentId`
+    // guarda la selección en curso del <select> por agente, para no
+    // perderla si el polling reconstruye la fila mientras el usuario
+    // todavía no ha confirmado (mismo criterio que `modelIndexDirty` del
+    // editor de modelo por defecto, T-FB024-US11-07).
+    liveModelOptionsByAgentId: {},
+    liveModelIndexByAgentId: {},
   };
 
   // ------------------------------------------------------------------
-  // Sección AGENTES (T-FB021-US03-01). A diferencia de Jobs/Plan/Scripts
-  // (cargados una vez y cacheados en `state.sections`), la lista de agentes
-  // se refresca por POLLING cada [POLL_INTERVAL_MILLIS] mientras la pestaña
-  // está visible — mismo intervalo/criterio que
+  // Sección AGENTES (pestaña "Agentes" real, `rolesSection`/
+  // `renderUnifiedRow` — ver más abajo; T-FB024-US11-12 eliminó la
+  // implementación paralela `agentsSection`/`renderAgentActions`, código
+  // inalcanzable desde la navegación real). A diferencia de Jobs/Plan/
+  // Scripts (cargados una vez y cacheados en `state.sections`), la lista
+  // de agentes se refresca por POLLING cada [POLL_INTERVAL_MILLIS]
+  // mientras la pestaña está visible — mismo intervalo/criterio que
   // `AgentsViewModel.POLL_INTERVAL_MILLIS` (Android, 3s): no existe canal
   // WebSocket de estado de agente en FB-016 (solo `job_status` en
   // `WS /ws/jobs`), por lo que el polling ligero es el mecanismo.
-  //
-  // El estado de la sección vive en `agentsSection` (no en un módulo que se
-  // reinicialice): `list` es la última lista vista y `stale` indica que el
-  // último ciclo de polling falló pero la lista se conserva (criterio 2).
   var POLL_INTERVAL_MILLIS = 3000;
 
   // Paleta fija de estado — misma que `colorForAgentStatus` (Android):
@@ -226,48 +244,6 @@
   function agentStatusColor(status) {
     return AGENT_STATUS_COLORS[status] || "#757575";
   }
-
-  // Estado de la sección Agentes: la lista (con su señal de "desactualizada")
-  // y el catálogo de lanzamiento (estado de carga propio e independiente del
-  // polling — punto 6: el catálogo `GET /agents/options` se resuelve UNA sola
-  // vez y el formulario no se muestra mientras está cargando).
-  var agentsSection = {
-    list: null, // null = sin lista todavía | array = última lista vista
-    stale: false,
-    listError: null,
-    showStopped: false,
-    catalogState: null, // null=sin empezar | "loading" | "ready" | "unavailable"
-    catalog: null,
-    catalogError: null,
-    optionIndex: 0,
-    modelInput: "",
-    taskInput: "",
-    launching: false,
-    actionMessage: null,
-    bodyWrap: null,
-    pollTimer: null,
-    // Confirmación de "Detener" (segunda pulsación, T-FB021-US03-02).
-    stopPendingFor: null, // agent_id con confirmación pendiente | null
-    stopPendingHasJob: false,
-    stoppingAgentId: null, // parada en vuelo (single-flight); el botón se deshabilita
-    // Pane de actividad (T-FB021-US03-02): null=cerrado | "loading" |
-    // "open" | "unavailable".
-    paneState: null,
-    paneAgentId: null,
-    paneAgentName: null,
-    paneContent: null,
-    paneMessage: null,
-    // Cambio de modelo (T-FB021-US07-01): confirmacion de segunda pulsacion
-    // y single-flight, mismo idioma que el resto de la web.
-    modelChangeAgentId: null, // agente cuyo cambio esta en curso | null
-    modelChangePending: null, // {agent_id, model} con confirmacion pendiente | null
-    modelChangeError: null, // mensaje de error tras intento de cambio | null
-    modelOptions: null, // catalogo de modelos disponibles, cacheado por agente
-    // T-FB024-US11-11: Cambio de runtime (separado de modelo)
-    runtimeChangeAgentId: null, // agente cuyo cambio de runtime esta en curso | null
-    runtimeChangePending: null, // {agent_id, runtime} con confirmacion pendiente | null
-    launchPending: false, // T-FB024-US04-01: confirmacion antes de lanzar
-  };
 
   // ------------------------------------------------------------------
   // Sección JOBS (T-FB021-US04-01). El estado de la sección vive en
@@ -829,7 +805,7 @@
   }
 
   function SECTION_LABEL(key) {
-    return { roles: "Agentes", agents: "Agentes", jobs: "Jobs", plan: "Plan", scripts: "Scripts", backlog: "Backlog", models: "Modelos", acciones: "Acciones", arquitecto: "Arquitecto", configuracion: "Configuración" }[key];
+    return { roles: "Agentes", jobs: "Jobs", plan: "Plan", scripts: "Scripts", backlog: "Backlog", models: "Modelos", acciones: "Acciones", arquitecto: "Arquitecto", configuracion: "Configuración" }[key];
   }
 
   // Barra de estado del Arquitecto (US-FB028-01): segunda linea bajo
@@ -886,19 +862,6 @@
   // correcta y no debe volver a empujarse al historial (evitaría poder
   // navegar hacia atrás nunca, cada "atrás" generaría una entrada nueva).
   function switchSection(key, fromHistory) {
-    if (key !== state.section && state.section === "agents") {
-      // Al salir de la pestaña Agentes se para el polling (no se hacen
-      // llamadas de fondo sin pantalla visible); al volver se reanuda.
-      // El estado de cambio de modelo se limpia al salir (mismo criterio
-      // que el pane de actividad, que persiste mientras se esta en la
-      // seccion pero se cierra al cambiar).
-      stopAgentsPolling();
-      agentsSection.modelChangePending = null;
-      agentsSection.modelChangeError = null;
-      agentsSection.modelChangeAgentId = null;
-      agentsSection.modelOptions = null;
-      agentsSection.launchPending = false;
-    }
     if (key !== state.section && state.section === "roles") {
       stopRolesPolling();
       rolesSection.editingRole = null;
@@ -906,13 +869,11 @@
       rolesSection.modelIndex = 0;
       rolesSection.modelIndexDirty = false;
       rolesSection.saveError = null;
-      rolesSection.detalleAgent = null;
-      rolesSection.detalleCopied = false;
-      rolesSection.reviewingBlockedAgentId = null;
-      rolesSection.reviewBlockedError = null;
       rolesSection.devStopPendingFor = null;
-      rolesSection.statusModelQueryPendingFor = null;
-      rolesSection.statusModelByAgentId = {};
+      rolesSection.awakeningAgentId = null;
+      rolesSection.awakenError = null;
+      rolesSection.liveModelOptionsByAgentId = {};
+      rolesSection.liveModelIndexByAgentId = {};
     }
     if (key !== state.section && state.section === "jobs") {
       // Al salir de la pestaña Jobs se cierra el WebSocket (no se mantiene
@@ -960,13 +921,6 @@
     if (state.section === "roles") {
       ROOT.appendChild(content);
       renderRolesInto(content);
-      return;
-    }
-    // Agentes tiene su propio renderizado con estado (polling + catálogo +
-    // formulario): no pasa por la carga/caché única de Jobs/Plan/Scripts.
-    if (state.section === "agents") {
-      ROOT.appendChild(content);
-      renderAgentsInto(content);
       return;
     }
     // Jobs también tiene su propio renderizado con estado (formulario +
@@ -1056,7 +1010,7 @@
   }
 
   // Renderizado puro de cada sección (sin estado mutable aquí). La sección
-  // Agentes NO pasa por aquí (tiene su propio renderizado en `renderAgentsInto`).
+  // Roles/Agentes NO pasa por aquí (tiene su propio renderizado en `renderRolesInto`).
   function renderSectionData(key, data) {
     var box = h("div", "section-data");
     if (data && data.error) {
@@ -1093,89 +1047,6 @@
       });
     }
     return box;
-  }
-
-  // ------------------------------------------------------------- AGENTES
-  // (T-FB021-US03-01). Polling 3s + filtro de detenidos + formulario de
-  // lanzamiento con catálogo propio. Ver `agentsSection` arriba.
-
-  // Entrada de la sección: crea el contenedor, arranca el polling y la
-  // carga única del catálogo, y renderiza.
-  function renderAgentsInto(content) {
-    agentsSection.bodyWrap = h("div", "agents-body");
-    content.appendChild(agentsSection.bodyWrap);
-    startAgentsPolling();
-    ensureAgentsCatalog();
-    renderAgentsBody();
-  }
-
-  // Polling periódico (3s). El intervalo se para solo al salir de la
-  // pestaña (ver `switchSection`); mientras está en otro sección no hace
-  // ninguna llamada.
-  function startAgentsPolling() {
-    if (agentsSection.pollTimer) return;
-    agentsSection.pollTimer = setInterval(function () {
-      if (state.section !== "agents") {
-        stopAgentsPolling();
-        return;
-      }
-      pollAgents();
-    }, POLL_INTERVAL_MILLIS);
-    pollAgents();
-  }
-
-  function stopAgentsPolling() {
-    if (agentsSection.pollTimer) {
-      clearInterval(agentsSection.pollTimer);
-      agentsSection.pollTimer = null;
-    }
-  }
-
-  // Un fallo puntual de un ciclo de polling no borra la última lista ya
-  // vista (criterio 2): si ya había lista, se conserva marcada `stale`
-  // (aviso "puede que esta lista esté desactualizada") en vez de
-  // sustituirla por un error genérico o vaciarla — mismo criterio que
-  // `nextStateAfterPollFailure` (Android). Solo cuando nunca hubo lista
-  // (primer arranque) se muestra el error de conexión.
-  async function pollAgents() {
-    try {
-      var agents = await BackendClient.getAgents();
-      agentsSection.list = agents;
-      agentsSection.stale = false;
-      agentsSection.listError = null;
-    } catch (error) {
-      if (agentsSection.list !== null) {
-        agentsSection.stale = true;
-      } else {
-        agentsSection.listError = buildErrorMessage(error);
-        agentsSection.stale = false;
-      }
-    }
-    if (state.section === "agents") renderAgentsBody();
-  }
-
-  // Catálogo `GET /agents/options`: estado de carga PROPIO e independiente
-  // del polling de agentes (punto 6). Se resuelve UNA sola vez (no se
-  // repite en cada ciclo). Mientras carga, el formulario de lanzamiento no
-  // se muestra en absoluto (evita un desplegable vacío u obsoleto). Un
-  // catálogo vacío es un caso distinto de "no se pudo cargar": ambos se
-  // tratan explícitamente, sin asumir `options[0]` como seguro (incidente
-  // real T-FB017-US01-10: un 404 de esta ruta tiraba la app).
-  function ensureAgentsCatalog() {
-    if (agentsSection.catalogState) return; // ya empezado/resuelto
-    agentsSection.catalogState = "loading";
-    renderAgentsBody();
-    BackendClient.getAgentOptions()
-      .then(function (options) {
-        agentsSection.catalogState = "ready";
-        agentsSection.catalog = options || [];
-        renderAgentsBody();
-      })
-      .catch(function (error) {
-        agentsSection.catalogState = "unavailable";
-        agentsSection.catalogError = buildErrorMessage(error);
-        renderAgentsBody();
-      });
   }
 
   // --------------------------------------------------- FB-028 Arquitecto
@@ -1256,22 +1127,25 @@
     if (state.section === "roles") renderRolesBody();
   }
 
-  function launchArquitecto() {
+  function launchArquitecto(agent) {
     if (arquitectoState.launchPending || arquitectoState.stopPending) return;
-    if (!arquitectoState.defaultModel) return;
+    // T-FB005-US07-03: el runtime lo elige el usuario en la fila de la
+    // pantalla Agentes (selector obligatorio). Sin runtime elegido, no se
+    // lanza (criterio 1 de US-FB005-07).
+    var chosenRuntime = agent ? chosenRuntimeForRow(agent) : "";
+    if (!chosenRuntime) return;
     arquitectoState.launchPending = true;
     renderArquitectoBar();
-    // Claude Code no admite el campo `model` en POST /agents: cuando el
-    // modelo por defecto es claude-code, se manda `runtime_type` sin modelo.
-    // Para el resto de modelos se manda `model_id` con el id real. T-FB005-
-    // US07-02: el runtime se manda SIEMPRE explícito (contrato), nunca se
-    // deja que el backend lo infiera del modelo.
-    var arqPayload = { role: "arquitecto" };
-    if (arquitectoState.defaultModel === "claude-code") {
-      arqPayload.runtime_type = "claude-code";
-    } else {
-      arqPayload.model_id = arquitectoState.defaultModel;
-      arqPayload.runtime_type = launchRuntimeForModel(arquitectoState.defaultModel) || "opencode";
+    // El runtime mandado es SIEMPRE el elegido (nunca el inferido del
+    // modelo, T-FB005-US07-02). El modelo solo se manda cuando el runtime
+    // lo admite (OpenCode) y el default del rol es un modelo real (no
+    // "claude-code", que es un runtime, no un modelo de OpenCode).
+    var arqPayload = { role: "arquitecto", runtime_type: chosenRuntime };
+    if (chosenRuntime === "opencode") {
+      var defaultId = arquitectoState.defaultModel;
+      if (defaultId && defaultId !== "claude-code") {
+        arqPayload.model_id = defaultId;
+      }
     }
     BackendClient.launchAgent(arqPayload)
       .then(function (agent) {
@@ -1318,607 +1192,6 @@
       });
   }
 
-  // Cuerpo completo de la sección: cabecera con toggle, mensaje de acción,
-  // lista y formulario de lanzamiento.
-  function renderAgentsBody() {
-    var wrap = agentsSection.bodyWrap;
-    if (!wrap) return;
-    wrap.textContent = "";
-
-    var header = h("div", "agents-header");
-    header.appendChild(h("span", "agents-title", "Agentes"));
-    var toggle = button(
-      agentsSection.showStopped ? "Ocultar detenidos" : "Mostrar detenidos"
-    );
-    toggle.addEventListener("click", function () {
-      agentsSection.showStopped = !agentsSection.showStopped;
-      renderAgentsBody();
-    });
-    header.appendChild(toggle);
-    wrap.appendChild(header);
-
-    if (agentsSection.actionMessage) {
-      wrap.appendChild(h("p", "agent-message", agentsSection.actionMessage));
-    }
-
-    if (agentsSection.modelChangeError) {
-      wrap.appendChild(h("p", "agent-error", agentsSection.modelChangeError));
-    }
-
-    renderAgentsPanePanel(wrap);
-    renderAgentsList(wrap);
-    renderAgentsLaunchForm(wrap);
-  }
-
-  // Filtro "Mostrar/Ocultar detenidos" (criterio 3): por defecto se ocultan
-  // los `stopped`. DECISIÓN DOCUMENTADA: la TUI no filtra (muestra todos),
-  // pero se replica el criterio de Android (`visibleAgentsFor`) en la web —
-  // un agente `stopped` no vuelve a `idle` (sin transición de salida, ver
-  // `brain/agents/lifecycle.py`) y solo puede relanzarse desde cero; ocultarlo
-  // por defecto evita que ocupe espacio sin utilidad, y el toggle + el conteo
-  // de ocultos permiten consultarlo siempre. Es estado de presentación puro,
-  // no afecta a ninguna llamada al backend.
-  function visibleAgentsFor(agents) {
-    if (agentsSection.showStopped) return agents;
-    return agents.filter(function (agent) {
-      return agent.status !== "stopped";
-    });
-  }
-
-  function renderAgentsList(wrap) {
-    if (agentsSection.list === null) {
-      if (agentsSection.listError) {
-        wrap.appendChild(
-          h("p", "agent-error", "No se pudo contactar con el backend: " + agentsSection.listError)
-        );
-      } else {
-        wrap.appendChild(h("p", "section-note", "Cargando agentes…"));
-      }
-      return;
-    }
-
-    if (agentsSection.stale) {
-      wrap.appendChild(
-        h(
-          "p",
-          "stale-note",
-          "Puede que esta lista esté desactualizada (sin conexión con el backend)."
-        )
-      );
-    }
-
-    var visible = visibleAgentsFor(agentsSection.list);
-    var hidden = agentsSection.list.length - visible.length;
-
-    if (visible.length === 0) {
-      wrap.appendChild(
-        h(
-          "p",
-          "section-note",
-          hidden > 0
-            ? "Agentes lanzados: ninguno visible (" +
-                hidden +
-                ' detenido(s) oculto(s) — usa "Mostrar detenidos").'
-            : "Agentes lanzados: ninguno"
-        )
-      );
-      return;
-    }
-
-    visible.forEach(function (agent) {
-      var card = h("div", "agent-card");
-      card.appendChild(h("div", "agent-name", agent.name + " (" + agent.role + ")"));
-      var statusRow = h("div", "agent-status-row");
-      var dot = h("span", "status-dot");
-      dot.style.backgroundColor = agentStatusColor(agent.status);
-      statusRow.appendChild(dot);
-      // El color es complementario, NUNCA sustituto: el estado siempre va
-      // en texto (criterio 4).
-      statusRow.appendChild(h("span", "status-text", "Estado: " + agent.status));
-      card.appendChild(statusRow);
-      card.appendChild(
-        h("div", "agent-runtime", "Runtime: " + runtimeDisplayName(agent.runtime_id))
-      );
-      card.appendChild(
-        h("div", "agent-model", "Modelo: " + (agent.model || "sin modelo"))
-      );
-      card.appendChild(renderAgentActions(agent));
-      wrap.appendChild(card);
-    });
-
-    if (hidden > 0) {
-      // El conteo de ocultos se indica SIEMPRE que hay agentes `stopped`
-      // ocultos, no solo cuando la lista queda vacía (criterio 3).
-      wrap.appendChild(
-        h(
-          "p",
-          "section-note agents-hidden-count",
-          hidden + ' detenido(s) oculto(s) — usa "Mostrar detenidos" para verlos.'
-        )
-      );
-    }
-  }
-
-  // --------------------------------------------------------- acciones por
-  // agente (T-FB021-US03-02): "Ver actividad" (pane), "Cambiar runtime",
-  // "Cambiar modelo" (T-FB024-US11-11: separados, solo modelo en idle) y
-  // "Detener" (confirmacion de segunda pulsacion).
-  function renderAgentActions(agent) {
-    var actions = h("div", "agent-actions");
-
-    var paneBtn = button("Ver actividad");
-    paneBtn.addEventListener("click", function () {
-      viewAgentPane(agent);
-    });
-    actions.appendChild(paneBtn);
-
-    // T-FB024-US11-11: Separación de controles runtime vs modelo
-    if (agent.runtime_id && agent.status !== "stopped") {
-      // Cambiar runtime (todos los runtimes, pero NO con agente activo)
-      var runtimeDisabled = agent.status !== "idle";
-      var isRuntimeChanging = agentsSection.runtimeChangeAgentId === agent.id;
-      var isRuntimePending = agentsSection.runtimeChangePending && agentsSection.runtimeChangePending.agent_id === agent.id;
-      var runtimeBtnLabel;
-
-      if (isRuntimeChanging) {
-        runtimeBtnLabel = "Cambiando runtime…";
-      } else if (isRuntimePending) {
-        runtimeBtnLabel = "¿Seguro? Cambiar a " + agentsSection.runtimeChangePending.runtime;
-      } else if (runtimeDisabled) {
-        runtimeBtnLabel = "Cambiar runtime (detén el agente primero)";
-      } else {
-        runtimeBtnLabel = "Cambiar runtime";
-      }
-      var runtimeBtn = button(runtimeBtnLabel, "agent-runtime-change");
-      runtimeBtn.disabled = runtimeDisabled || isRuntimeChanging;
-      runtimeBtn.addEventListener("click", function () {
-        if (isRuntimePending) {
-          executeRuntimeChange(agent);
-        } else {
-          requestRuntimeChange(agent);
-        }
-      });
-      actions.appendChild(runtimeBtn);
-
-      // Cambiar modelo (solo para OpenCode en idle)
-      if (agent.runtime_id === "opencode" && agent.status === "idle") {
-        var isChanging = agentsSection.modelChangeAgentId === agent.id;
-        var isPending = agentsSection.modelChangePending && agentsSection.modelChangePending.agent_id === agent.id;
-        var changeLabel;
-
-        if (isChanging) {
-          changeLabel = "Cambiando modelo…";
-        } else if (isPending) {
-          changeLabel = "¿Seguro? Cambiar a " + agentsSection.modelChangePending.model;
-        } else {
-          changeLabel = "Cambiar modelo";
-        }
-        var changeBtn = button(changeLabel, "agent-model-change");
-        if (isChanging) changeBtn.disabled = true;
-        changeBtn.addEventListener("click", function () {
-          requestModelChange(agent);
-        });
-        actions.appendChild(changeBtn);
-      }
-    }
-
-    // Un agente `stopped` no se puede volver a detener: sin botón
-    // (mismo criterio que Android/TUI).
-    if (agent.status !== "stopped") {
-      var isThisStopping = agentsSection.stoppingAgentId === agent.id;
-      var isThisPending = agentsSection.stopPendingFor === agent.id;
-      var stopLabel;
-      if (isThisStopping) {
-        stopLabel = "Deteniendo…";
-      } else if (isThisPending) {
-        // Punto 3: el aviso combinado se escribe en la ETIQUETA del propio
-        // botón que se pulsa (nunca en un elemento de texto aparte que
-        // pueda crecer y desplazar el layout entre el primer y el segundo
-        // clic). Texto exacto, mismo que la TUI.
-        stopLabel = agentsSection.stopPendingHasJob
-          ? "¿Seguro? Tiene un Job en curso — se interrumpirá. Confirmar detener"
-          : "¿Seguro? Confirmar detener";
-      } else {
-        stopLabel = "Detener";
-      }
-      var stopBtn = button(stopLabel, "agent-stop");
-      if (isThisStopping) stopBtn.disabled = true;
-      stopBtn.addEventListener("click", function () {
-        requestStop(agent);
-      });
-      actions.appendChild(stopBtn);
-    }
-
-    return actions;
-  }
-
-  // Conjunto de `agent_id` con algún Job actualmente `running` (punto 2):
-  // mismo cálculo que `agentsWithRunningJob` (Android) /
-  // `_agents_with_running_job` (TUI), derivado de `GET /jobs` sin ningún
-  // endpoint nuevo.
-  function agentsWithRunningJob(jobs) {
-    return (jobs || [])
-      .filter(function (job) {
-        return job.status === "running";
-      })
-      .map(function (job) {
-        return job.agent_id;
-      });
-  }
-
-  // Detener con confirmación de "segunda pulsación" (decisión documentada:
-  // mismo mecanismo idiomático ya validado en la TUI para este producto,
-  // en vez de un `confirm()` nativo del navegador — consistencia visual
-  // entre clientes y aviso combinado en la etiqueta del botón).
-  //   1er clic  -> se pide confirmar (etiqueta del botón). Si `GET /jobs`
-  //                falla al calcular el aviso de Job en curso, se degrada a
-  //                "sin aviso" sin tumbar el refresco de la lista (que es
-  //                la información primaria, punto 2).
-  //   2º clic   -> se ejecuta la parada real.
-  function requestStop(agent) {
-    if (agentsSection.stoppingAgentId) return; // single-flight
-    if (agentsSection.stopPendingFor !== agent.id) {
-      agentsSection.stopPendingFor = agent.id;
-      agentsSection.stopPendingHasJob = false;
-      renderAgentsBody();
-      BackendClient.getJobs()
-        .then(function (jobs) {
-          agentsSection.stopPendingHasJob =
-            agentsWithRunningJob(jobs).indexOf(agent.id) >= 0;
-          if (agentsSection.stopPendingFor === agent.id && state.section === "agents") {
-            renderAgentsBody();
-          }
-        })
-        .catch(function () {
-          // Degradación: sin aviso de Job en curso en este ciclo.
-          if (agentsSection.stopPendingFor === agent.id && state.section === "agents") {
-            renderAgentsBody();
-          }
-        });
-      return;
-    }
-    executeStop(agent);
-  }
-
-  // Parada real (`POST /agents/{id}/stop`). Single-flight (punto 5): si ya
-  // hay una parada en vuelo, la segunda invocación se descarta de inmediato
-  // (no se detiene dos veces ni se hacen dos peticiones reales).
-  function executeStop(agent) {
-    if (agentsSection.stoppingAgentId) return;
-    agentsSection.stopPendingFor = null;
-    agentsSection.stoppingAgentId = agent.id;
-    agentsSection.actionMessage = null;
-    renderAgentsBody();
-    BackendClient.stopAgent(agent.id)
-      .then(function (stopped) {
-        agentsSection.stoppingAgentId = null;
-        agentsSection.actionMessage =
-          "Agente '" + stopped.name + "' detenido (" + stopped.status + ").";
-        renderAgentsBody();
-        return pollAgents();
-      })
-      .catch(function (error) {
-        agentsSection.stoppingAgentId = null;
-        agentsSection.actionMessage = buildErrorMessage(error);
-        renderAgentsBody();
-      });
-  }
-
-  // ------------------------------------------------- cambio de runtime
-  // (T-FB024-US11-11): Separado de cambio de modelo. Solo permitido en
-  // agentes idle (no running, no stopped). Runtimes disponibles:
-  // OpenCode, Claude Code, Codex. Nota: cambiar runtime implica
-  // relanzar la instancia (el runtime es el "motor" del agente).
-  function requestRuntimeChange(agent) {
-    if (agentsSection.runtimeChangeAgentId) return; // single-flight
-    // Mostrar selector de runtimes disponibles
-    var availableRuntimes = ["OpenCode", "Claude Code", "Codex"];
-    var chosen = prompt(
-      "Elige un runtime para " + agent.name + ":\n\n" +
-      availableRuntimes.map(function (r, i) { return (i + 1) + ". " + r; }).join("\n") +
-      "\n\nEscribe el nombre exacto del runtime:"
-    );
-    if (!chosen) {
-      return;
-    }
-    // Normalizar entrada
-    var chosenTrimmed = chosen.trim();
-    var found = availableRuntimes.filter(function (r) { return r.toLowerCase() === chosenTrimmed.toLowerCase(); });
-    if (found.length === 0) {
-      agentsSection.actionMessage = "El runtime '" + chosen + "' no es válido.";
-      renderAgentsBody();
-      return;
-    }
-    // Solicitar confirmación de segunda pulsación
-    agentsSection.runtimeChangePending = { agent_id: agent.id, runtime: found[0] };
-    agentsSection.actionMessage = "¿Seguro? Se detendrá el agente y se relanzará con " + found[0] + ".";
-    renderAgentsBody();
-  }
-
-  // Ejecución de cambio de runtime: detiene y relanza con nuevo runtime.
-  // Por ahora, esto es un flujo manual que requiere que el usuario lo haga:
-  // 1. Detener agente actual
-  // 2. Lanzar con nuevo runtime
-  // Esta versión muestra un mensaje de confirmación documentando que no hay
-  // forma de hacerlo automáticamente desde la API actual.
-  function executeRuntimeChange(agent) {
-    if (agentsSection.runtimeChangeAgentId) return; // single-flight
-    agentsSection.runtimeChangePending = null;
-    agentsSection.runtimeChangeAgentId = agent.id;
-    renderAgentsBody();
-    // Documentar limitación: cambio de runtime requiere parada manual
-    // (no hay endpoint único para relanzar con nuevo runtime)
-    agentsSection.actionMessage =
-      "Cambio de runtime requiere parar el agente y relanzarlo manualmente. " +
-      "El agente será detenido; relánzalo con el nuevo runtime desde la sección de catálogo.";
-    agentsSection.runtimeChangeAgentId = null;
-    // Proceder a detener el agente
-    requestStop(agent);
-    renderAgentsBody();
-  }
-
-  // ------------------------------------------------- cambio de modelo
-  // (T-FB024-US11-11): confirmacion de segunda pulsacion + single-flight,
-  // mismo idioma que el resto de la web. El agente debe ser OpenCode y estar
-  // en estado idle (no working, no stopped).
-  function requestModelChange(agent) {
-    if (agentsSection.modelChangeAgentId) return; // single-flight
-    if (!agentsSection.modelChangePending || agentsSection.modelChangePending.agent_id !== agent.id) {
-      // Primer clic: mostrar selector de modelos.
-      agentsSection.modelChangePending = null;
-      agentsSection.modelChangeError = null;
-      renderModelSelector(agent);
-      return;
-    }
-    // Segundo clic: ejecutar el cambio.
-    var model = agentsSection.modelChangePending.model;
-    executeModelChange(agent, model);
-  }
-
-  function renderModelSelector(agent) {
-    // Si ya tenemos las opciones cacheadas, las mostramos directamente.
-    if (agentsSection.modelOptions) {
-      showModelPicker(agent, agentsSection.modelOptions);
-      return;
-    }
-    // Cargar opciones via API.
-    agentsSection.modelChangeAgentId = agent.id; // bloquea el boton mientras carga
-    renderAgentsBody();
-    BackendClient.getAgentAvailableModels(agent.id)
-      .then(function (result) {
-        agentsSection.modelChangeAgentId = null;
-        if (!result.supports_model) {
-          agentsSection.modelChangeError = "Este agente no admite cambio de modelo.";
-          renderAgentsBody();
-          return;
-        }
-        agentsSection.modelOptions = result.models;
-        showModelPicker(agent, result.models);
-      })
-      .catch(function (error) {
-        agentsSection.modelChangeAgentId = null;
-        agentsSection.modelChangeError = buildErrorMessage(error);
-        renderAgentsBody();
-      });
-  }
-
-  function showModelPicker(agent, models) {
-    if (!models || models.length === 0) {
-      agentsSection.modelChangeError = "No hay modelos disponibles para este agente.";
-      renderAgentsBody();
-      return;
-    }
-    // Usar confirmacion nativa como selector (mismo patron que la seccion
-    // Scripts para seleccionar script). Si hay un solo modelo, se usa
-    // directamente sin preguntar.
-    var chosen;
-    if (models.length === 1) {
-      chosen = models[0];
-    } else {
-      chosen = prompt(
-        "Elige un modelo para " + agent.name + ":\n\n" +
-        models.map(function (m, i) { return (i + 1) + ". " + m; }).join("\n") +
-        "\n\nEscribe el nombre exacto del modelo:"
-      );
-    }
-    if (!chosen) {
-      agentsSection.modelChangePending = null;
-      renderAgentsBody();
-      return;
-    }
-    // Verificar que el valor esta en la lista.
-    var found = models.filter(function (m) { return m === chosen.trim(); });
-    if (found.length === 0) {
-      agentsSection.modelChangeError = "El modelo '" + chosen + "' no esta en la lista de opciones.";
-      agentsSection.modelChangePending = null;
-      renderAgentsBody();
-      return;
-    }
-    // Fijar pendiente de confirmacion.
-    agentsSection.modelChangePending = { agent_id: agent.id, model: chosen.trim() };
-    agentsSection.modelChangeError = null;
-    renderAgentsBody();
-  }
-
-  function executeModelChange(agent, model) {
-    if (agentsSection.modelChangeAgentId) return;
-    agentsSection.modelChangePending = null;
-    agentsSection.modelChangeAgentId = agent.id;
-    agentsSection.modelChangeError = null;
-    renderAgentsBody();
-    BackendClient.setAgentModel(agent.id, model)
-      .then(function (result) {
-        agentsSection.modelChangeAgentId = null;
-        agentsSection.modelOptions = null; // invalidar cache para siguiente cambio
-        if (result.changed) {
-          agentsSection.actionMessage = "Modelo cambiado a " + model + ".";
-        } else {
-          agentsSection.modelChangeError = "No se pudo cambiar el modelo. El agente puede no estar respondiendo a las teclas.";
-        }
-        renderAgentsBody();
-        return pollAgents();
-      })
-      .catch(function (error) {
-        agentsSection.modelChangeAgentId = null;
-        agentsSection.modelOptions = null;
-        agentsSection.modelChangeError = buildErrorMessage(error);
-        renderAgentsBody();
-      });
-  }
-
-  // ------------------------------------------------- pane de actividad
-  // (punto 4): vista de SOLO lectura del contenido crudo del pane de tmux
-  // (`GET /agents/{id}/pane`), con scroll si es largo. Un agente `stopped`
-  // (o sin runtime) muestra el MOTIVO REAL devuelto por el backend (404 con
-  // `detail`), nunca un "not found" genérico — mismo bug ya corregido en
-  // Android (T-FB017-US01-08), evitado desde el inicio aquí.
-  function viewAgentPane(agent) {
-    if (agentsSection.paneState === "loading") return; // single-flight
-    agentsSection.paneState = "loading";
-    agentsSection.paneAgentId = agent.id;
-    agentsSection.paneAgentName = agent.name;
-    agentsSection.paneContent = null;
-    agentsSection.paneMessage = null;
-    renderAgentsBody();
-    BackendClient.getAgentPane(agent.id)
-      .then(function (result) {
-        agentsSection.paneState = "open";
-        agentsSection.paneContent = result && result.content ? result.content : "";
-        renderAgentsBody();
-      })
-      .catch(function (error) {
-        agentsSection.paneState = "unavailable";
-        agentsSection.paneMessage = buildErrorMessage(error);
-        renderAgentsBody();
-      });
-  }
-
-  function closeAgentPane() {
-    agentsSection.paneState = null;
-    renderAgentsBody();
-  }
-
-  // Panel del pane (inline dentro del cuerpo de la sección, no un dialog
-  // nativo): persiste a través de los re-renders del polling porque su
-  // estado vive en `agentsSection`.
-  function renderAgentsPanePanel(wrap) {
-    if (!agentsSection.paneState) return;
-    var box = h("div", "pane-panel");
-    box.appendChild(
-      h("div", "pane-title", "Actividad de " + agentsSection.paneAgentName)
-    );
-    if (agentsSection.paneState === "loading") {
-      box.appendChild(h("p", "section-note", "Consultando la sesión…"));
-    } else if (agentsSection.paneState === "unavailable") {
-      box.appendChild(h("p", "agent-error", agentsSection.paneMessage));
-    } else {
-      box.appendChild(
-        h("div", "pane-view", agentsSection.paneContent ? agentsSection.paneContent : "(pane vacío)")
-      );
-    }
-    var close = button("Cerrar");
-    close.addEventListener("click", closeAgentPane);
-    box.appendChild(close);
-    wrap.appendChild(box);
-  }
-
-  // Formulario de lanzamiento. Reglas (punto 5): desplegable con el
-  // catálogo, campo de modelo SOLO si el runtime elegido lo admite (si no,
-  // deshabilitado — mismo criterio que `enabled = selected.supports_model`,
-  // Android), campo opcional de tarea inicial multilínea.
-  function renderAgentsLaunchForm(wrap) {
-    wrap.appendChild(h("div", "launch-title", "Lanzar agente"));
-
-    if (agentsSection.catalogState === null || agentsSection.catalogState === "loading") {
-      wrap.appendChild(h("p", "section-note", "Cargando catálogo de agentes…"));
-      return;
-    }
-    if (agentsSection.catalogState === "unavailable") {
-      wrap.appendChild(
-        h(
-          "p",
-          "agent-error",
-          "No se pudo cargar el catálogo de agentes: " +
-            (agentsSection.catalogError || "error desconocido")
-        )
-      );
-      return;
-    }
-    if (!agentsSection.catalog || agentsSection.catalog.length === 0) {
-      // Catálogo vacío: caso distinto de "no se pudo cargar". No se asume
-      // `options[0]` (incidente T-FB017-US01-10).
-      wrap.appendChild(
-        h("p", "agent-error", "No hay ninguna combinación de agente/runtime disponible para lanzar.")
-      );
-      return;
-    }
-    renderAgentsFormFields(wrap);
-  }
-
-  function renderAgentsFormFields(wrap) {
-    var catalog = agentsSection.catalog;
-    if (agentsSection.optionIndex >= catalog.length) agentsSection.optionIndex = 0;
-    var option = catalog[agentsSection.optionIndex];
-
-    var form = h("div", "launch-form");
-
-    // Dropdown de combinaciones rol x modelo (T-FB022-US11-02):
-    // el runtime no se muestra ni se pide — esta resuelto internamente.
-    var select = document.createElement("select");
-    select.className = "clickable launch-select";
-    catalog.forEach(function (opt, idx) {
-      var o = document.createElement("option");
-      o.setAttribute("value", String(idx));
-      var label = roleLabel(opt.agent_role) + " sobre " + opt.model_name;
-      if (!opt.supports_model) label += " (no admite modelo)";
-      o.textContent = label;
-      select.appendChild(o);
-    });
-    select.selectedIndex = agentsSection.optionIndex;
-    select.addEventListener("change", function () {
-      agentsSection.optionIndex = parseInt(select.value, 10) || 0;
-      // Limpiar modelInput al cambiar de opcion — el modelo ya viene fijado.
-      agentsSection.modelInput = "";
-      agentsSection.launchPending = false;
-      renderAgentsBody();
-    });
-    form.appendChild(select);
-
-    // El modelo ya esta implicito en la opcion elegida (rol x modelo).
-    // No se muestra campo de modelo separado — el runtime se resuelve
-    // internamente desde el catalogo.
-
-    var taskArea = document.createElement("textarea");
-    taskArea.className = "clickable";
-    taskArea.value = agentsSection.taskInput;
-    taskArea.placeholder = "Tarea inicial (opcional) — se despachará como un Job al lanzar el agente.";
-    taskArea.addEventListener("input", function () {
-      agentsSection.taskInput = taskArea.value;
-    });
-    form.appendChild(taskArea);
-
-    // Single-flight (criterio 8): `launching` descarta una segunda
-    // invocación mientras la primera sigue en vuelo (mismo criterio que
-    // `SingleFlightAction`, Android); el botón además queda deshabilitado.
-    // T-FB024-US04-01: confirmación de segunda pulsación antes de lanzar.
-    var launchLabel;
-    if (agentsSection.launching) {
-      launchLabel = "Lanzando…";
-    } else if (agentsSection.launchPending) {
-      launchLabel = "¿Seguro? Confirmar lanzamiento";
-    } else {
-      launchLabel = "Lanzar";
-    }
-    var launchBtn = button(launchLabel);
-    if (agentsSection.launching) {
-      launchBtn.disabled = true;
-    }
-    launchBtn.addEventListener("click", launchAgents);
-    form.appendChild(launchBtn);
-
-    wrap.appendChild(form);
-  }
-
   // Etiqueta de rol capitalizada (mismo criterio que `roleLabel`, Android):
   // `GET /agents/options` devuelve `agent_role` tal cual ("developer"/
   // "critic"), el runtime ya viene capitalizado.
@@ -1932,50 +1205,6 @@
     if (runtimeId === "claude-code") return "Claude Code";
     if (runtimeId === "opencode") return "OpenCode";
     return runtimeId || "(no disponible)";
-  }
-
-  // Lanzar (`POST /agents`). Single-flight: si ya hay una petición en
-  // vuelo, la segunda invocación se descarta de inmediato (no se encola,
-  // no se despacha un segundo agente). T-FB024-US04-01: confirmación de
-  // segunda pulsación antes de ejecutar.
-  function launchAgents() {
-    if (agentsSection.launching) return;
-    if (!agentsSection.launchPending) {
-      agentsSection.launchPending = true;
-      renderAgentsBody();
-      return;
-    }
-    var option = agentsSection.catalog[agentsSection.optionIndex];
-    if (!option) return;
-
-    agentsSection.launching = true;
-    agentsSection.launchPending = false;
-    agentsSection.actionMessage = null;
-    // Re-render inmediato: el botón queda deshabilitado ("Lanzando…")
-    // mientras la petición está en vuelo, además del descarte del segundo
-    // clic por el single-flight.
-    renderAgentsBody();
-
-    var payload = { role: option.agent_role, model_id: option.model_id };
-    if (agentsSection.taskInput.trim()) {
-      payload.initial_job_description = agentsSection.taskInput.trim();
-    }
-
-    BackendClient.launchAgent(payload)
-      .then(function (result) {
-        agentsSection.launching = false;
-        agentsSection.launchPending = false;
-        agentsSection.actionMessage = launchFeedbackMessageFor(result);
-        renderAgentsBody();
-        // Refleja el nuevo agente sin esperar al siguiente ciclo de polling.
-        return pollAgents();
-      })
-      .catch(function (error) {
-        agentsSection.launching = false;
-        agentsSection.launchPending = false;
-        agentsSection.actionMessage = buildErrorMessage(error);
-        renderAgentsBody();
-      });
   }
 
   // Feedback tras lanzar (mismo criterio que `launchFeedbackMessageFor`,
@@ -6548,8 +5777,8 @@
     if (rolesSection.actionMessage) {
       wrap.appendChild(h("p", "agent-message", rolesSection.actionMessage));
     }
-    if (rolesSection.reviewBlockedError) {
-      wrap.appendChild(h("p", "agent-error", rolesSection.reviewBlockedError));
+    if (rolesSection.awakenError) {
+      wrap.appendChild(h("p", "agent-error", rolesSection.awakenError));
     }
     if (rolesSection.stale) {
       wrap.appendChild(h("p", "stale-note", "Puede que esta lista esté desactualizada (sin conexión con el backend)."));
@@ -6558,16 +5787,8 @@
       wrap.appendChild(h("p", "agent-error", rolesSection.listError));
     }
 
-    // Barra de acciones global (fuera de las tarjetas de agente): mensajes
-    // de error de revisión de bloqueo y cambio de modelo.
-    if (rolesSection.reviewBlockedError) {
-      wrap.appendChild(h("p", "agent-error", rolesSection.reviewBlockedError));
-    }
-
     var rows = buildUnifiedRows();
     rows.forEach(function (row) { renderUnifiedRow(wrap, row); });
-
-    if (rolesSection.detalleAgent) { renderDetalleFallbackModal(wrap); }
   }
 
   // ── construcción de filas unificadas ────────────────────────────────────
@@ -6671,6 +5892,52 @@
     return match ? match.name : modelId;
   }
 
+  // T-FB005-US07-03: runtime elegido para la fila ANTES de lanzar. Si el
+  // usuario ya eligió uno en el selector, ese gana; si no, se usa como
+  // fallback VISIBLE (no silencioso) el runtime implícito del default de
+  // modelo del rol; si tampoco hay, devuelve "" (lanzamiento bloqueado
+  // hasta que se elija). El runtime elegido se conserva por fila.
+  function chosenRuntimeForRow(agent) {
+    var rowKey = rowKeyFor(agent);
+    var stored = rolesSection.chosenRuntimeByRow[rowKey];
+    if (stored) return stored;
+    var defaultId = rolesSection.defaults && rolesSection.defaults[agent.role];
+    return launchRuntimeForModel(defaultId) || "";
+  }
+
+  function setChosenRuntimeForRow(agent, runtime) {
+    rolesSection.chosenRuntimeByRow[rowKeyFor(agent)] = runtime;
+  }
+
+  // Selector de runtime para una fila NO lanzada — el runtime es una
+  // elección obligatoria y explícita (criterio 1 de US-FB005-07): nunca se
+  // lanza con un runtime asumido en silencio, y nunca se infiere del modelo.
+  function renderRuntimeSelector(agent) {
+    var wrap = h("div", "agent-runtime");
+    wrap.appendChild(h("span", "agent-runtime-label", "Runtime: "));
+    var sel = document.createElement("select");
+    sel.className = "clickable runtime-select";
+    var opts = [
+      { value: "", label: "— elige runtime —" },
+      { value: "opencode", label: "OpenCode" },
+      { value: "claude-code", label: "Claude Code" },
+      { value: "codex", label: "Codex" },
+    ];
+    opts.forEach(function (o) {
+      var option = document.createElement("option");
+      option.setAttribute("value", o.value);
+      option.textContent = o.label;
+      sel.appendChild(option);
+    });
+    sel.value = chosenRuntimeForRow(agent);
+    sel.addEventListener("change", function () {
+      setChosenRuntimeForRow(agent, sel.value);
+      renderRolesBody();
+    });
+    wrap.appendChild(sel);
+    return wrap;
+  }
+
   // ── renderizado de UNA fila unificada ───────────────────────────────────
 
   function renderUnifiedRow(wrap, agent) {
@@ -6718,53 +5985,75 @@
     // 3. Tiempo desde la última orden
     info.appendChild(h("div", "agent-model", formatLastCommand(agent.last_command_at)));
 
-    // 4. Runtime (siempre, cuando se conoce) y Modelo (T-FB024-US11-01:
-    // dos campos separados — antes se mezclaba el nombre del runtime bajo
-    // la etiqueta "Modelo" cuando no había modelo real, p. ej. "Modelo:
-    // Claude Code" para un runtime que nunca reporta modelo).
-    info.appendChild(
-      h("div", "agent-runtime", "Runtime: " + runtimeDisplayName(agent.runtime_id))
-    );
+    // 4. Runtime (T-FB005-US07-03, T-FB024-US11-01): dos campos separados.
+    // - Agente NO lanzado: el runtime es una elección OBLIGATORIA y
+    //   explícita (selector) — nunca se infiere en silencio del modelo, y
+    //   el lanzamiento se bloquea hasta elegirlo (criterio 1 de US-FB005-07).
+    // - Agente VIVO: el runtime queda FIJO, se muestra como texto sin
+    //   ningún control de cambio en caliente (criterio 2).
+    var isLiveRow = !!(agent.id && agent.status !== "stopped" && agent.status !== "unregistered" && agent.status !== "unavailable");
+    if (isLiveRow) {
+      info.appendChild(
+        h("div", "agent-runtime", "Runtime: " + runtimeDisplayName(agent.runtime_id))
+      );
+    } else {
+      info.appendChild(renderRuntimeSelector(agent));
+    }
 
-    // Bug real (2026-08-15): para Claude Code, agent.model llega vacío
-    // (el runtime no lo reporta de forma pasiva) y el campo mostraba
-    // "Modelo: sin modelo" aunque el usuario ya hubiera pulsado
-    // "Consultar modelo" y visto el resultado real justo debajo, en su
-    // propia línea "Modelo real: ...". Si hay una consulta cacheada con
-    // éxito para este agente, se usa aquí en vez de "sin modelo" — un
-    // único campo "Modelo" coherente en vez de dos que se contradicen.
-    var queriedModel = agent.id && rolesSection.statusModelByAgentId[agent.id]
-      ? rolesSection.statusModelByAgentId[agent.id].model
-      : null;
-    var modelLabel = agent.model || queriedModel || "sin modelo";
-    info.appendChild(h("div", "agent-model", "Modelo: " + modelLabel));
+    // Modelo: solo se muestra el valor real de un agente vivo (o el
+    // recordado de una consulta explícita). Un agente no lanzado NO
+    // presenta el modelo recordado de una instancia anterior como real
+    // (criterio 3 de US-FB005-07: tras detenerlo se vuelve al flujo de
+    // elección de runtime, no se arrastra el modelo como si siguiera
+    // siendo válido) — el modelo solo aplica en el siguiente lanzamiento.
+    if (isLiveRow && agent.runtime_id === "opencode" && agent.status === "idle") {
+      // T-FB024-US11-12 (ajuste de diseño del usuario, 2026-08-17):
+      // agente OpenCode vivo en idle es el único caso donde el modelo es
+      // editable en caliente (criterio 4 de US-FB005-07) — se muestra el
+      // selector inline en vez del texto plano, mismo patrón que
+      // `renderRuntimeSelector` para el runtime antes de lanzar.
+      info.appendChild(renderLiveModelSelectorInline(agent));
+    } else if (isLiveRow) {
+      var modelLabel = agent.model || "sin modelo";
+      info.appendChild(h("div", "agent-model", "Modelo: " + modelLabel));
+    } else {
+      var defaultForLaunch = chosenRuntimeForRow(agent) === "opencode"
+        ? defaultModelLabelFor(agent.role)
+        : null;
+      var preModelLabel = defaultForLaunch
+        ? "Modelo (al lanzar): " + defaultForLaunch
+        : "Modelo: se define al lanzar";
+      info.appendChild(h("div", "agent-model agent-model-prelaunch", preModelLabel));
+    }
+
+    // --- Comando de conexión como texto de detalle (no botón) ---
+    if (isLiveRow && agent.session_name) {
+      var comandoDetalle = renderCommandoConexionDetalle(agent);
+      info.appendChild(comandoDetalle);
+    }
 
     card.appendChild(info);
 
     // --- ACCIONES (bloque derecho, en la misma fila que agent-info) ---
     var actions = h("div", "agent-actions");
 
-    // (a) Cambiar modelo
-    actions.appendChild(renderCambiarModeloBtn(agent));
-
-    // (b) Lanzar / Detener (un único botón que alterna)
+    // (a) Detener/Eliminar (renombrado de Lanzar/Detener)
     actions.appendChild(renderLanzarDetenerBtn(agent));
 
-    // (c) Copiar comando de conexión
-    actions.appendChild(renderCopiarComandoBtn(agent));
+    // (b) Cambiar modelo — SOLO cuando la capacidad del runtime + estado lo
+    // permite (criterio 3 de US-FB005-07 / T-FB005-US07-03): OpenCode vivo
+    // en idle (cambio en caliente real), o no lanzado con runtime OpenCode
+    // elegido (default de modelo para el lanzamiento). Nunca para Claude
+    // Code (no admite cambio de modelo) ni para un runtime no elegido.
+    var changeModelBtn = renderCambiarModeloBtn(agent);
+    if (changeModelBtn) actions.appendChild(changeModelBtn);
 
-    // (d) Revisar si está bloqueado (solo si está trabajando)
-    if (isWorking) {
-      actions.appendChild(renderRevisarBloqueadoBtn(agent));
-    }
-
-    // (e) Ver log en vivo (T-FB032-US02-01)
+    // (c) Ver log en vivo (T-FB032-US02-01)
     actions.appendChild(renderVerLogEnVivoBtn(agent));
 
-    // (f) Consultar modelo (T-FB024-US11-05) — solo filas Claude Code,
-    // única forma de leer su modelo real (sin lectura pasiva posible).
-    if (agent.runtime_id === "claude-code") {
-      actions.appendChild(renderConsultarModeloBtn(agent));
+    // (d) Despertar (solo si está trabajando) — envía empujón al pane
+    if (isWorking) {
+      actions.appendChild(renderDespertarBtn(agent));
     }
 
     card.appendChild(actions);
@@ -6784,21 +6073,17 @@
       card.appendChild(h("div", "agent-error", translateArquitectoError(arquitectoState.error)));
     }
 
-    // Resultado de la última consulta de modelo (T-FB024-US11-05), si la
-    // hubo para esta fila — fuera del grid de acciones, fila completa
-    // debajo, mismo patrón que el editor de modelo inline. El caso de
-    // éxito ya se refleja arriba en el campo "Modelo:" (ver más arriba en
-    // esta misma función) — repetirlo aquí también era el bug de "dos
-    // campos de modelo que dicen cosas distintas". Solo se muestra esta
-    // línea aparte para error o "no se pudo leer", que no tienen sitio en
-    // el campo "Modelo:" de arriba.
-    if (agent.id && rolesSection.statusModelByAgentId[agent.id]) {
-      var statusResult = rolesSection.statusModelByAgentId[agent.id];
-      if (statusResult.error) {
-        card.appendChild(h("div", "agent-error", "Consultar modelo: " + statusResult.error));
-      } else if (!statusResult.model) {
-        card.appendChild(h("div", "agent-model", "Modelo real: no se pudo leer (el agente no imprimió el panel esperado)."));
-      }
+    // Resultado/error del cambio de modelo en caliente (OpenCode vivo idle,
+    // T-FB005-US07-03) — solo bajo la fila que lo produjo.
+    if (rolesSection.changeModelError && rolesSection.changeModelInFlight === null) {
+      card.appendChild(h("div", "agent-error", "Cambiar modelo: " + rolesSection.changeModelError));
+    }
+    if (rolesSection.changeModelResult && rolesSection.changeModelResult.agentId === agent.id) {
+      var cmr = rolesSection.changeModelResult;
+      var changedText = cmr.changed
+        ? "Modelo cambiado a " + cmr.model
+        : "Modelo solicitado (" + cmr.model + "), pendiente de confirmar en la barra de estado";
+      card.appendChild(h("div", "agent-model", changedText));
     }
 
     wrap.appendChild(card);
@@ -6842,22 +6127,45 @@
   }
 
   // ── botón Cambiar modelo ────────────────────────────────────────────────
-
+  // T-FB005-US07-03: solo aparece cuando la capacidad del runtime + estado
+  // permite una operación real de cambio de modelo (criterio 3):
+  //   - OpenCode VIVO en idle → habilitado (cambio en caliente real,
+  //     `PUT /agents/{id}/model` — criterio 4 de US-FB005-07).
+  //   - OpenCode VIVO en idle → el selector se muestra INLINE en el bloque
+  //     de información de la fila (`renderLiveModelSelectorInline`, ajuste
+  //     de diseño T-FB024-US11-12: mismo patrón que `renderRuntimeSelector`,
+  //     sin botón previo que abrir) — esta función devuelve null en ese
+  //     caso, el botón de `actions` no aplica.
+  //   - OpenCode VIVO trabajando → deshabilitado (riesgo de corromper el
+  //     pane en marcha, US-FB024-11).
+  //   - No lanzado con runtime OpenCode elegido → abre el editor de modelo
+  //     por defecto del rol (el modelo sí aplica en el lanzamiento).
+  //   - Claude Code / Codex (o runtime sin elegir) → devuelve null: no se
+  //     ofrece un control de modelo que no tiene efecto real.
   function renderCambiarModeloBtn(agent) {
     var isUnavailable = agent.status === "unavailable";
     var isLive = agent.id && agent.status !== "stopped" && agent.status !== "unregistered" && !isUnavailable;
+    var runtimeId = isLive ? agent.runtime_id : chosenRuntimeForRow(agent);
+
+    // Solo el runtime OpenCode admite cambio de modelo (contrato de
+    // `brain/runtime_model_contract`): Claude Code lo lee pero no lo cambia,
+    // Codex no lo soporta.
+    if (runtimeId !== "opencode") return null;
+
+    if (isLive && agent.status === "idle") {
+      // Selector inline en el bloque de información, no un botón aquí.
+      return null;
+    }
 
     var b = button("Cambiar modelo", "agent-model-change");
     if (isLive) {
-      // Instancia lanzada y viva (idle o working): nunca se cambia el
-      // modelo en caliente desde esta pantalla (US-FB024-11 criterio 9) —
-      // el mecanismo `set_active_model` es frágil incluso idle y peligroso
-      // working, así que se deshabilita siempre aquí, sin excepción.
+      // OpenCode vivo trabajando: el cambio en caliente NUNCA es seguro
+      // mientras hay actividad en curso.
       b.disabled = true;
-      b.title = "no se puede cambiar el modelo mientras el agente está lanzado: detenlo primero";
+      b.title = "no se puede cambiar el modelo en caliente mientras el agente está trabajando: detenlo primero";
     } else {
-      // Parada (stopped/unavailable) o fila sintética sin instancia: abre
-      // el editor de modelo por defecto del rol para esa fila concreta.
+      // No lanzado con OpenCode elegido: abre el editor de modelo por
+      // defecto del rol para esa fila (el modelo se usará en el lanzamiento).
       b.addEventListener("click", function () {
         rolesSection.editingRole = agent.role;
         rolesSection.editingRowKey = rowKeyFor(agent);
@@ -6868,6 +6176,141 @@
       });
     }
     return b;
+  }
+
+  // Cambia el modelo de un agente OpenCode VIVO (idle) vía el endpoint ya
+  // existente `PUT /agents/{id}/model` (`set_active_model`), con
+  // single-flight y feedback del resultado real. `model` viene ya resuelto
+  // del `<select>` inline (`renderLiveModelSelectorInline`), no de un
+  // `prompt()` — T-FB024-US11-12, ajuste de diseño del usuario.
+  function changeLiveAgentModel(agent, model) {
+    if (rolesSection.changeModelInFlight === agent.id) return;
+    if (!model) return;
+    rolesSection.changeModelInFlight = agent.id;
+    rolesSection.changeModelError = null;
+    renderRolesBody();
+
+    BackendClient.setAgentModel(agent.id, model)
+      .then(function (result) {
+        rolesSection.changeModelInFlight = null;
+        rolesSection.changeModelResult = {
+          agentId: agent.id,
+          model: result.model,
+          changed: result.changed,
+        };
+        // Limpia la selección en curso: el siguiente render debe
+        // preseleccionar contra el `agent.model` real ya actualizado
+        // (próximo tick de polling), no arrastrar el índice de la
+        // elección que se acaba de aplicar.
+        delete rolesSection.liveModelIndexByAgentId[agent.id];
+        renderRolesBody();
+      })
+      .catch(function (error) {
+        rolesSection.changeModelInFlight = null;
+        rolesSection.changeModelError = buildErrorMessage(error);
+        renderRolesBody();
+      });
+  }
+
+  // Selector de modelo INLINE para un agente OpenCode vivo en idle
+  // (T-FB024-US11-12, ajuste de diseño del usuario, 2026-08-17): mismo
+  // patrón visual que `renderRuntimeSelector` (dropdown directo en la
+  // fila, sin botón previo que abrir) — un `<select>` con el catálogo
+  // real de modelos disponibles para ese agente
+  // (`GET /agents/{id}/available-models`, mismo endpoint que ya usaba el
+  // flujo con `prompt()` que sustituye) más un botón "Confirmar" para
+  // aplicar el cambio (`PUT /agents/{id}/model`, vía `changeLiveAgentModel`)
+  // — a diferencia del runtime (elección diferida hasta "Lanzar"), cambiar
+  // el modelo de un agente YA vivo tiene efecto inmediato en el backend,
+  // así que no basta con un `change` silencioso: hace falta una
+  // confirmación explícita para no aplicar el cambio con cada tecleo/click
+  // accidental sobre el `<select>`.
+  function renderLiveModelSelectorInline(agent) {
+    var wrap = h("div", "agent-model");
+
+    var cached = rolesSection.liveModelOptionsByAgentId[agent.id];
+    if (cached === undefined) {
+      // Catálogo no cargado todavía para este agente: dispara la carga
+      // (una sola vez, `null` marca "ya en curso" para no repetir la
+      // petición en cada re-render mientras responde) y muestra un
+      // estado de carga inline.
+      rolesSection.liveModelOptionsByAgentId[agent.id] = null;
+      BackendClient.getAgentAvailableModels(agent.id)
+        .then(function (result) {
+          rolesSection.liveModelOptionsByAgentId[agent.id] = result.supports_model
+            ? (result.models || [])
+            : [];
+          renderRolesBody();
+        })
+        .catch(function (error) {
+          rolesSection.liveModelOptionsByAgentId[agent.id] = [];
+          rolesSection.changeModelError = buildErrorMessage(error);
+          renderRolesBody();
+        });
+    }
+
+    if (cached === undefined || cached === null) {
+      wrap.appendChild(h("span", "agent-runtime-label", "Modelo: "));
+      wrap.appendChild(document.createTextNode("cargando…"));
+      return wrap;
+    }
+
+    if (cached.length === 0) {
+      // Catálogo vacío (o el agente no admite cambio pese a ser OpenCode,
+      // caso borde defensivo) — se muestra el modelo actual como texto,
+      // igual que antes de esta Task, sin selector inútil.
+      wrap.appendChild(h("span", "agent-runtime-label", "Modelo: " + (agent.model || "sin modelo")));
+      return wrap;
+    }
+
+    wrap.appendChild(h("span", "agent-runtime-label", "Modelo: "));
+    var sel = document.createElement("select");
+    // Mismo estilo visual que `.runtime-select` (compartido, no
+    // duplicado en CSS), pero con una clase propia `.live-model-select`
+    // — necesaria para distinguir este <select> de MODELO del de RUNTIME
+    // por selector DOM (bug real detectado por
+    // `agents_runtime_model_lifecycle.test.js` durante el desarrollo de
+    // esta Task: con la misma clase, un test que comprobaba "un agente
+    // vivo no debe tener selector de runtime" encontraba este <select> de
+    // modelo y daba un falso positivo).
+    sel.className = "clickable runtime-select live-model-select";
+    // `cached` es `[{id, name, runtime}]` (contrato real de
+    // `GET /agents/{id}/available-models`, verificado contra
+    // `routes.py::get_agent_available_models`) — NUNCA un array de
+    // strings. Bug real detectado en la propia verificación manual en
+    // navegador de esta Task (el <select> mostraba literalmente
+    // "[object Object]"): el valor que viaja a `PUT /agents/{id}/model`
+    // es `m.id`, el texto visible es `m.name`.
+    cached.forEach(function (m) {
+      var option = document.createElement("option");
+      option.setAttribute("value", m.id);
+      option.textContent = m.name;
+      sel.appendChild(option);
+    });
+    var currentIndex = rolesSection.liveModelIndexByAgentId[agent.id];
+    if (currentIndex === undefined) {
+      // Preselección: el modelo actual del agente si está en el catálogo,
+      // si no el primero — nunca deja el <select> en un índice fuera de
+      // rango.
+      var idxOfCurrent = cached.findIndex(function (m) { return m.id === agent.model; });
+      currentIndex = idxOfCurrent >= 0 ? idxOfCurrent : 0;
+    }
+    sel.selectedIndex = Math.min(currentIndex, cached.length - 1);
+    var isChanging = rolesSection.changeModelInFlight === agent.id;
+    sel.disabled = isChanging;
+    sel.addEventListener("change", function () {
+      rolesSection.liveModelIndexByAgentId[agent.id] = sel.selectedIndex;
+    });
+    wrap.appendChild(sel);
+
+    var confirmBtn = button(isChanging ? "Cambiando…" : "Confirmar", "agent-model-change");
+    confirmBtn.disabled = isChanging;
+    confirmBtn.addEventListener("click", function () {
+      changeLiveAgentModel(agent, cached[sel.selectedIndex].id);
+    });
+    wrap.appendChild(confirmBtn);
+
+    return wrap;
   }
 
   // ── botón Lanzar / Detener ──────────────────────────────────────────────
@@ -6899,29 +6342,30 @@
       }
       // ¿es sintético (no está lanzado) o stopped?
       var launchBtn = button(isUnregistered ? "Lanzar" : "Lanzar");
-      if (isUnregistered || !arquitectoState.defaultModel) {
+      // T-FB005-US07-03: el lanzamiento exige un runtime elegido — si no
+      // hay ninguno, se bloquea con un aviso explícito (criterio 1 de
+      // US-FB005-07: nunca se lanza con un runtime asumido en silencio).
+      if (isUnregistered) {
         launchBtn.disabled = true;
-        if (isUnregistered) launchBtn.title = "rol no disponible todavía: pendiente de registrar en el backend";
-        else launchBtn.title = "Asigna un modelo para Arquitecto en la pestaña Modelos";
+        launchBtn.title = "rol no disponible todavía: pendiente de registrar en el backend";
+      } else if (!chosenRuntimeForRow(agent)) {
+        launchBtn.disabled = true;
+        launchBtn.title = "Elige un runtime antes de lanzar";
       } else {
-        launchBtn.addEventListener("click", launchArquitecto);
+        launchBtn.addEventListener("click", function () { launchArquitecto(agent); });
       }
       return launchBtn;
     }
 
-    // Developer (T-FB024-US12-02): "Detener" elimina la instancia por
-    // completo (no pausa) — el botón se renombra a "Eliminar" para no
-    // dejar "Detener" con significado cambiado en silencio, y exige
-    // confirmación de doble pulsación (mismo idioma que el resto de
-    // acciones bloqueantes de esta pantalla: el aviso crece en la
-    // etiqueta del propio botón).
+    // Developer: "Detener" elimina la instancia por completo (no pausa),
+    // y exige confirmación de doble pulsación.
     if (showDetener) {
       if (rolesSection.devStopPendingFor === agent.id) {
-        var devStopConfirm = button("¿Seguro? Confirmar eliminar", "agent-stop");
+        var devStopConfirm = button("¿Seguro? Confirmar detener", "agent-stop");
         devStopConfirm.addEventListener("click", function () { stopDevAgent(agent); });
         return devStopConfirm;
       }
-      var devStop = button("Eliminar", "agent-stop");
+      var devStop = button("Detener", "agent-stop");
       devStop.addEventListener("click", function () {
         rolesSection.devStopPendingFor = agent.id;
         renderRolesBody();
@@ -6934,6 +6378,12 @@
     if (isUnregistered) {
       devLaunch.disabled = true;
       devLaunch.title = "rol no disponible todavía: pendiente de registrar en el backend";
+    } else if (!chosenRuntimeForRow(agent)) {
+      // T-FB005-US07-03: el lanzamiento exige un runtime elegido — se
+      // bloquea con aviso explícito si no hay ninguno (criterio 1 de
+      // US-FB005-07).
+      devLaunch.disabled = true;
+      devLaunch.title = "Elige un runtime antes de lanzar";
     } else if (isStopped || isUnavailable) {
       devLaunch.addEventListener("click", function () { launchStoppedDev(agent); });
     }
@@ -6968,49 +6418,31 @@
 
   function launchStoppedDev(agent) {
     var payload = { role: agent.role };
-    // El default del rol (`rolesSection.defaults[agent.role]`, id real del
-    // catálogo) es la fuente de verdad de qué modelo/runtime eligió el
-    // usuario en "Cambiar modelo" — tanto para filas sintéticas como para
-    // filas con `id` real (instancia ya registrada y detenida). Genérico
-    // por rol (T-FB024-US13-03): esta función se usa para Developer y,
-    // desde que `ux`/`auditor_oss` están registrados en el backend
-    // (T-FB024-US13-01/-02), también para sus filas de instancia única.
-    //
-    // Bug real (T-FB024-US12-03, 2026-08-15): la rama de filas reales
-    // usaba `agent.model`/`agent.runtime_id` (datos de la instancia
-    // anterior, stale) y por construcción ignoraba la elección activa del
-    // usuario — p. ej. elegir Claude Code caía al `else if` y relanzaba
-    // con el runtime viejo ("opencode"). Además, en filas sintéticas
-    // `agent.model` era el NOMBRE visible ("Claude Code"), no el id de
-    // catálogo ("claude-code") — un id inexistente para el backend. En
-    // ambos casos el id real ya está cargado en `rolesSection.defaults`.
-    //
-    // Criterio compartido con `launchArquitecto`: Claude Code no admite
-    // el campo `model` en POST /agents (`launch_agent`/`AgentLaunchError`
-    // rechazan si `runtime_type` resuelve a claude-code y `model` no es
-    // null) — se manda `runtime_type` sin `model_id`; para el resto de
-    // modelos se manda `model_id` con el id real.
-    var defaultId = rolesSection.defaults && rolesSection.defaults[agent.role];
-    // T-FB005-US07-02: el runtime se manda SIEMPRE explícito en
-    // `POST /agents` (contrato: runtime separado del modelo) — se resuelve
-    // del catálogo (`rolesSection.models`, id → runtime del catálogo) o del
-    // default/instancia, nunca se deja que el backend lo infiera del
-    // modelo. El modelo solo se manda cuando el runtime lo admite.
-    if (defaultId === "claude-code") {
-      payload.runtime_type = "claude-code";
-    } else if (defaultId) {
-      payload.model_id = defaultId;
-      payload.runtime_type = launchRuntimeForModel(defaultId) || "opencode";
-    } else if (!agent._synthetic && agent.model) {
-      // Sin default del rol: para una fila real se reutiliza el modelo con
-      // el que ya estaba registrada la instancia (comportamiento previo,
-      // sin regresión sobre el caso ya correcto).
-      payload.model_id = agent.model;
-      payload.runtime_type = launchRuntimeForModel(agent.model) || (agent.runtime_id || "opencode");
-    } else if (!agent._synthetic && agent.runtime_id) {
-      payload.runtime_type = agent.runtime_id;
-    } else {
-      payload.runtime_type = "opencode";
+    // T-FB005-US07-02/-03: el runtime se manda SIEMPRE explícito en
+    // `POST /agents` (contrato: runtime separado del modelo), y es la
+    // elección OBLIGATORIA de esta pantalla — se toma del selector de la
+    // fila (`chosenRuntimeForRow`), nunca se infiere del modelo. Sin
+    // runtime elegido el lanzamiento está bloqueado (el botón ya viene
+    // deshabilitado); defensa aquí por si se llegara a invocar.
+    var chosenRuntime = chosenRuntimeForRow(agent);
+    if (!chosenRuntime) {
+      rolesSection.actionMessage = "Elige un runtime antes de lanzar a " + agent.name + ".";
+      renderRolesBody();
+      return;
+    }
+    payload.runtime_type = chosenRuntime;
+
+    // El modelo solo aplica en el lanzamiento cuando el runtime lo admite
+    // (OpenCode). Se usa el default de modelo del rol (`rolesSection.defaults`),
+    // y NUNCA el modelo recordado de una instancia anterior (criterio 3 de
+    // US-FB005-07: tras detener un agente, no se reutiliza el modelo
+    // recordado como si siguiera siendo válido). Claude Code no acepta
+    // modelo en el lanzamiento; Codex tampoco.
+    if (chosenRuntime === "opencode") {
+      var defaultId = rolesSection.defaults && rolesSection.defaults[agent.role];
+      if (defaultId && defaultId !== "claude-code") {
+        payload.model_id = defaultId;
+      }
     }
     // T-FB024-US11-06: el nombre de la fila sintética ("Developer-N") es
     // solo una etiqueta visual por posición — el backend decide el nombre
@@ -7036,77 +6468,30 @@
 
   // ── botón Copiar comando de conexión ────────────────────────────────────
 
-  function renderCopiarComandoBtn(agent) {
-    var isLive = agent.id && agent.status !== "stopped" && agent.status !== "unregistered" && agent.status !== "unavailable";
-    var canCopy = isLive && agent.session_name;
-
-    var btn = button(rolesSection.detalleCopied && rolesSection.detalleAgent === agent ? "Copiado ✓" : "Copiar comando de conexión");
-    btn.disabled = !canCopy;
-    if (!canCopy) {
-      btn.title = "no disponible: el agente no tiene sesión activa";
-      return btn;
-    }
+  function renderCommandoConexionDetalle(agent) {
     var comando = "tmux -L factory-brain attach -t " + agent.session_name;
-    btn.addEventListener("click", function () {
-      if (rolesSection.detalleCopied) return;
+    var wrap = h("div", "agent-comando-conexion");
+    wrap.appendChild(h("span", null, "Comando conexión: "));
+
+    var codeBlock = document.createElement("code");
+    codeBlock.textContent = comando;
+    codeBlock.style.cursor = "pointer";
+    codeBlock.title = "Click para copiar";
+    codeBlock.addEventListener("click", function () {
       if (navigator.clipboard && navigator.clipboard.writeText) {
         navigator.clipboard.writeText(comando).then(function () {
-          rolesSection.detalleAgent = agent;
-          rolesSection.detalleCopied = true;
-          renderRolesBody();
+          var prevText = codeBlock.textContent;
+          codeBlock.textContent = "Copiado ✓";
           setTimeout(function () {
-            if (rolesSection.detalleAgent === agent) { rolesSection.detalleAgent = null; rolesSection.detalleCopied = false; }
-            if (state.section === "roles") renderRolesBody();
+            codeBlock.textContent = prevText;
           }, 2500);
-        }).catch(function () {
-          // Fallback: modal con texto ya seleccionado para copiar a mano.
-          rolesSection.detalleAgent = agent;
-          rolesSection.detalleCopied = false;
-          renderRolesBody();
         });
       } else {
-        rolesSection.detalleAgent = agent;
-        rolesSection.detalleCopied = false;
-        renderRolesBody();
+        codeBlock.select();
       }
     });
-    return btn;
-  }
-
-  // Modal fallback de copia manual cuando clipboard.writeText falla.
-  function renderDetalleFallbackModal(wrap) {
-    var agent = rolesSection.detalleAgent;
-    if (!agent) return;
-    var comando = "tmux -L factory-brain attach -t " + agent.session_name;
-
-    var overlay = h("div", "modal-overlay");
-    var box = h("div", "modal");
-    box.appendChild(h("h3", null, "Copiar comando de conexión — " + agent.name));
-
-    var inst = h("p", "section-note", "No se pudo copiar automáticamente al portapapeles. El comando está seleccionado: pulsa Ctrl+C o Cmd+C para copiarlo manualmente.");
-    box.appendChild(inst);
-
-    var ta = document.createElement("textarea");
-    ta.readOnly = true;
-    ta.className = "clickable";
-    ta.value = comando;
-    ta.style.width = "100%";
-    ta.style.minHeight = "60px";
-    ta.style.resize = "vertical";
-    box.appendChild(ta);
-
-    var closeBtn = button("Cerrar");
-    closeBtn.addEventListener("click", function () {
-      rolesSection.detalleAgent = null;
-      rolesSection.detalleCopied = false;
-      renderRolesBody();
-    });
-    box.appendChild(closeBtn);
-
-    overlay.appendChild(box);
-    wrap.appendChild(overlay);
-    // Autoseleccionar el textarea una vez montado el DOM.
-    setTimeout(function () { ta.select(); ta.focus(); }, 10);
+    wrap.appendChild(codeBlock);
+    return wrap;
   }
 
   // ── botón Ver log en vivo (T-FB032-US02-01) ─────────────────────────────
@@ -7130,108 +6515,40 @@
     return btn;
   }
 
-  // ── botón Consultar modelo (Claude Code, T-FB024-US11-05) ──────────────
-  //
-  // Única forma de leer el modelo real de un agente Claude Code — no hay
-  // lectura pasiva posible (a diferencia de OpenCode), así que la consulta
-  // es EXCLUSIVAMENTE bajo demanda: nunca se dispara desde el polling de
-  // 3s de esta pantalla ni desde ningún otro ciclo automático (criterio de
-  // aceptación 1). El backend interactúa con el pane real (/status +
-  // Enter, captura, Escape) — por eso el botón queda deshabilitado con
-  // motivo explícito mientras el agente esté `working` (criterio 2): no
-  // se debe interrumpir su salida activa, ni siquiera bajo demanda.
 
-  function renderConsultarModeloBtn(agent) {
-    var isWorking = agent.status === "working";
-    var isQuerying = rolesSection.statusModelQueryPendingFor === agent.id;
-    var label = isQuerying ? "Consultando…" : "Consultar modelo";
+  // ── botón Despertar (envía empujón al pane cuando está working) ──────────
+
+  function renderDespertarBtn(agent) {
+    var isAwakening = rolesSection.awakeningAgentId === agent.id;
+    var label = isAwakening ? "Despertando…" : "Despertar";
     var btn = button(label, "agent-model-change");
+    btn.disabled = isAwakening;
 
-    if (!agent.id) {
-      btn.disabled = true;
-      btn.title = "no disponible: la instancia no está lanzada todavía";
-      return btn;
-    }
-    if (isWorking) {
-      btn.disabled = true;
-      btn.title = "no se puede consultar el modelo mientras el agente está trabajando: interrumpiría su pane en marcha";
-      return btn;
-    }
-    if (isQuerying) {
-      btn.disabled = true;
-      return btn;
-    }
-
-    btn.addEventListener("click", function () { consultarModeloClaudeCode(agent); });
-    return btn;
-  }
-
-  function consultarModeloClaudeCode(agent) {
-    if (rolesSection.statusModelQueryPendingFor !== null) return; // single-flight
-    rolesSection.statusModelQueryPendingFor = agent.id;
-    renderRolesBody();
-
-    BackendClient.getAgentStatusModel(agent.id)
-      .then(function (result) {
-        rolesSection.statusModelQueryPendingFor = null;
-        rolesSection.statusModelByAgentId[agent.id] = { model: result.model, error: null };
-        renderRolesBody();
-      })
-      .catch(function (error) {
-        rolesSection.statusModelQueryPendingFor = null;
-        rolesSection.statusModelByAgentId[agent.id] = { model: null, error: buildErrorMessage(error) };
-        renderRolesBody();
-      });
-  }
-
-  // ── botón Revisar si está bloqueado ─────────────────────────────────────
-
-  function renderRevisarBloqueadoBtn(agent) {
-    var arqLive = arquitectoState.agent && arquitectoState.agent.status !== "stopped";
-    var isReviewing = rolesSection.reviewingBlockedAgentId === agent.id;
-    var label = isReviewing ? "Revisando…" : "Revisar si está bloqueado";
-    var btn = button(label, "agent-model-change");
-    btn.disabled = !arqLive || isReviewing;
-    if (isReviewing) btn.disabled = true;
-    if (!arqLive && !isReviewing) {
-      btn.title = "Lanza el Arquitecto primero para poder pedirle una revisión";
-    }
     btn.addEventListener("click", function () {
-      if (isReviewing || !arqLive) return;
-      requestReviewBlocked(agent);
+      if (isAwakening) return;
+      requestAwaken(agent);
     });
     return btn;
   }
 
-  function requestReviewBlocked(agent) {
-    if (rolesSection.reviewingBlockedAgentId) return;
-    var arq = arquitectoState.agent;
-    if (!arq) return;
+  function requestAwaken(agent) {
+    if (rolesSection.awakeningAgentId) return;
 
-    rolesSection.reviewingBlockedAgentId = agent.id;
-    rolesSection.reviewBlockedError = null;
+    rolesSection.awakeningAgentId = agent.id;
+    rolesSection.awakenError = null;
     renderRolesBody();
 
-    // REGLA DURA (00-gobierno/ARQUITECTO.md, "Texto plano al mandar
-    // instrucciones a un agente"): la descripción del Job NUNCA puede
-    // contener backticks ni caracteres especiales de shell (incidente
-    // real confirmado 2026-08-09). Se usa texto plano sin marcar.
-    var description =
-      "Revisa si el agente " + agent.name + " (rol " + agent.role + ", id " + agent.id + ") " +
-      "esta bloqueado. Revisa su pane con GET /agents/" + agent.id + "/pane y emite un veredicto " +
-      "estructurado indicando si esta atascado (y por que) o progresando con normalidad.";
-
-    BackendClient.createAndDispatchJob({ agent_id: arq.id, description: description })
-      .then(function (job) {
-        rolesSection.reviewingBlockedAgentId = null;
+    BackendClient.sendAgentKeys(agent.id, "continua")
+      .then(function () {
+        rolesSection.awakeningAgentId = null;
         rolesSection.actionMessage =
-          "Revisión de " + agent.name + " enviada al Arquitecto (Job " + job.id + ", estado: " + job.status + ").";
+          "Empujón enviado a " + agent.name + ".";
         renderRolesBody();
         return pollRolesAgents();
       })
       .catch(function (error) {
-        rolesSection.reviewingBlockedAgentId = null;
-        rolesSection.reviewBlockedError = buildErrorMessage(error);
+        rolesSection.awakeningAgentId = null;
+        rolesSection.awakenError = buildErrorMessage(error);
         renderRolesBody();
       });
   }
@@ -7887,7 +7204,7 @@
         // Al cambiar de proyecto se resetea el contexto; las secciones
         // operativas se vuelven a cargar para la nueva sesión (sus datos
         // dependen del proyecto activo).
-        state.sections = { agents: null, jobs: null, plan: null, scripts: null, backlog: null, roles: null };
+        state.sections = { jobs: null, plan: null, scripts: null, backlog: null, roles: null };
         return loadContext();
       })
       .catch(function (error) {

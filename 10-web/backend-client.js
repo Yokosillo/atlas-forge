@@ -268,6 +268,15 @@
     return request("GET", "/agents/" + encodeURIComponent(agentId) + "/status-model");
   }
 
+  /** `POST /agents/{agent_id}/send-keys` — envía teclas literales al pane
+   * del agente (T-FB024-US11-13). Se usa para enviar empujones sin crear
+   * un Job formal. */
+  async function sendAgentKeys(agentId, keys) {
+    return request("POST", "/agents/" + encodeURIComponent(agentId) + "/send-keys", {
+      post: true, body: { keys: keys }
+    });
+  }
+
   /* ------------------------------------------------------------------ */
   /* Modelos — preferencias (T-FB022-US10-01)                           */
   /* ------------------------------------------------------------------ */
@@ -566,6 +575,7 @@
     getAgentStatusModel: getAgentStatusModel,
     setAgentModel: setAgentModel,
     getAgentAvailableModels: getAgentAvailableModels,
+    sendAgentKeys: sendAgentKeys,
     getModelsPreferences: getModelsPreferences,
     updateModelsPreferences: updateModelsPreferences,
     getSystemPreferences: getSystemPreferences,

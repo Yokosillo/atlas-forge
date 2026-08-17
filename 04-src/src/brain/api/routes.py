@@ -119,7 +119,7 @@ from brain.system_preferences import (
     load_system_preferences,
     save_system_preferences,
 )
-from brain.tmux.manager import DEFAULT_SOCKET_NAME
+from brain.tmux.manager import DEFAULT_SOCKET_NAME, send_keys_literal
 from brain.tmux import capture_pane_lines
 from brain.workspace.active_project import (
     ProjectNotDiscoveredError,
@@ -191,17 +191,25 @@ class LaunchAgentRequest(BaseModel):
     initial_job_description: str | None = None
 
     def resolved_runtime_type(self) -> str | None:
-        """Resuelve el runtime_type: si se dio model_id/model catalogado, se
-        infiere del catalogo; si el modelo no esta catalogado (p. ej. un
-        modelo libre de OpenCode) o no se dio modelo, se usa el
-        runtime_type explicito del request."""
+        """Resuelve el runtime para el lanzamiento.
+
+        T-FB005-US07-02: el runtime es ahora la elección de primera clase
+        del contrato (`brain.runtime_model_contract`). Si el request trae
+        `runtime_type` explícito, se HONRA tal cual — antes se sobreescribía
+        en silencio con el runtime inferido del modelo, la vía que podía
+        ignorar un runtime seleccionado (raíz del bug T-FB024-US12-03).
+        Solo durante la migración, si NO viene runtime explícito, se
+        infiere del modelo catalogado; sin runtime ni modelo resoluble,
+        devuelve `None` (el llamador lo rechaza con 400, criterio 1/2)."""
+        if self.runtime_type:
+            return self.runtime_type
         model = self.model_id or self.model
         if model:
             from brain.agent_model import resolve_runtime_for_model
             resolved = resolve_runtime_for_model(model)
             if resolved is not None:
                 return resolved
-        return self.runtime_type
+        return None
 
 
     def resolved_model(self) -> str | None:
@@ -544,6 +552,35 @@ def get_agents_options() -> list[dict]:
     ]
 
 
+def _reject_incompatible_launch_model(runtime_type: str, model: str) -> None:
+    """Criterio 3 de T-FB005-US07-02: rechaza (400) un modelo que la
+    capacidad del runtime elegido no permite — un modelo enviado a Claude
+    Code (no admite selección de modelo en el lanzamiento, ver
+    `brain/runtime_model_contract.py`) o un modelo catalogado que pertenece
+    a OTRO runtime. Se rechaza ANTES de lanzar nada, sin efectos parciales.
+
+    Un modelo no catalogado (p. ej. un modelo libre de OpenCode) no se
+    puede contrastar contra el catálogo — se deja pasar: `launch_agent`
+    es el que decide si el runtime lo acepta (OpenCode acepta modelos
+    libres; Claude Code ya lo rechazó arriba)."""
+    from brain.agent_model import resolve_runtime_for_model
+
+    if runtime_type == "claude-code":
+        raise HTTPException(
+            status_code=400,
+            detail="Claude Code no admite indicar un modelo.",
+        )
+    model_runtime = resolve_runtime_for_model(model)
+    if model_runtime is not None and model_runtime != runtime_type:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"El modelo '{model}' pertenece al runtime '{model_runtime}', "
+                f"no al runtime elegido '{runtime_type}'."
+            ),
+        )
+
+
 @router.post("/agents", status_code=201)
 def post_agents(body: LaunchAgentRequest) -> dict:
     """Lanza un agente (mismo mecanismo que la TUI, `launch_agent` de
@@ -578,12 +615,24 @@ def post_agents(body: LaunchAgentRequest) -> dict:
     try:
         runtime_type = body.resolved_runtime_type()
         if runtime_type is None:
+            # Criterio 1/2 de T-FB005-US07-02: el lanzamiento requiere una
+            # elección explícita de runtime — se rechaza ANTES de lanzar
+            # nada, sin efectos parciales (no se registra ningún agente).
             raise HTTPException(
                 status_code=400,
-                detail="Se requiere 'runtime_type' o 'model_id'/'model' para lanzar un agente.",
+                detail=(
+                    "Se requiere una elección explícita de runtime para lanzar "
+                    "un agente. Envía 'runtime_type' (opencode, claude-code o "
+                    "codex) o un 'model_id' del catálogo."
+                ),
             )
 
         model = body.resolved_model()
+        if model is not None:
+            # Criterio 3 de T-FB005-US07-02: un modelo se acepta solo
+            # cuando la capacidad del runtime elegido lo permite.
+            _reject_incompatible_launch_model(runtime_type, model)
+
         if body.initial_job_description is None:
             agent, _runtime_instance = launch_agent(
                 body.role,
@@ -850,6 +899,51 @@ def get_agent_available_models(agent_id: str) -> dict:
         "supports_model": supports,
         "models": agent_model_get_available_model_entries() if supports else [],
     }
+
+
+@router.post("/agents/{agent_id}/send-keys")
+def send_agent_keys(agent_id: str, body: dict) -> dict:
+    """Envía teclas literales al pane del agente `agent_id` (T-FB024-US11-13).
+    Se usa para enviar empujones sin crear un Job formal — p. ej. el botón
+    "Despertar" cuando el agente está `working`.
+
+    Recibe `{"keys": "<notación tmux>"}` (p. ej. "continua", "Enter").
+    404 si no hay sesión activa, si el agente no existe, o si el runtime
+    no está vivo. Devuelve `{agent_id, keys_sent}` en éxito."""
+    session = get_current_session()
+    if session is None:
+        raise HTTPException(
+            status_code=404, detail="No hay ninguna sesión de desarrollo activa."
+        )
+
+    agent = _find_agent_by_id(session, agent_id)
+    if agent is None:
+        raise HTTPException(
+            status_code=404, detail=f"No existe ningún agente con id '{agent_id}'."
+        )
+
+    keys = body.get("keys") if isinstance(body, dict) else None
+    if not isinstance(keys, str) or not keys.strip():
+        raise HTTPException(
+            status_code=400,
+            detail="El campo 'keys' es obligatorio (cadena no vacía).",
+        )
+
+    runtime_instance = get_runtime_instance_for_agent(agent.id)
+    if runtime_instance is None:
+        raise HTTPException(
+            status_code=404,
+            detail=f"No hay ningún runtime registrado para el agente '{agent_id}'.",
+        )
+
+    if not is_runtime_alive(runtime_instance, socket_name=_SOCKET_NAME):
+        raise HTTPException(
+            status_code=404,
+            detail=f"El agente '{agent_id}' no tiene una sesión tmux viva.",
+        )
+
+    send_keys_literal(runtime_instance.session_name, keys.strip(), socket_name=_SOCKET_NAME)
+    return {"agent_id": agent_id, "keys_sent": keys.strip()}
 
 
 @router.get("/models/preferences")

@@ -107,18 +107,6 @@ body {
   --status-unavailable: #d32f2f;
 }
 
-.agents-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-}
-
-.agents-title {
-  font-weight: 700;
-  font-size: 16px;
-}
-
 .status-dot {
   display: inline-block;
   width: 12px;
@@ -164,6 +152,48 @@ body {
 .agent-runtime {
   font-size: 13px;
   color: #444;
+  margin-top: 2px;
+}
+
+.agent-comando-conexion {
+  font-size: 13px;
+  color: #444;
+  margin-top: 2px;
+}
+
+.agent-comando-conexion code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 12px;
+  background: #f5f5f5;
+  padding: 1px 4px;
+  border-radius: 2px;
+  cursor: pointer;
+  user-select: all;
+  margin: 0 2px;
+}
+
+/* T-FB005-US07-03: selector de runtime ANTES de lanzar (elección
+   obligatoria y explícita para un agente no lanzado). */
+.agent-runtime-label {
+  color: #444;
+}
+.runtime-select {
+  margin-left: 2px;
+  padding: 2px 4px;
+  font-size: 13px;
+  border: 1px solid #999;
+  border-radius: 4px;
+  background: #fff;
+}
+.agent-model-prelaunch {
+  color: #666;
+  font-style: italic;
+}
+
+.agent-limited-until {
+  font-size: 13px;
+  color: #6A1B9A;
+  font-weight: 600;
   margin-top: 2px;
 }
 
@@ -216,17 +246,19 @@ body {
 
 /* Fila de acciones dentro de agent-card (T-FB024-US11-02, ampliada a 5
    columnas en T-FB032-US02-01, a 6 en T-FB024-US11-05): columnas de
-   ancho FIJO por posición (1a Cambiar modelo, 2a Lanzar/Detener, 3a
-   Copiar comando, 4a Revisar si esta bloqueado cuando aplica, 5a Ver log
-   en vivo, 6a Consultar modelo cuando aplica — solo filas Claude Code),
-   no flex con min-width variable — con flex, el texto mas largo de un
-   boton en una fila concreta (p. ej. "Detener" vs "Lanzar") desplazaba
-   horizontalmente los botones siguientes de ESA fila, rompiendo la
-   alineacion vertical con las demas filas. Con grid, cada columna
-   reserva siempre el mismo ancho sin importar el texto del boton que
-   caiga en ella en cada fila; una fila con menos botones (sin "Revisar
-   si esta bloqueado"/"Consultar modelo") simplemente no ocupa esa
-   columna, sin afectar el ancho de las demas. */
+   ancho FIJO por posición (1a Cambiar modelo cuando aplica como botón —
+   T-FB024-US11-12: OpenCode vivo en idle usa el selector inline del
+   bloque de información en su lugar, no ocupa esta columna —, 2a
+   Lanzar/Detener, 3a Copiar comando, 4a Revisar si esta bloqueado cuando
+   aplica, 5a Ver log en vivo, 6a Consultar modelo cuando aplica — solo
+   filas Claude Code), no flex con min-width variable — con flex, el
+   texto mas largo de un boton en una fila concreta (p. ej. "Detener" vs
+   "Lanzar") desplazaba horizontalmente los botones siguientes de ESA
+   fila, rompiendo la alineacion vertical con las demas filas. Con grid,
+   cada columna reserva siempre el mismo ancho sin importar el texto del
+   boton que caiga en ella en cada fila; una fila con menos botones (sin
+   "Revisar si esta bloqueado"/"Consultar modelo"/"Cambiar modelo")
+   simplemente no ocupa esa columna, sin afectar el ancho de las demas. */
 .agent-actions {
   display: grid;
   grid-template-columns: repeat(6, 10em);
@@ -239,6 +271,8 @@ body {
 .agent-actions button {
   width: 100%;
   min-width: 0;
+  padding: 4px 8px;
+  font-size: 13px;
 }
 
 .agent-actions .agent-stop {
