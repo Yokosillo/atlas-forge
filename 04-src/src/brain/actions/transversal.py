@@ -17,6 +17,9 @@ Acciones definidas:
   - `testear`          → ejecuta `pytest` determinista (US-FB025-04, Hilo 3)
   - `auditar-ux`       → despacha Job a la instancia de UX ya lanzada
     (T-FB024-US13-03; antes `opencode run --auto` headless, US-FB025-06)
+  - `auditar-oss`      → despacha Job a la instancia de Auditor-OSS ya
+    lanzada (T-FB024-US13-02; imagen pública del repo + auditoría de la web,
+    US-FB025-08)
   - `indexar`          → Scribe index_documents (US-FB025-07, Hilo 4)
 """
 
@@ -27,6 +30,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from brain.agents.arquitecto import ARQUITECTO_ROLE
+from brain.agents.auditor_oss import AUDITOR_OSS_ROLE
 from brain.agents.documentador import DOCUMENTADOR_ROLE
 from brain.agents.ux import UX_ROLE
 from brain.core.session_lifecycle import list_agents
@@ -93,6 +97,24 @@ _ACTION_DESCRIPTIONS: dict[str, str] = {
         "método definidos en `00-gobierno/UX.md`. "
         "Tu objetivo es evaluar `10-web/` como lo haría un desarrollador "
         "real, encontrando fricciones concretas con evidencia.\n\n"
+        "Escribe tu informe completo en el fichero de reporte indicado al "
+        "final de tu auditoría. No crees ficheros en 02-backlog/."
+    ),
+    "auditar-oss": (
+        "Audita Factory Brain como lo haría un maintainer senior de proyectos "
+        "open source de referencia, siguiendo el rol y método definidos en "
+        "`00-gobierno/AUDITOR-OSS.md`. Tu objetivo es evaluar (1) la imagen "
+        "pública del repositorio — qué percibe un desarrollador que lo descubre "
+        "por primera vez en GitHub, y (2) la auditoría de UX+Producto de la "
+        "interfaz web ya construida (`10-web/`) navegando y ejerciendo su "
+        "superficie real contra el backend real.\n\n"
+        "Navega como un desarrollador que usa Factory Brain por primera vez. "
+        "Prueba los flujos completos con datos reales. Anota fricciones "
+        "concretas: clics de más, terminología sin explicar, estados sin "
+        "feedback, información técnica cruda sin traducir.\n\n"
+        "Para cada hallazgo, di explícitamente si vale o no vale, y por qué. "
+        "Contrasta hallazgos de 'falta algo' contra el backend real "
+        "(`04-src/src/brain/api/routes.py`) antes de reportar.\n\n"
         "Escribe tu informe completo en el fichero de reporte indicado al "
         "final de tu auditoría. No crees ficheros en 02-backlog/."
     ),
@@ -174,6 +196,7 @@ _STORY_ID_MAP = {
     "sugerir-ideas": "US-FB025-03",
     "testear": "US-FB025-04",
     "auditar-ux": "US-FB025-06",
+    "auditar-oss": "US-FB025-08",
     "testear-ui": "US-FB022-15",
     "indexar": "US-FB025-07",
 }
@@ -194,6 +217,7 @@ class ActionType:
     SUGERIR_IDEAS = "sugerir-ideas"
     TESTEAR = "testear"
     AUDITAR_UX = "auditar-ux"
+    AUDITAR_OSS = "auditar-oss"
     TESTEAR_UI = "testear-ui"
     INDEXAR = "indexar"
 
@@ -204,6 +228,7 @@ ACCIONES_DISPONIBLES: tuple[str, ...] = (
     ActionType.SUGERIR_IDEAS,
     ActionType.TESTEAR,
     ActionType.AUDITAR_UX,
+    ActionType.AUDITAR_OSS,
     ActionType.TESTEAR_UI,
     ActionType.INDEXAR,
 )
@@ -224,12 +249,14 @@ _ACTION_ROLE_MAP = {
     "analizar-arquitectura": ARQUITECTO_ROLE,
     "sugerir-ideas": ARQUITECTO_ROLE,
     "auditar-ux": UX_ROLE,
+    "auditar-oss": AUDITOR_OSS_ROLE,
 }
 
 _ROLE_DISPLAY_NAME = {
     ARQUITECTO_ROLE: "Arquitecto",
     UX_ROLE: "UX",
     DOCUMENTADOR_ROLE: "Documentador",
+    AUDITOR_OSS_ROLE: "Auditor-OSS",
 }
 
 

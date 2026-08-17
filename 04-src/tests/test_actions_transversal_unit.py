@@ -13,23 +13,26 @@ from brain.actions.transversal import (
     dispatch_action,
 )
 from brain.agents.arquitecto import ARQUITECTO_ROLE
+from brain.agents.auditor_oss import AUDITOR_OSS_ROLE
 from brain.agents.documentador import DOCUMENTADOR_ROLE
 from brain.agents.ux import UX_ROLE
 from brain.models import Agent, DevelopmentSession, Job
 
 
 class TestActionDefinitions:
-    def test_six_actions_defined(self):
-        assert len(ACCIONES_DISPONIBLES) == 6
+    def test_eight_actions_defined(self):
+        assert len(ACCIONES_DISPONIBLES) == 8
         assert ActionType.DOCUMENTAR in ACCIONES_DISPONIBLES
         assert ActionType.ANALIZAR_ARQUITECTURA in ACCIONES_DISPONIBLES
         assert ActionType.SUGERIR_IDEAS in ACCIONES_DISPONIBLES
         assert ActionType.TESTEAR in ACCIONES_DISPONIBLES
         assert ActionType.AUDITAR_UX in ACCIONES_DISPONIBLES
+        assert ActionType.AUDITAR_OSS in ACCIONES_DISPONIBLES
+        assert ActionType.TESTEAR_UI in ACCIONES_DISPONIBLES
         assert ActionType.INDEXAR in ACCIONES_DISPONIBLES
 
     def test_action_descriptions_exist(self):
-        for action_id in ("documentar", "analizar-arquitectura", "sugerir-ideas", "auditar-ux", "indexar"):
+        for action_id in ("documentar", "analizar-arquitectura", "sugerir-ideas", "auditar-ux", "auditar-oss", "indexar"):
             assert action_id in _ACTION_DESCRIPTIONS
             desc = _ACTION_DESCRIPTIONS[action_id]
             assert len(desc) > 50, f"descripción de '{action_id}' demasiado corta ({len(desc)} chars)"
@@ -40,6 +43,7 @@ class TestActionDefinitions:
         assert _STORY_ID_MAP.get("sugerir-ideas") == "US-FB025-03"
         assert _STORY_ID_MAP.get("testear") == "US-FB025-04"
         assert _STORY_ID_MAP.get("auditar-ux") == "US-FB025-06"
+        assert _STORY_ID_MAP.get("auditar-oss") == "US-FB025-08"
         assert _STORY_ID_MAP.get("indexar") == "US-FB025-07"
 
 

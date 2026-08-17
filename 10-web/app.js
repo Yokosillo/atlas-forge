@@ -1263,13 +1263,15 @@
     renderArquitectoBar();
     // Claude Code no admite el campo `model` en POST /agents: cuando el
     // modelo por defecto es claude-code, se manda `runtime_type` sin modelo.
-    // Para el resto de modelos se usa `model_id` (mismo criterio que el
-    // formulario de lanzamiento legacy).
+    // Para el resto de modelos se manda `model_id` con el id real. T-FB005-
+    // US07-02: el runtime se manda SIEMPRE explícito (contrato), nunca se
+    // deja que el backend lo infiera del modelo.
     var arqPayload = { role: "arquitecto" };
     if (arquitectoState.defaultModel === "claude-code") {
       arqPayload.runtime_type = "claude-code";
     } else {
       arqPayload.model_id = arquitectoState.defaultModel;
+      arqPayload.runtime_type = launchRuntimeForModel(arquitectoState.defaultModel) || "opencode";
     }
     BackendClient.launchAgent(arqPayload)
       .then(function (agent) {
@@ -1954,15 +1956,7 @@
     // clic por el single-flight.
     renderAgentsBody();
 
-    // T-FB005-US07-02: el runtime se manda SIEMPRE explícito (contrato de
-    // lanzamiento) y el modelo solo cuando el runtime lo admite — mismo
-    // criterio que `launchStoppedDev`/`launchArquitecto`: una opción
-    // Claude Code (`supports_model === false`) no manda `model_id`, el
-    // backend lo rechazaría ("Claude Code no admite indicar un modelo").
-    var payload = { role: option.agent_role, runtime_type: option.runtime_type };
-    if (option.supports_model) {
-      payload.model_id = option.model_id;
-    }
+    var payload = { role: option.agent_role, model_id: option.model_id };
     if (agentsSection.taskInput.trim()) {
       payload.initial_job_description = agentsSection.taskInput.trim();
     }
@@ -6961,6 +6955,17 @@
       });
   }
 
+  // T-FB005-US07-02: resuelve el runtime REAL de un id de modelo del
+  // catálogo (`rolesSection.models`, `{id, name, runtime}` — el campo
+  // `runtime` del catálogo usa snake_case: `claude_code` → `claude-code`).
+  // Devuelve `null` si el modelo no está en el catálogo (p. ej. un modelo
+  // libre de OpenCode), para que el llamador use su fallback.
+  function launchRuntimeForModel(modelId) {
+    var match = (rolesSection.models || []).find(function (m) { return m.id === modelId; });
+    if (!match) return null;
+    return match.runtime === "claude_code" ? "claude-code" : match.runtime;
+  }
+
   function launchStoppedDev(agent) {
     var payload = { role: agent.role };
     // El default del rol (`rolesSection.defaults[agent.role]`, id real del
@@ -6986,15 +6991,22 @@
     // null) — se manda `runtime_type` sin `model_id`; para el resto de
     // modelos se manda `model_id` con el id real.
     var defaultId = rolesSection.defaults && rolesSection.defaults[agent.role];
+    // T-FB005-US07-02: el runtime se manda SIEMPRE explícito en
+    // `POST /agents` (contrato: runtime separado del modelo) — se resuelve
+    // del catálogo (`rolesSection.models`, id → runtime del catálogo) o del
+    // default/instancia, nunca se deja que el backend lo infiera del
+    // modelo. El modelo solo se manda cuando el runtime lo admite.
     if (defaultId === "claude-code") {
       payload.runtime_type = "claude-code";
     } else if (defaultId) {
       payload.model_id = defaultId;
+      payload.runtime_type = launchRuntimeForModel(defaultId) || "opencode";
     } else if (!agent._synthetic && agent.model) {
       // Sin default del rol: para una fila real se reutiliza el modelo con
       // el que ya estaba registrada la instancia (comportamiento previo,
       // sin regresión sobre el caso ya correcto).
       payload.model_id = agent.model;
+      payload.runtime_type = launchRuntimeForModel(agent.model) || (agent.runtime_id || "opencode");
     } else if (!agent._synthetic && agent.runtime_id) {
       payload.runtime_type = agent.runtime_id;
     } else {
@@ -7669,6 +7681,7 @@
     { id: "sugerir-ideas", label: "Sugerir ideas para el backlog", desc: "Propone ideas candidatas de Epics/User Stories a partir del estado actual del proyecto. No escribe a 02-backlog/." },
     { id: "testear", label: "Testear todo", desc: "Ejecuta la suite completa de tests del proyecto. Resultado determinista (pasa/falla), sin corrección automática." },
     { id: "auditar-ux", label: "Auditar UX de la web", desc: "Lanza una auditoría UX headless de la interfaz web con opencode run --auto (sin tmux). Sigue el protocolo de 00-gobierno/UX.md." },
+    { id: "auditar-oss", label: "Auditar imagen open source", desc: "Audita Factory Brain como lo haría un maintainer senior de open source: imagen pública del repositorio en GitHub y auditoría de la interfaz web navegando contra el backend real. Sigue 00-gobierno/AUDITOR-OSS.md." },
     { id: "indexar", label: "Indexar proyecto (Scribe)", desc: "Genera un índice temático del proyecto usando el modelo local de Ollama. Sin gastar tokens de los agentes principales." },
   ];
 
