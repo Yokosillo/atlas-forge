@@ -491,10 +491,6 @@
     creatingManualJob: false,
     manualJobError: null,
     manualJobResult: null,
-    // T-FB026-US04-02: análisis de hilos de desarrollo.
-    threadsInFlight: false,
-    threadsResult: null,
-    threadsError: null,
     // T-FB008-US10-03: encolar/desencolar una Task individual desde su
     // detalle — single-flight por `task_id` (guarda el id en vuelo, no
     // solo un booleano, mismo criterio ya usado por
@@ -547,6 +543,14 @@
     // re-render de `renderBacklogBody()` (mismo criterio que
     // `manualJobDescription`/`filterTextInput`).
     newEpicForm: null,
+    // T-FB036-US02-05: formulario inline "+ Nueva User Story" — mismo
+    // patrón que `newEpicForm`, con `epicId` fijado desde el contexto
+    // (la Epic expandida donde se pulsó el botón) en vez de un `<input>`
+    // editable. Un único slot global (no uno por Epic): abrir el
+    // formulario en una Epic distinta descarta cualquier formulario ya
+    // abierto en otra, mismo criterio que el resto de esta pantalla
+    // (`editingRowKey`, `selectedItemId`).
+    newUserStoryForm: null,
   };
 
   // Sección MODELOS (T-FB022-US10-02): catálogo con habilitado/deshabilitado
@@ -3823,6 +3827,182 @@
       });
   }
 
+  // T-FB036-US02-05: formulario inline "+ Nueva User Story" (estado 8 de
+  // la especificación UX, mismo patrón visual que `renderNewEpicForm`).
+  // Campos: ID (`US-FBxxx-nn`, validación de formato en cliente), Título,
+  // Objetivo, Criterios de aceptación, Prioridad — `epic_id` mostrado
+  // pero no editable (viene fijado en `newUserStoryForm.epicId` desde el
+  // botón que abrió el formulario, nunca un `<input>`).
+  // Mismo patrón que `US_ID_PATTERN` del backend
+  // (`brain.backlog.create`): letra final opcional (`US-FB900-01A`).
+  var NEW_US_ID_PATTERN = /^US-FB\d{3,}-\d{2}[A-Z]?$/;
+
+  function renderNewUserStoryForm() {
+    var form = h("div", "jobs-form");
+    form.appendChild(h("div", "jobs-form-title", "Nueva User Story"));
+
+    form.appendChild(h("div", "field-label", "Epic"));
+    form.appendChild(h("div", "job-detail-field", backlogSection.newUserStoryForm.epicId));
+
+    var createBtn = button(
+      backlogSection.newUserStoryForm.submitting ? "Creando…" : "Crear",
+      "backlog-launch"
+    );
+    function updateCreateBtnState() {
+      var missingRequired = !backlogSection.newUserStoryForm.id.trim() ||
+        !backlogSection.newUserStoryForm.title.trim() ||
+        !backlogSection.newUserStoryForm.objetivo.trim();
+      createBtn.disabled = missingRequired || backlogSection.newUserStoryForm.submitting;
+    }
+
+    form.appendChild(h("div", "field-label", "ID (formato US-FBxxx-nn)"));
+    var idInput = document.createElement("input");
+    idInput.type = "text";
+    idInput.className = "clickable backlog-new-epic-input";
+    idInput.placeholder = "US-FB999-01";
+    idInput.value = backlogSection.newUserStoryForm.id;
+    idInput.addEventListener("input", function () {
+      backlogSection.newUserStoryForm.id = idInput.value;
+      updateCreateBtnState();
+    });
+    form.appendChild(idInput);
+
+    form.appendChild(h("div", "field-label", "Título"));
+    var titleInput = document.createElement("input");
+    titleInput.type = "text";
+    titleInput.className = "clickable backlog-new-epic-input";
+    titleInput.value = backlogSection.newUserStoryForm.title;
+    titleInput.addEventListener("input", function () {
+      backlogSection.newUserStoryForm.title = titleInput.value;
+      updateCreateBtnState();
+    });
+    form.appendChild(titleInput);
+
+    form.appendChild(h("div", "field-label", "Objetivo"));
+    var objetivoInput = document.createElement("textarea");
+    objetivoInput.className = "clickable backlog-new-epic-input";
+    objetivoInput.rows = 3;
+    objetivoInput.value = backlogSection.newUserStoryForm.objetivo;
+    objetivoInput.addEventListener("input", function () {
+      backlogSection.newUserStoryForm.objetivo = objetivoInput.value;
+      updateCreateBtnState();
+    });
+    form.appendChild(objetivoInput);
+
+    form.appendChild(h("div", "field-label", "Criterios de aceptación"));
+    var criteriosInput = document.createElement("textarea");
+    criteriosInput.className = "clickable backlog-new-epic-input";
+    criteriosInput.rows = 3;
+    criteriosInput.value = backlogSection.newUserStoryForm.criterios;
+    criteriosInput.addEventListener("input", function () {
+      backlogSection.newUserStoryForm.criterios = criteriosInput.value;
+      updateCreateBtnState();
+    });
+    form.appendChild(criteriosInput);
+
+    form.appendChild(h("div", "field-label", "Prioridad"));
+    var prioritySelect = document.createElement("select");
+    prioritySelect.className = "clickable launch-select";
+    var noneOpt = document.createElement("option");
+    noneOpt.value = "";
+    noneOpt.textContent = "Sin prioridad";
+    if (!backlogSection.newUserStoryForm.priority) noneOpt.selected = true;
+    prioritySelect.appendChild(noneOpt);
+    EDITABLE_PRIORITIES.forEach(function (p) {
+      var option = document.createElement("option");
+      option.value = p;
+      option.textContent = p;
+      if (backlogSection.newUserStoryForm.priority === p) option.selected = true;
+      prioritySelect.appendChild(option);
+    });
+    prioritySelect.addEventListener("change", function () {
+      backlogSection.newUserStoryForm.priority = prioritySelect.value;
+    });
+    form.appendChild(prioritySelect);
+
+    updateCreateBtnState();
+    createBtn.addEventListener("click", submitNewUserStory);
+    form.appendChild(createBtn);
+
+    var cancelBtn = button("Cancelar", "backlog-launch");
+    if (backlogSection.newUserStoryForm.submitting) cancelBtn.disabled = true;
+    cancelBtn.addEventListener("click", function () {
+      // T11: cancelar descarta el estado del formulario SIN llamar al
+      // backend — vuelve al detalle de la Epic intacto.
+      backlogSection.newUserStoryForm = null;
+      renderBacklogBody();
+    });
+    form.appendChild(cancelBtn);
+
+    if (backlogSection.newUserStoryForm.error) {
+      // Error verbatim del backend (404 Epic inexistente / 409 duplicado
+      // / 400 formato o priority inválida) — el formulario permanece
+      // abierto (criterio de aceptación explícito de la Task).
+      form.appendChild(h("p", "agent-error", backlogSection.newUserStoryForm.error));
+    }
+
+    return form;
+  }
+
+  // T10: envío del formulario — single-flight (`newUserStoryForm.submitting`,
+  // mismo patrón que `submitNewEpic`). Éxito: cierra el formulario,
+  // refresca el listado completo Y el detalle de la Epic (refetch real de
+  // `GET /backlog/{epicId}`), deja la Epic expandida con la nueva Story
+  // visible sin que el usuario tenga que buscarla. Error: formulario
+  // permanece abierto con el `detail` verbatim.
+  function submitNewUserStory() {
+    var form = backlogSection.newUserStoryForm;
+    if (!form || form.submitting) return; // single-flight
+    var epicId = form.epicId;
+    var id = form.id.trim();
+    var title = form.title.trim();
+    var objetivo = form.objetivo.trim();
+    var criterios = form.criterios.trim();
+    var priority = form.priority || null;
+
+    // Validación de formato en cliente antes de enviar — el servidor la
+    // repite de todos modos (nunca se confía solo en la validación de
+    // cliente, mismo criterio que T-FB036-US02-01/-02).
+    if (!NEW_US_ID_PATTERN.test(id)) {
+      form.error = "El ID debe tener formato US-FBxxx-nn.";
+      renderBacklogBody();
+      return;
+    }
+
+    form.submitting = true;
+    form.error = null;
+    renderBacklogBody();
+
+    BackendClient.createUserStory(epicId, {
+      id: id, title: title, objetivo: objetivo,
+      criterios_aceptacion: criterios, priority: priority,
+    })
+      .then(function () {
+        backlogSection.newUserStoryForm = null;
+        // Cierra el formulario de inmediato (sin esperar los refrescos de
+        // red de abajo, que llegan algo después y repintan por su cuenta).
+        renderBacklogBody();
+        // Refrescar el listado raíz completo (badges/conteos consistentes,
+        // mismo criterio que el resto de acciones que mutan el backlog) y
+        // el detalle de la Epic donde se creó (refetch real de
+        // `GET /backlog/{epicId}`, no parcheado en memoria), para que la
+        // Story nueva aparezca sin recargar la página.
+        refreshBacklogReport();
+        BackendClient.getBacklogItem(epicId).then(function (detail) {
+          if (backlogSection.selectedEpicId !== epicId) return;
+          backlogSection.epicDetail = detail;
+          renderBacklogBody();
+        });
+      })
+      .catch(function (error) {
+        var current = backlogSection.newUserStoryForm;
+        if (!current) return;
+        current.submitting = false;
+        current.error = buildErrorMessage(error);
+        renderBacklogBody();
+      });
+  }
+
   // T-FB036-US01-01: barra de controles con buscador + filtro de
   // estado + filtro de prioridad, sobre el listado raíz de Epics.
   // Sigue `07-informes/FB-036/especificacion-ux-backlog.md` (estados 3-4,
@@ -4223,7 +4403,11 @@
         blockedBadge.appendChild(h("span", "backlog-blocked-badge-chip", blockedItems.length + " bloqueadas"));
         blockedBadge.title = blockedItems
           .map(function (item) {
-            var deps = (item.blocking_dependencies || []).join(", ") || "dependencia pendiente";
+            var deps = (item.blocking_dependencies || [])
+              .map(function (dep) {
+                return dep.id + (dep.state ? " [" + dep.state + "]" : " (no existe)");
+              })
+              .join(", ") || "dependencia pendiente";
             return item.id + " bloqueada por: " + deps;
           })
           .join("\n");
@@ -4262,8 +4446,6 @@
       backlogSection.selectedEpicId = null;
       backlogSection.epicDetail = null;
       backlogSection.epicDetailError = null;
-      backlogSection.threadsResult = null;
-      backlogSection.threadsError = null;
       closeItemDetail();
       renderBacklogBody();
       return;
@@ -4271,8 +4453,6 @@
     backlogSection.selectedEpicId = epicId;
     backlogSection.epicDetail = null;
     backlogSection.epicDetailError = null;
-    backlogSection.threadsResult = null;
-    backlogSection.threadsError = null;
     closeItemDetail();
     renderBacklogBody();
 
@@ -4445,7 +4625,6 @@
       } else {
         box.appendChild(h("div", "job-detail-field", "(ninguna)"));
       }
-      return box;
     }
     filteredUserStories.forEach(function (userStory) {
       var selected = backlogSection.selectedItemId === userStory.id;
@@ -4488,104 +4667,32 @@
       box.appendChild(itemCard);
     });
 
-    // FB-026: botón "Generar hilos de desarrollo" en la Epic, con N
-    // (agentes disponibles) configurable — corrección 2026-08-06,
-    // auditoría de cierre de Fase 1.0 (antes fijo a 2 sin override).
-    var threadControls = h("div", "accion-controls");
-    var numAgentsInput = document.createElement("input");
-    numAgentsInput.type = "number";
-    numAgentsInput.min = "1";
-    numAgentsInput.value = String(backlogSection.threadsNumAgents || 2);
-    numAgentsInput.className = "accion-num-agents";
-    numAgentsInput.title = "Número de agentes disponibles";
-    numAgentsInput.addEventListener("change", function () {
-      var parsed = parseInt(numAgentsInput.value, 10);
-      backlogSection.threadsNumAgents = parsed >= 1 ? parsed : 1;
+    // T-FB036-US02-05: botón "+ Nueva User Story" al final de la lista de
+    // User Stories — siempre visible (incluso con lista vacía o filtrada a
+    // cero, igual que "+ Nueva Epic" siempre visible con backlog vacío),
+    // nunca dentro del bucle de arriba. Abre el formulario inline (T8) con
+    // `epic_id` heredado del contexto (`detail.id`), mostrado pero no
+    // editable — no hay ningún `<input>` de Epic en este formulario.
+    var newUsBtn = button("+ Nueva User Story", "backlog-new-epic-btn");
+    newUsBtn.addEventListener("click", function () {
+      backlogSection.newUserStoryForm = {
+        epicId: detail.id,
+        id: "",
+        title: "",
+        objetivo: "",
+        criterios: "",
+        priority: "",
+        submitting: false,
+        error: null,
+      };
+      renderBacklogBody();
     });
-    threadControls.appendChild(numAgentsInput);
-
-    var threadBtn = button(
-      backlogSection.threadsInFlight ? "Analizando hilos…" : "Generar hilos de desarrollo",
-      "accion-run"
-    );
-    if (backlogSection.threadsInFlight) threadBtn.disabled = true;
-    threadBtn.addEventListener("click", function () {
-      if (backlogSection.threadsInFlight) return;
-      analyzeEpicThreads(detail.id, backlogSection.threadsNumAgents || 2);
-    });
-    threadControls.appendChild(threadBtn);
-    box.appendChild(threadControls);
-
-    if (backlogSection.threadsError) {
-      box.appendChild(h("p", "agent-error", backlogSection.threadsError));
-    }
-
-    if (backlogSection.threadsResult) {
-      renderThreadsResult(box);
+    box.appendChild(newUsBtn);
+    if (backlogSection.newUserStoryForm !== null && backlogSection.newUserStoryForm.epicId === detail.id) {
+      box.appendChild(renderNewUserStoryForm());
     }
 
     return box;
-  }
-
-  function analyzeEpicThreads(epicId, numAgents) {
-    backlogSection.threadsInFlight = true;
-    backlogSection.threadsError = null;
-    backlogSection.threadsResult = null;
-    renderBacklogBody();
-
-    BackendClient.analyzeEpicThreads(epicId, numAgents)
-      .then(function (result) {
-        backlogSection.threadsInFlight = false;
-        backlogSection.threadsResult = result;
-        renderBacklogBody();
-      })
-      .catch(function (error) {
-        backlogSection.threadsInFlight = false;
-        backlogSection.threadsError = buildErrorMessage(error);
-        renderBacklogBody();
-      });
-  }
-
-  function renderThreadsResult(box) {
-    var r = backlogSection.threadsResult;
-    if (!r) return;
-
-    var resultBox = h("div", "accion-result");
-    resultBox.appendChild(h("h4", "accion-result-title", "Hilos de desarrollo · " + r.epic));
-    resultBox.appendChild(h("p", null,
-      r.num_tasks + " tareas en " + r.num_threads + " hilos" +
-      (r.num_crosses > 0 ? ", " + r.num_crosses + " cruces" : "")
-    ));
-
-    var threads = r.threads || [];
-    threads.forEach(function (thread) {
-      var threadBox = h("div", "job-detail-field");
-      threadBox.appendChild(h("strong", null, thread.id + " (nivel " + thread.start_level + ", " + thread.task_count + " tareas):"));
-      var taskList = h("div", null);
-      taskList.style.marginLeft = "1em";
-      (thread.tasks || []).forEach(function (tid) {
-        taskList.appendChild(h("div", null, tid));
-      });
-      threadBox.appendChild(taskList);
-      resultBox.appendChild(threadBox);
-    });
-
-    var crosses = r.crosses || [];
-    if (crosses.length > 0) {
-      var crossBox = h("div", "job-detail-label", "Cruces:");
-      crosses.forEach(function (c) {
-        crossBox.appendChild(h("div", "job-detail-field",
-          c.from_task + " (" + c.from_thread + ") → " + c.to_task + " (" + c.to_thread + ")"
-        ));
-      });
-      resultBox.appendChild(crossBox);
-    }
-
-    if (r.report_path) {
-      resultBox.appendChild(h("div", "job-hint", "Informe persistido: " + r.report_path));
-    }
-
-    box.appendChild(resultBox);
   }
 
   // T-FB008-US10-03: carga (o recarga) el snapshot de GET /backlog/queue
