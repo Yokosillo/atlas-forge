@@ -1,4 +1,7 @@
 {
+  "scripts": {
+    "test:ui": "node 10-web/tests/run.js"
+  },
   "dependencies": {
     "puppeteer": "^25.5.0"
   }

@@ -17,6 +17,12 @@ from brain.agents.developer import (
     build_developer_prompt,
     register_developer,
 )
+from brain.agents.tester import (
+    TESTER_PROMPT,
+    TESTER_ROLE,
+    build_tester_prompt,
+    register_tester,
+)
 from brain.agents.governance import (
     project_governance_instruction,
     project_has_governance,
@@ -51,11 +57,14 @@ __all__ = [
     "InvalidAgentTransitionError",
     "MAX_SIMULTANEOUS_DEVELOPERS",
     "RoleConfig",
+    "TESTER_PROMPT",
+    "TESTER_ROLE",
     "UX_PROMPT",
     "UX_ROLE",
     "build_arquitecto_prompt",
     "build_auditor_oss_prompt",
     "build_developer_prompt",
+    "build_tester_prompt",
     "build_ux_prompt",
     "get_agent_state",
     "get_role",
@@ -74,6 +83,7 @@ __all__ = [
     "register_auditor_oss",
     "register_developer",
     "register_role",
+    "register_tester",
     "register_ux",
     "stop_agent",
 ]
