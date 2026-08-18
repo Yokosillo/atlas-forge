@@ -239,13 +239,13 @@ class BackendClient:
     def launch_development(self, story_id: str, agent_id: str) -> dict:
         """`POST /backlog/{story_id}/launch-development` (T-FB020-US02-01/
         T-FB020-US02-02) — lanza el desarrollo de la User Story `story_id`
-        con contexto ya resuelto por el backend (objetivo + Tasks `TODO`
+        con contexto ya resuelto por el backend (objetivo + Tasks `TO_DO`
         concatenados en la `description` del Job) y lo despacha al agente
         `agent_id`. Bloqueante como `create_and_dispatch_job` (mismo motor
         de despacho): la respuesta solo llega cuando el Job ya terminó —
         mismo timeout extendido.
 
-        400 (sin Tasks `TODO`) y 404 (`story_id`/`agent_id` inválido) se
+        400 (sin Tasks `TO_DO`) y 404 (`story_id`/`agent_id` inválido) se
         propagan como `requests.HTTPError` con el `detail` REAL del
         backend — nunca reformulado aquí (criterio de aceptación
         explícito de T-FB020-US02-02)."""

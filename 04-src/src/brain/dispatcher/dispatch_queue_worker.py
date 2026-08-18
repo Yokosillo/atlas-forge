@@ -167,7 +167,7 @@ def _update_task_file_state(tasks_dir: Path, task_id: str, new_state: str) -> No
     """Reescribe el campo `state:` del fichero real de `task_id` a
     `new_state` — mismo patrón de reemplazo textual ya usado por
     `_mark_story_tasks_done` (`job_plan_dispatch.py`), aplicado aquí a
-    una única Task concreta en vez de todas las `TODO` de una Story (esa
+    una única Task concreta en vez de todas las `TO_DO` de una Story (esa
     función resuelve un caso distinto: el veredicto de Arquitecto sobre
     una Story completa, no el despacho individual de esta cola)."""
     candidates = sorted(tasks_dir.glob(f"{task_id}-*.md")) or sorted(tasks_dir.glob(f"{task_id}.md"))
@@ -400,7 +400,7 @@ def run_dispatch_cycle(
         # runtime caído) debe marcar `failed` igual, no tumbar el hilo de
         # fondo entero.
         mark_failed(project_root, project_name, task_id, result=str(error))
-        _update_task_file_state(tasks_dir, task_id, "TODO")
+        _update_task_file_state(tasks_dir, task_id, "TO_DO")
         return task_id
 
     if job.status != "completed":
@@ -408,7 +408,7 @@ def run_dispatch_cycle(
             project_root, project_name, task_id,
             result=f"El Job no se completó (estado '{job.status}'): {job.result}",
         )
-        _update_task_file_state(tasks_dir, task_id, "TODO")
+        _update_task_file_state(tasks_dir, task_id, "TO_DO")
         return task_id
 
     # T-FB008-US14-02: la Task cerrada por el Developer pasa a REVIEW, no
@@ -470,7 +470,7 @@ def _redispatch_task_to_retained_developer(
     `dispatched` de `dispatch_queue.json` (`mark_dispatched`, mismo dato
     que ya usa `_retained_developer_agent_ids`). Si ese agente ya no
     está disponible (runtime caído, ya no está en la sesión), la Task
-    queda anotada con el hallazgo y vuelve a `TODO` — el ciclo normal de
+    queda anotada con el hallazgo y vuelve a `TO_DO` — el ciclo normal de
     `run_dispatch_cycle` la recogerá cuando alguien la marque `EN_DESARROLLO`
     de nuevo (mejor esfuerzo: nunca se pierde el hallazgo del Tester, ni
     se bloquea el resto del pipeline por un Developer caído)."""
@@ -492,14 +492,14 @@ def _redispatch_task_to_retained_developer(
         )
 
     if developer_agent is None:
-        # Developer ya no disponible — queda anotada, vuelve a TODO para
+        # Developer ya no disponible — queda anotada, vuelve a TO_DO para
         # que un humano/el ciclo normal la reencole cuando corresponda.
-        _update_task_file_state(tasks_dir, task_item.id, "TODO")
+        _update_task_file_state(tasks_dir, task_item.id, "TO_DO")
         return
 
     runtime_instance = get_runtime_instance_for_agent(developer_agent.id)
     if runtime_instance is None:
-        _update_task_file_state(tasks_dir, task_item.id, "TODO")
+        _update_task_file_state(tasks_dir, task_item.id, "TO_DO")
         return
 
     task_path = next(iter(sorted(tasks_dir.glob(f"{task_item.id}-*.md"))), None)
@@ -749,7 +749,7 @@ def run_us_landing_dispatch_cycle(
     y un Arquitecto `idle`, ejecuta el aterrizaje US→Tasks
     (`propose_tasks_from_user_story`/`run_task_pipeline`, mismo mecanismo
     determinista que ya usa `POST /backlog/us/{us_id}/propose-tasks`) y
-    transiciona la US a `TODO` si se escribió al menos una Task real.
+    transiciona la US a `TO_DO` si se escribió al menos una Task real.
 
     Nota de diseño: `propose_tasks_from_user_story` es determinista (sin
     `llm_generate`, genera Tasks por heurística de secciones de la propia
@@ -805,7 +805,7 @@ def run_us_landing_dispatch_cycle(
         return None
 
     if pipeline_result.approved_tasks:
-        set_item_state(us_item.path, "TODO")
+        set_item_state(us_item.path, "TO_DO")
         return story_id
 
     # Sin Tasks aprobadas este ciclo (huecos detectados, autoauditoría

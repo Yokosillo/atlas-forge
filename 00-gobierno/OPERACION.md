@@ -53,6 +53,41 @@ Consultar el log de reconciliación:
 tail -1 <project_root>/.claude/state/<project_name>/reconciliation_log.jsonl | python3 -m json.tool
 ```
 
+### Reinicio desde la web (T-FB037-US05)
+
+El botón "Reiniciar Brain" de la pantalla Configuración llama a
+`POST /system/restart`, que ejecuta exactamente este comando:
+
+```bash
+sudo /usr/bin/systemctl restart factory-brain-api
+```
+
+Para que funcione sin contraseña, el usuario del servicio
+(`secure_ai_atlas`) necesita la siguiente regla sudoers, instalada como
+requisito de despliegue:
+
+```bash
+sudo visudo -f /etc/sudoers.d/factory-brain-restart
+```
+
+Contenido del fichero:
+
+```
+secure_ai_atlas ALL=(root) NOPASSWD: /usr/bin/systemctl restart factory-brain-api
+```
+
+La regla está acotada a ese único comando (ruta absoluta y argumentos
+fijos): no usar `NOPASSWD: ALL` ni una regla genérica de `systemctl`, que
+abriría una escalación de privilegios. Verificar que el fichero es legible
+por sudo:
+
+```bash
+sudo visudo -c -f /etc/sudoers.d/factory-brain-restart
+```
+
+Si la regla no está instalada, el endpoint responde 500 con un mensaje que
+apunta a esta sección.
+
 ## Instancia duplicada
 
 Revisar:

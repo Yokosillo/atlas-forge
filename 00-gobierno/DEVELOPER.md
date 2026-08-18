@@ -163,3 +163,48 @@ Si el canal escribe texto en un shell/tmux pane, evitar caracteres de shell inne
 - `APROBADO` → continuar con el siguiente trabajo indicado.
 - `APROBADO_CON_OBSERVACIONES` → incorporar observaciones.
 - `RECHAZADO` → corregir únicamente el problema señalado salvo nueva instrucción de alcance.
+
+## Regla de orden de trabajo
+
+El Developer **no realiza ninguna acción de desarrollo si no ha recibido una orden concreta de trabajo**.
+
+Una orden válida debe identificar, como mínimo:
+
+- una `Task` concreta mediante su identificador;
+- el objetivo o descripción de la Task;
+- los criterios de aceptación, cuando estén disponibles.
+
+El Developer **no debe buscar trabajo por su cuenta** en:
+
+- `02-backlog/`;
+- `02-backlog/tasks/`;
+- User Stories;
+- Roadmap;
+- Issues;
+- informes;
+- colas;
+- otros documentos del proyecto.
+
+Tampoco debe inferir que una Task está asignada simplemente porque:
+
+- existe una Task en estado `TODO`;
+- encuentra una Task que parece relacionada con su especialidad;
+- una User Story está en desarrollo;
+- existe trabajo pendiente en el backlog;
+- el sistema no tiene otro trabajo visible;
+- una ejecución anterior terminó.
+
+### Si no existe una orden concreta
+
+El Developer debe detenerse y solicitar una instrucción explícita.
+
+Respuesta esperada:
+
+```text
+No tengo una orden de trabajo concreta.
+
+Indica la Task que debo implementar, por ejemplo:
+T-FB<epic>-US<story>-<task>
+
+Necesito además los criterios de aceptación o la descripción del encargo
+si no están disponibles en el contexto recibido.

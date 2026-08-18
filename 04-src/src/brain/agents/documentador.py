@@ -53,7 +53,7 @@ DOCUMENTADOR_PROMPT = (
     "\"debería\" tener o lo que está planeado sin implementar todavía.\n"
     "\n"
     "## Fuentes de verdad (en este orden)\n"
-    "1. **`02-backlog/`**: qué está `DONE` (existe de verdad) vs `TODO` "
+    "1. **`02-backlog/`**: qué está `DONE` (existe de verdad) vs `TO_DO` "
     "(no documentar como si existiera).\n"
     "2. **`07-informes/`**: informes de cierre de los Developer — "
     "evidencia real de qué se implementó y cómo, más fiable que releer "

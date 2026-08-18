@@ -4,7 +4,7 @@
 Lectura de los ficheros `user-stories/*.md`/`tasks/*.md` de un proyecto,
 extracción de estado y dependencias con parseo de texto (regex sobre la
 convención de `02-backlog/`), y grafo de dependencias entre US/Tasks, con
-clasificación LISTA/BLOQUEADA de los items TODO y cadena de mayor
+clasificación LISTA/BLOQUEADA de los items TO_DO y cadena de mayor
 apalancamiento — todo sin gastar tokens de agente cognitivo."""
 
 from brain.backlog.dependency_graph import (

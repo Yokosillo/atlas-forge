@@ -86,7 +86,7 @@ For a **generic script**:
 ## Backlog conventions
 
 - All development starts from an **existing Task** in `02-backlog/`; do not implement functionality without backlog representation.
-- Closed states: `TODO | EN_DESARROLLO | IN_PROGRESS | REVIEW | DONE | POSTERGADA` (Task), plus `SIN_TAREAS`/`EN_DISEÑO` for User Stories. A Task/US is only `DONE` when it meets all its acceptance criteria.
+- Closed states: `TO_DO | EN_DESARROLLO | IN_PROGRESS | REVIEW | DONE | POSTERGADA` (Task), plus `NO_TASKS`/`EN_DISEÑO` for User Stories. A Task/US is only `DONE` when it meets all its acceptance criteria.
 - Closing reports go to `07-informes/<story_id>/` (see `write_job_report`).
 
 ## Contribution

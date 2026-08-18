@@ -39,7 +39,7 @@ _WELL_FORMED_TASK = (
     "**Epic:** FB-100 · Uno\n\n"
     "## Dependencias\n\nNinguna.\n\n"
     "## Estado\n\n"
-    "TODO\n\n"
+    "TO_DO\n\n"
     "## Prioridad\n\n"
     "Alta.\n"
 )
@@ -57,14 +57,14 @@ def _synthetic_backlog(tmp_path: Path) -> Path:
     """Mini-backlog sintético controlado por el test:
 
     - US-FB100-01  DONE, Alta., epic "FB-100 · Uno"
-    - T-FB100-01   TODO LISTA (sin deps), Crítica., epic "FB-100 · Uno"
-    - T-FB100-02   TODO LISTA (sin deps), Alta., epic "FB-100 · Uno"
-    - US-FB101-01  TODO LISTA (sin deps), Baja — opcional., epic "FB-101 · Dos"
-    - T-FB101-01   TODO BLOQUEADA, depende de T-FB100-01 (TODO), Media.,
+    - T-FB100-01   TO_DO LISTA (sin deps), Crítica., epic "FB-100 · Uno"
+    - T-FB100-02   TO_DO LISTA (sin deps), Alta., epic "FB-100 · Uno"
+    - US-FB101-01  TO_DO LISTA (sin deps), Baja — opcional., epic "FB-101 · Dos"
+    - T-FB101-01   TO_DO BLOQUEADA, depende de T-FB100-01 (TO_DO), Media.,
                    epic "FB-101 · Dos"
 
     Resultados esperados:
-    - total: 5 items · 0 errores; US: DONE=1, TODO=1; Task: TODO=3.
+    - total: 5 items · 0 errores; US: DONE=1, TO_DO=1; Task: TO_DO=3.
     - items_lista ordenados por prioridad: T-FB100-01 (Crítica) → T-FB100-02
       (Alta) → US-FB101-01 (Baja).
     - items_bloqueada: T-FB101-01 con dependencia pendiente T-FB100-01.
@@ -75,7 +75,7 @@ def _synthetic_backlog(tmp_path: Path) -> Path:
         backlog,
         "user-stories",
         "US-FB100-01-done.md",
-        _WELL_FORMED_TASK.replace("T-FB100-01", "US-FB100-01").replace("TODO", "DONE"),
+        _WELL_FORMED_TASK.replace("T-FB100-01", "US-FB100-01").replace("TO_DO", "DONE"),
     )
     _write(
         backlog,
@@ -103,7 +103,7 @@ def _synthetic_backlog(tmp_path: Path) -> Path:
         "T-FB101-01-bloqueada.md",
         _WELL_FORMED_TASK.replace("T-FB100-01", "T-FB101-01")
         .replace("**Epic:** FB-100 · Uno", "**Epic:** FB-101 · Dos")
-        .replace("## Dependencias\n\nNinguna.\n\n", "## Dependencias\n\n**T-FB100-01** (sigue TODO).\n\n")
+        .replace("## Dependencias\n\nNinguna.\n\n", "## Dependencias\n\n**T-FB100-01** (sigue TO_DO).\n\n")
         .replace("Alta.", "Media."),
     )
     return backlog
@@ -148,8 +148,8 @@ def test_build_backlog_report_counts_by_epic_and_state(tmp_path: Path) -> None:
     assert report["total"] == {
         "items": 5,
         "epics": {},
-        "user_stories": {"DONE": 1, "TODO": 1},
-        "tasks": {"TODO": 3},
+        "user_stories": {"DONE": 1, "TO_DO": 1},
+        "tasks": {"TO_DO": 3},
         "errors": 0,
     }
     assert report["by_epic"] == [
@@ -157,14 +157,14 @@ def test_build_backlog_report_counts_by_epic_and_state(tmp_path: Path) -> None:
             "epic": "FB-100",
             "epic_label": "FB-100",
             "user_stories": {"DONE": 1},
-            "tasks": {"TODO": 2},
+            "tasks": {"TO_DO": 2},
             "unblock_degree": 1.0,
         },
         {
             "epic": "FB-101",
             "epic_label": "FB-101",
-            "user_stories": {"TODO": 1},
-            "tasks": {"TODO": 1},
+            "user_stories": {"TO_DO": 1},
+            "tasks": {"TO_DO": 1},
             "unblock_degree": 0.5,
         },
     ]
@@ -334,7 +334,7 @@ def test_build_backlog_report_empty_epic_coexists_with_populated_ones(
     # FB-100 sigue poblada desde sus items (5 US/Tasks en total), sin
     # duplicarse con la entrada de Epic sin hijos.
     assert by_epic["FB-100"]["user_stories"] == {"DONE": 1}
-    assert by_epic["FB-100"]["tasks"] == {"TODO": 2}
+    assert by_epic["FB-100"]["tasks"] == {"TO_DO": 2}
     # FB-600, recién creada sin hijos, entra con conteos vacíos.
     assert by_epic["FB-600"]["user_stories"] == {}
     assert by_epic["FB-600"]["tasks"] == {}
@@ -357,7 +357,7 @@ def test_build_backlog_report_lists_bloqueada_with_pending_dependency(
 
     assert [entry["id"] for entry in report["items_bloqueada"]] == ["T-FB101-01"]
     assert report["items_bloqueada"][0]["blocking_dependencies"] == [
-        {"id": "T-FB100-01", "state": "TODO"}
+        {"id": "T-FB100-01", "state": "TO_DO"}
     ]
     assert [entry["id"] for entry in report["max_leverage_chain"]] == [
         "T-FB100-01",
@@ -501,7 +501,7 @@ def test_build_backlog_report_reconciles_us_done_with_reopened_task(tmp_path: Pa
     backlog = tmp_path / "02-backlog"
     _yaml_us(backlog / "user-stories" / "US-FB900-01.md", "US-FB900-01", "FB-900", "DONE")
     _yaml_task(backlog / "tasks" / "T-FB900-US01-01.md", "T-FB900-US01-01", "FB-900", "US-FB900-01", "DONE")
-    _yaml_task(backlog / "tasks" / "T-FB900-US01-02.md", "T-FB900-US01-02", "FB-900", "US-FB900-01", "TODO")
+    _yaml_task(backlog / "tasks" / "T-FB900-US01-02.md", "T-FB900-US01-02", "FB-900", "US-FB900-01", "TO_DO")
 
     report = build_backlog_report(backlog)
 
@@ -528,7 +528,7 @@ def test_build_backlog_report_does_not_write_any_file(tmp_path: Path) -> None:
     backlog = tmp_path / "02-backlog"
     us_path = backlog / "user-stories" / "US-FB900-01.md"
     _yaml_us(us_path, "US-FB900-01", "FB-900", "DONE")
-    _yaml_task(backlog / "tasks" / "T-FB900-US01-01.md", "T-FB900-US01-01", "FB-900", "US-FB900-01", "TODO")
+    _yaml_task(backlog / "tasks" / "T-FB900-US01-01.md", "T-FB900-US01-01", "FB-900", "US-FB900-01", "TO_DO")
 
     before = us_path.read_text(encoding="utf-8")
     build_backlog_report(backlog)

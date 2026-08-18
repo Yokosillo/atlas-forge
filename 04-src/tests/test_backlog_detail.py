@@ -66,7 +66,7 @@ def backlog_root(tmp_path: Path) -> Path:
         tmp_path,
         "tasks",
         "T-FB999-US01-01-primera.md",
-        _task("T-FB999-US01-01", "US-FB999-01", "TODO"),
+        _task("T-FB999-US01-01", "US-FB999-01", "TO_DO"),
     )
     _write(
         tmp_path,
@@ -88,7 +88,7 @@ def test_build_item_detail_lists_real_tasks_of_a_user_story_by_user_story_field(
     task_ids = {task["id"] for task in detail["tasks"]}
     assert task_ids == {"T-FB999-US01-01", "T-FB999-US01-02"}
     states = {task["id"]: task["state"] for task in detail["tasks"]}
-    assert states == {"T-FB999-US01-01": "TODO", "T-FB999-US01-02": "DONE"}
+    assert states == {"T-FB999-US01-01": "TO_DO", "T-FB999-US01-02": "DONE"}
 
 
 def test_build_item_detail_ignores_dependencies_field_for_task_us_relationship(
@@ -109,7 +109,7 @@ def test_build_item_detail_ignores_dependencies_field_for_task_us_relationship(
         _task(
             "T-FB999-US01-01",
             "US-FB999-01",
-            "TODO",
+            "TO_DO",
             dependencies='["US-FB999-01"]',
         ),
     )
@@ -163,7 +163,7 @@ def test_build_item_detail_reconciles_user_story_done_with_reopened_task(
     _write(tmp_path, "user-stories", "US-FB998-01.md", _us_done("US-FB998-01", "FB-998"))
     _write(
         tmp_path, "tasks", "T-FB998-US01-01.md",
-        _task("T-FB998-US01-01", "US-FB998-01", "TODO"),
+        _task("T-FB998-US01-01", "US-FB998-01", "TO_DO"),
     )
 
     graph = load_backlog(tmp_path)
@@ -230,11 +230,11 @@ def test_build_epic_detail_reconciles_epic_with_reopened_user_story(
 
 
 def test_build_epic_detail_adds_task_count_per_user_story(tmp_path: Path) -> None:
-    _write(tmp_path, "epics", "FB-999-epic.md", _epic_done("FB-999").replace("DONE", "TODO"))
+    _write(tmp_path, "epics", "FB-999-epic.md", _epic_done("FB-999").replace("DONE", "TO_DO"))
     _write(tmp_path, "user-stories", "US-FB999-01-historia.md", _US)
     _write(
         tmp_path, "tasks", "T-FB999-US01-01-primera.md",
-        _task("T-FB999-US01-01", "US-FB999-01", "TODO"),
+        _task("T-FB999-US01-01", "US-FB999-01", "TO_DO"),
     )
     _write(
         tmp_path, "tasks", "T-FB999-US01-02-segunda.md",
@@ -262,12 +262,12 @@ def test_build_epic_detail_task_count_ignores_dependencies_field(tmp_path: Path)
     # nunca es la relación Task→US, solo `user_story:` lo es. Una Task
     # cuyas `dependencies` mencionan la US pero cuyo `user_story:` apunta
     # a OTRA no debe contarse aquí.
-    _write(tmp_path, "epics", "FB-999-epic.md", _epic_done("FB-999").replace("DONE", "TODO"))
+    _write(tmp_path, "epics", "FB-999-epic.md", _epic_done("FB-999").replace("DONE", "TO_DO"))
     _write(tmp_path, "user-stories", "US-FB999-01-historia.md", _US)
     _write(
         tmp_path, "tasks", "T-FB999-US01-01-otra-us.md",
         _task(
-            "T-FB999-US01-01", "US-FB999-99", "TODO", dependencies='["US-FB999-01"]'
+            "T-FB999-US01-01", "US-FB999-99", "TO_DO", dependencies='["US-FB999-01"]'
         ),
     )
 
@@ -284,7 +284,7 @@ def test_build_item_detail_does_not_write_any_file(tmp_path: Path) -> None:
     _write(tmp_path, "user-stories", "US-FB998-01.md", _us_done("US-FB998-01", "FB-998"))
     _write(
         tmp_path, "tasks", "T-FB998-US01-01.md",
-        _task("T-FB998-US01-01", "US-FB998-01", "TODO"),
+        _task("T-FB998-US01-01", "US-FB998-01", "TO_DO"),
     )
 
     before = us_path.read_text(encoding="utf-8")
@@ -305,7 +305,7 @@ def test_build_item_detail_exposes_difficulty_for_a_scored_task(tmp_path: Path) 
     _write(tmp_path, "user-stories", "US-FB999-01-historia.md", _US)
     _write(
         tmp_path, "tasks", "T-FB999-US01-01-primera.md",
-        _task("T-FB999-US01-01", "US-FB999-01", "TODO", difficulty="Alta"),
+        _task("T-FB999-US01-01", "US-FB999-01", "TO_DO", difficulty="Alta"),
     )
 
     graph = load_backlog(tmp_path)
@@ -319,7 +319,7 @@ def test_build_item_detail_exposes_none_difficulty_for_an_unscored_task(tmp_path
     _write(tmp_path, "user-stories", "US-FB999-01-historia.md", _US)
     _write(
         tmp_path, "tasks", "T-FB999-US01-01-primera.md",
-        _task("T-FB999-US01-01", "US-FB999-01", "TODO"),
+        _task("T-FB999-US01-01", "US-FB999-01", "TO_DO"),
     )
 
     graph = load_backlog(tmp_path)

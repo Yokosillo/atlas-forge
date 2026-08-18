@@ -146,7 +146,7 @@ def _seed_backlog(repo_path: Path) -> None:
         backlog / "user-stories" / "US-FB999-01.md",
         "US-FB999-01",
         epic="FB-999 · Epic de prueba",
-        state="TODO",
+        state="TO_DO",
     )
     _write_task(
         backlog / "tasks" / "T-FB999-US01-01.md",
@@ -159,7 +159,7 @@ def _seed_backlog(repo_path: Path) -> None:
         backlog / "tasks" / "T-FB999-US01-02.md",
         "T-FB999-US01-02",
         epic="FB-999 · Epic de prueba",
-        state="TODO",
+        state="TO_DO",
         dependencies="**US-FB999-01**",
     )
 
@@ -188,7 +188,7 @@ async def test_epic_list_shows_epics_with_their_user_story_and_task_counts(
         text = str(backlog_screen.query_one("#epic-list", Static).content)
         assert "FB-999 Epic de prueba" in text
         # T-FB020-US03-01: progreso agregado (DONE/total de US) visible
-        # por defecto sin expandir — el desglose por estado (`TODO=1`)
+        # por defecto sin expandir — el desglose por estado (`TO_DO=1`)
         # solo aparece al expandir (ver
         # test_expanding_an_epic_shows_its_state_breakdown_in_place).
         assert "0/1 US DONE" in text
@@ -248,8 +248,8 @@ async def test_selecting_an_epic_shows_its_objective_and_user_stories(tmp_path, 
         # (mismo patrón que la lista de Epics), no en el bloque de texto.
         user_story_button = pilot.app.screen.query_one("#open-item-0", Button)
         assert "US-FB999-01" in str(user_story_button.label)
-        assert "TODO" in str(user_story_button.label)
-        assert "(TODO)" in str(user_story_button.label)
+        assert "TO_DO" in str(user_story_button.label)
+        assert "(TO_DO)" in str(user_story_button.label)
 
 
 # ---------------------------------------------------------------------------
@@ -279,10 +279,10 @@ async def test_epic_list_shows_progress_bar_reflecting_done_over_total_user_stor
         backlog / "user-stories" / "US-FB998-02.md", "US-FB998-02", epic="FB-998 · Progreso", state="DONE"
     )
     _write_user_story(
-        backlog / "user-stories" / "US-FB998-03.md", "US-FB998-03", epic="FB-998 · Progreso", state="TODO"
+        backlog / "user-stories" / "US-FB998-03.md", "US-FB998-03", epic="FB-998 · Progreso", state="TO_DO"
     )
     _write_user_story(
-        backlog / "user-stories" / "US-FB998-04.md", "US-FB998-04", epic="FB-998 · Progreso", state="TODO"
+        backlog / "user-stories" / "US-FB998-04.md", "US-FB998-04", epic="FB-998 · Progreso", state="TO_DO"
     )
 
     app = FactoryBrainApp(
@@ -332,7 +332,7 @@ async def test_expanding_an_epic_shows_its_state_breakdown_in_place(tmp_path, ba
         # el desglose ahora visible in-place.
         assert isinstance(pilot.app.screen, BacklogScreen)
         expanded_text = str(backlog_screen.query_one("#epic-list", Static).content)
-        assert "US: [dark_orange]TODO[/]=1" in expanded_text
+        assert "US: [dark_orange]TO_DO[/]=1" in expanded_text
         assert str(backlog_screen.query_one("#toggle-epic-0", Button).label) == "Colapsar"
 
         # Colapsar de nuevo oculta el desglose sin abandonar el listado.
@@ -371,7 +371,7 @@ def _seed_backlog_yaml_tasks(repo_path: Path) -> None:
         backlog / "user-stories" / "US-FB999-01.md",
         "US-FB999-01",
         epic="FB-999 · Epic de prueba",
-        state="TODO",
+        state="TO_DO",
     )
     (backlog / "tasks" / "T-FB999-US01-01.md").write_text(
         "---\nid: T-FB999-US01-01\ntype: task\ntitle: Primera\nstate: DONE\n"
@@ -381,7 +381,7 @@ def _seed_backlog_yaml_tasks(repo_path: Path) -> None:
         encoding="utf-8",
     )
     (backlog / "tasks" / "T-FB999-US01-02.md").write_text(
-        "---\nid: T-FB999-US01-02\ntype: task\ntitle: Segunda\nstate: TODO\n"
+        "---\nid: T-FB999-US01-02\ntype: task\ntitle: Segunda\nstate: TO_DO\n"
         "dependencies: []\nepic: FB-999\nuser_story: US-FB999-01\npriority: Alta\n"
         "---\n\n# T-FB999-US01-02 · Segunda\n\n## Objetivo\n\nObjetivo.\n\n"
         "## Criterios de aceptación\n\n- Criterio único.\n",
@@ -416,18 +416,18 @@ async def test_task_and_user_story_states_are_color_coded(tmp_path, backend) -> 
         await pilot.pause()
 
         text = str(item_screen.query_one("#item-detail", Static).content)
-        # Estado de la propia US (TODO) coloreado en la cabecera.
-        assert "Estado: [dark_orange]TODO[/]" in text
-        # Sus dos Tasks, cada una con su color real (una DONE, una TODO).
+        # Estado de la propia US (TO_DO) coloreado en la cabecera.
+        assert "Estado: [dark_orange]TO_DO[/]" in text
+        # Sus dos Tasks, cada una con su color real (una DONE, una TO_DO).
         assert "T-FB999-US01-01 ([green]DONE[/])" in text
-        assert "T-FB999-US01-02 ([dark_orange]TODO[/])" in text
+        assert "T-FB999-US01-02 ([dark_orange]TO_DO[/])" in text
 
 
 async def test_unrecognized_state_uses_the_neutral_color_never_done_or_todo(
     tmp_path, backend
 ) -> None:
     # Criterio de aceptación 4: "Un estado no reconocido usa un color
-    # neutro explícito, nunca se confunde visualmente con DONE o TODO."
+    # neutro explícito, nunca se confunde visualmente con DONE o TO_DO."
     # Caso real verificado sobre el backlog de este proyecto:
     # "DESCARTADA (en principio)" (FB-015), "SUPERADA (ver ...)" (FB-017).
     workspace_root = tmp_path / "workspace"
@@ -494,15 +494,15 @@ async def test_selecting_a_user_story_shows_objective_criteria_and_its_tasks(
         assert "US-FB999-01" in text
         assert "Como usuario quiero X para lograr Y." in text
         assert "Criterio uno." in text
-        # Sus dos Tasks (una DONE, una TODO), ambas declaran esta US en su
+        # Sus dos Tasks (una DONE, una TO_DO), ambas declaran esta US en su
         # campo `user_story:` — derivado del grafo, sin releer ficheros.
         assert "T-FB999-US01-01" in text
         assert "T-FB999-US01-02" in text
         # T-FB020-US03-01: el estado va coloreado con marcado Rich
-        # (verde=DONE, ámbar=TODO) — verificado con más detalle en
+        # (verde=DONE, ámbar=TO_DO) — verificado con más detalle en
         # test_task_and_user_story_states_are_color_coded.
         assert "[green]DONE[/]" in text
-        assert "[dark_orange]TODO[/]" in text
+        assert "[dark_orange]TO_DO[/]" in text
 
 
 async def test_malformed_item_shows_explicit_warning_without_breaking_navigation(
@@ -520,7 +520,7 @@ async def test_malformed_item_shows_explicit_warning_without_breaking_navigation
     (repo_path / "02-backlog" / "tasks" / "T-FB999-US01-03.md").write_text(
         "# T-FB999-US01-03\n"
         "**Epic:** FB-999 · Epic de prueba\n\n"
-        "## Estado\n\nTODO\n\n"
+        "## Estado\n\nTO_DO\n\n"
         "## Dependencias\n\n**US-FB999-01**\n\n"
         "## Prioridad\n\nMedia.\n",
         encoding="utf-8",
@@ -635,7 +635,7 @@ async def test_launch_development_dispatches_a_real_job_visible_in_jobs_screen(
     tmp_path, backend, monkeypatch
 ) -> None:
     # Criterios de aceptación 1 y 3: "Desde el detalle de una User Story
-    # con Tasks TODO, se puede elegir un agente Developer y lanzar su
+    # con Tasks TO_DO, se puede elegir un agente Developer y lanzar su
     # desarrollo sin escribir ninguna descripción a mano" + "El Job
     # lanzado aparece en la pantalla de Jobs de la sesión sin cambios
     # adicionales en esa pantalla."
@@ -696,7 +696,7 @@ async def test_launch_development_dispatches_a_real_job_visible_in_jobs_screen(
         assert "Lanzar desarrollo de US-FB999-01." in history_text
 
         # La `description` real generada por el backend (objetivo +
-        # títulos de Tasks TODO) — verificada completa vía `GET /jobs`
+        # títulos de Tasks TO_DO) — verificada completa vía `GET /jobs`
         # (`JobsScreen` solo muestra la primera línea resumida en su
         # histórico, comportamiento ya existente que esta Task no toca,
         # ver criterio de aceptación 3: "sin ningún cambio en esa
@@ -718,7 +718,7 @@ async def test_launch_development_dispatches_a_real_job_visible_in_jobs_screen(
 async def test_launch_development_shows_the_real_400_detail_when_no_pending_tasks(
     tmp_path, backend, monkeypatch
 ) -> None:
-    # Criterio de aceptación 2: "Si la User Story no tiene Tasks TODO, la
+    # Criterio de aceptación 2: "Si la User Story no tiene Tasks TO_DO, la
     # acción se rechaza con el motivo explícito del backend, sin lanzar
     # nada" — nunca un mensaje genérico tipo "not found".
     workspace_root = tmp_path / "workspace"
@@ -731,7 +731,7 @@ async def test_launch_development_shows_the_real_400_detail_when_no_pending_task
         backlog / "user-stories" / "US-FB998-01.md",
         "US-FB998-01",
         epic="FB-998 · Epic sin Tasks pendientes",
-        state="TODO",
+        state="TO_DO",
     )
     _write_task(
         backlog / "tasks" / "T-FB998-US01-01.md",

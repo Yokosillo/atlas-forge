@@ -26,7 +26,7 @@ from brain.models import Agent, DevelopmentSession, Runtime
 from brain.runtime import register_runtime_instance_for_agent, RuntimeInstance
 
 
-def _write_backlog_item(backlog_dir, filename, state="TODO", difficulty=None):
+def _write_backlog_item(backlog_dir, filename, state="TO_DO", difficulty=None):
     """Escribe un item de backlog con frontmatter YAML."""
     tasks_dir = backlog_dir / "tasks"
     tasks_dir.mkdir(parents=True, exist_ok=True)

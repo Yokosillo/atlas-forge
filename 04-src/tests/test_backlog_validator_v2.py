@@ -35,7 +35,7 @@ id: US-FB022-05
 type: user_story
 epic: FB-022
 title: Veredicto estructurado
-state: TODO
+state: TO_DO
 dependencies:
   - US-FB022-06
 priority: Alta
@@ -56,7 +56,7 @@ VALID_EPIC = """---
 id: FB-022
 type: epic
 title: Pipeline Backlog-centrico
-state: TODO
+state: TO_DO
 dependencies:
   - FB-005
   - FB-008
@@ -78,7 +78,7 @@ type: task
 epic: FB-022
 user_story: US-FB022-01
 title: Tarea sin dependencias
-state: TODO
+state: TO_DO
 dependencies: []
 priority: Media
 ---
@@ -137,7 +137,7 @@ class TestMissingFrontmatter:
         assert any("frontmatter" in e.message.lower() for e in result.errors)
 
     def test_frontmatter_not_closed(self):
-        content = "---\nid: T-FB022-US05-02\ntype: task\nstate: TODO\ndependencies: []\n"
+        content = "---\nid: T-FB022-US05-02\ntype: task\nstate: TO_DO\ndependencies: []\n"
         result = validate_backlog_content_v2(content, "T-FB022-US05-02.md")
         assert not result.valid
         assert any("no cerrado" in e.message for e in result.errors)
@@ -149,7 +149,7 @@ class TestMissingFrontmatter:
         assert any("vacio" in e.message for e in result.errors)
 
     def test_frontmatter_invalid_yaml(self):
-        content = "---\nid: [unclosed\nstate: TODO\n---\n\n## Objetivo\n..."
+        content = "---\nid: [unclosed\nstate: TO_DO\n---\n\n## Objetivo\n..."
         result = validate_backlog_content_v2(content, "T-FB022-US05-02.md")
         assert not result.valid
         assert any("yaml" in e.message.lower() for e in result.errors)

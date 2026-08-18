@@ -273,8 +273,8 @@ async def test_backlog_status_result_is_presented_readably_not_as_raw_json(
     (backlog / "user-stories").mkdir(parents=True)
     (backlog / "tasks").mkdir(parents=True)
     _write_backlog_file(backlog / "user-stories" / "US-FB999-01.md", "US-FB999-01", state="DONE", priority="Alta.")
-    _write_backlog_file(backlog / "user-stories" / "US-FB999-02.md", "US-FB999-02", state="TODO", priority="Alta.")
-    _write_backlog_file(backlog / "tasks" / "T-FB999-01.md", "T-FB999-01", state="TODO", priority="Crítica.")
+    _write_backlog_file(backlog / "user-stories" / "US-FB999-02.md", "US-FB999-02", state="TO_DO", priority="Alta.")
+    _write_backlog_file(backlog / "tasks" / "T-FB999-01.md", "T-FB999-01", state="TO_DO", priority="Crítica.")
 
     app = FactoryBrainApp(
         workspace_root=workspace_root, state_dir=state_dir, backend_client=backend

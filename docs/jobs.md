@@ -60,20 +60,20 @@ Work above the level of a single Job is driven entirely by the `state` field of 
 ### User Story states
 
 ```
-SIN_TAREAS → (user clicks "Progresar") → EN_DISEÑO
-    → (Dispatcher assigns a free Architect, US→Tasks landing) → TODO
+NO_TASKS → (user clicks "Progresar") → EN_DISEÑO
+    → (Dispatcher assigns a free Architect, US→Tasks landing) → TO_DO
     → (user clicks "Progresar") → EN_DESARROLLO
     → (all its Tasks reach DONE) → REVIEW
     → (Architect issues a verdict) → DONE
 ```
 
-- **`SIN_TAREAS`**: every new User Story is born in this state — no Tasks yet.
-- **`EN_DISEÑO`**: the user clicked the single **"Progresar"** button; the Story is now a signal for the Dispatcher, which assigns it to a free Architect to run the US→Tasks landing (a deterministic pipeline, no agent Job spent). Once at least one Task is written, the Story moves to `TODO`.
-- **`TODO`**: Tasks exist, waiting for the user to progress the Story into development.
+- **`NO_TASKS`**: every new User Story is born in this state — no Tasks yet.
+- **`EN_DISEÑO`**: the user clicked the single **"Progresar"** button; the Story is now a signal for the Dispatcher, which assigns it to a free Architect to run the US→Tasks landing (a deterministic pipeline, no agent Job spent). Once at least one Task is written, the Story moves to `TO_DO`.
+- **`TO_DO`**: Tasks exist, waiting for the user to progress the Story into development.
 - **`EN_DESARROLLO`**: the user clicked "Progresar" again — all pending Tasks are queued for the Dispatcher.
 - **`REVIEW`**: triggered automatically once **all** of the Story's Tasks are `DONE`.
 
-The same **"Progresar"** button changes its action depending on the Story's current state (`SIN_TAREAS`→`EN_DISEÑO`, `TODO`→`EN_DESARROLLO`) — a single verb the user reads as "keep moving forward".
+The same **"Progresar"** button changes its action depending on the Story's current state (`NO_TASKS`→`EN_DISEÑO`, `TO_DO`→`EN_DESARROLLO`) — a single verb the user reads as "keep moving forward".
 
 ### Task review — two levels
 
@@ -86,7 +86,7 @@ The same **"Progresar"** button changes its action depending on the Story's curr
 
 2. **User Story in `REVIEW`**: the Dispatcher assigns it to a free **Architect**, who evaluates whether the Story's Tasks fully cover the declared need.
    - Approved (with or without notes) → the Story moves to `DONE`.
-   - Rejected for missing coverage → the Architect adds a new Task to the **same** Story, entering directly in `EN_DESARROLLO` (skipping `TODO`) — the Story is not promoted to `DONE` in this case.
+   - Rejected for missing coverage → the Architect adds a new Task to the **same** Story, entering directly in `EN_DESARROLLO` (skipping `TO_DO`) — the Story is not promoted to `DONE` in this case.
 
 The Dispatcher repeats this polling cycle for all four levels (US landing, implementation, Task review, Story verdict) with the same "one free agent at a time" rule at each level.
 

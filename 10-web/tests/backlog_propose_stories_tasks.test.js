@@ -232,8 +232,8 @@ async function test_propose_stories_approved_refreshes_epic_list() {
             kind: "epic",
             objetivo: "Objetivo real de la Epic.",
             user_stories: [
-              { id: "US-FB922-01", state: "TODO", priority: "Alta", task_count: 0 },
-              { id: "US-FB922-02", state: "TODO", priority: "Alta", task_count: 0 },
+              { id: "US-FB922-01", state: "TO_DO", priority: "Alta", task_count: 0 },
+              { id: "US-FB922-02", state: "TO_DO", priority: "Alta", task_count: 0 },
             ],
           }),
         });

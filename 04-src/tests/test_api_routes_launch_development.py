@@ -108,7 +108,7 @@ def _write_user_story(
     item_id: str,
     *,
     epic: str = "FB-999 · Epic de prueba",
-    state: str = "TODO",
+    state: str = "TO_DO",
     historia: str = "Como usuario quiero X para lograr Y.",
     criterios: str = "- Criterio uno.",
 ) -> None:
@@ -177,14 +177,14 @@ def _seed_story_with_pending_tasks(project_path: Path, story_id: str = "US-FB999
         backlog / "tasks" / f"{task_1}-primer-paso.md",
         task_1,
         "Primer paso pendiente",
-        state="TODO",
+        state="TO_DO",
         dependencies=f"**{story_id}**",
     )
     _write_task(
         backlog / "tasks" / f"{task_2}-segundo-paso.md",
         task_2,
         "Segundo paso pendiente",
-        state="TODO",
+        state="TO_DO",
         dependencies=f"**{story_id}**",
     )
     _write_task(

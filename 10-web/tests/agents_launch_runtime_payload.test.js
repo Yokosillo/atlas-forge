@@ -123,6 +123,13 @@ async function test_operative_launch_sends_explicit_runtime() {
     );
     // El rol siempre va presente.
     assert.strictEqual(payload.role, "developer");
+    // T-FB005-US01-08 (2026-08-18): al lanzar desde la fila "Developer-1"
+    // se envía el número de slot — el agente nace con ESE nombre, no con
+    // el que el conteo del backend decida.
+    assert.strictEqual(
+      payload.developer_number, 1,
+      "El payload de lanzamiento debe llevar developer_number=1 (fila Developer-1): " + JSON.stringify(payload)
+    );
   });
 }
 

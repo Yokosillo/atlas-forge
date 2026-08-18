@@ -310,16 +310,18 @@ def load_backlog(backlog_path: Path) -> BacklogGraph:
 
 # Bug corregido (2026-08-17, encontrado end-to-end vía el panel "Próximo
 # foco" tras crear una User Story real): `classify_todo_items` y
-# `find_max_leverage_chain` solo reconocían `state == "TODO"` como
+# `find_max_leverage_chain` solo reconocían `state == "TO_DO"` como
 # "pendiente de empezar, puede bloquear o estar bloqueada" — con el
 # rediseño de estados (T-FB008-US15-01/-02) una User Story recién creada
-# nace en `SIN_TAREAS` (esperando desgranarse en Tasks) o `EN_DISEÑO`
-# (esperando al Arquitecto), ninguno de los dos `TODO`, así que quedaba
+# nace en `NO_TASKS` (esperando desgranarse en Tasks) o `EN_DISEÑO`
+# (esperando al Arquitecto), ninguno de los dos `TO_DO`, así que quedaba
 # invisible para ambos cálculos aunque otra Task dependiera de ella —
 # mismo criterio ya aplicado en el resto del código (`EN_DESARROLLO`
 # tratado como "todavía no empezado" en `_mark_story_tasks_done`, etc.):
 # cualquier estado que no sea `DONE` participa como "pendiente".
-_PENDING_STATES = frozenset({"TODO", "SIN_TAREAS", "EN_DISEÑO"})
+# 2026-08-18, unificación de grafía (T-FB040-US01-01): `TO_DO` es la
+# grafía única de los tres tipos; `TODO` ya no existe en el backlog.
+_PENDING_STATES = frozenset({"TO_DO", "NO_TASKS", "EN_DISEÑO"})
 
 
 def _dependency_state_blocks(graph: BacklogGraph, item: BacklogItem) -> bool:
@@ -335,7 +337,7 @@ def _dependency_state_blocks(graph: BacklogGraph, item: BacklogItem) -> bool:
 def classify_todo_items(
     graph: BacklogGraph,
 ) -> tuple[list[BacklogItem], list[BacklogItem]]:
-    """Separa los items en estado `TODO` en dos listas:
+    """Separa los items en estado `TO_DO` en dos listas:
 
     - LISTA: todas las dependencias declaradas estan `DONE` (o no tiene
       ninguna) — listo para empezar.

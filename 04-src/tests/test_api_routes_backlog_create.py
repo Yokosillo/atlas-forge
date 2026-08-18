@@ -66,7 +66,7 @@ def test_post_backlog_epic_with_valid_fields_creates_the_real_file_and_returns_2
     assert "id: FB-900" in content
     assert "type: epic" in content
     assert "title: Epic de prueba" in content
-    assert "state: TODO" in content
+    assert "state: TO_DO" in content
     assert "dependencies: []" in content
     assert "fase: Fase 1.0" in content
     assert "## Objetivo" in content
@@ -406,7 +406,7 @@ def test_post_backlog_us_task_under_orphan_user_story_returns_null_epic_id(
     stories_dir = project_path / "02-backlog" / "user-stories"
     stories_dir.mkdir(parents=True)
     (stories_dir / "US-FB901-01-huerfana.md").write_text(
-        "---\nid: US-FB901-01\ntype: user_story\ntitle: US huerfana\nstate: TODO\n"
+        "---\nid: US-FB901-01\ntype: user_story\ntitle: US huerfana\nstate: TO_DO\n"
         "dependencies: []\npriority: Alta\n---\n\n## Historia\n\nHistoria.\n",
         encoding="utf-8",
     )

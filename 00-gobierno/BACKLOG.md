@@ -79,11 +79,11 @@ Una Task no debe convertirse en una User Story solo porque requiera mucho trabaj
 
 ### User Story
 
-`SIN_TAREAS`, `EN_DISEÑO`, `TODO`, `EN_DESARROLLO`, `REVIEW`, `DONE`.
+`NO_TASKS`, `EN_DISEÑO`, `TO_DO`, `EN_DESARROLLO`, `REVIEW`, `DONE`.
 
 ### Task
 
-`TODO`, `EN_DESARROLLO`, `REVIEW`, `DONE`, `POSTERGADA`.
+`TO_DO`, `EN_DESARROLLO`, `REVIEW`, `DONE`, `FUERA_ROADMAP`.
 
 Si existe `IN_PROGRESS` en validadores o ficheros antiguos, no debe introducirse como semántica paralela. La convergencia del formato debe resolverse mediante una Task de mantenimiento si el código todavía lo requiere.
 

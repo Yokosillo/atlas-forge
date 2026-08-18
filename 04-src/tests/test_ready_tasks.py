@@ -54,7 +54,7 @@ def test_find_ready_tasks_returns_exactly_the_tasks_that_qualify(
 ) -> None:
     backlog = tmp_path / "backlog"
     _write(
-        backlog, "user-stories", "US-FB100-01.md", _user_story("US-FB100-01", "TODO")
+        backlog, "user-stories", "US-FB100-01.md", _user_story("US-FB100-01", "TO_DO")
     )
     # Ya DONE: su dependiente si puede quedar lista.
     _write(
@@ -64,7 +64,7 @@ def test_find_ready_tasks_returns_exactly_the_tasks_that_qualify(
     # Lista: su unica dependencia (01) esta DONE.
     _write(
         backlog, "tasks", "T-FB100-US01-02.md",
-        _task("T-FB100-US01-02", "TODO", ["T-FB100-US01-01"], "Media"),
+        _task("T-FB100-US01-02", "TO_DO", ["T-FB100-US01-01"], "Media"),
     )
     # No lista: ya esta DONE, no es candidata.
     _write(
@@ -79,7 +79,7 @@ def test_find_ready_tasks_returns_exactly_the_tasks_that_qualify(
 
 
 def test_task_with_a_dependency_not_done_is_excluded(tmp_path: Path) -> None:
-    for blocker_state in ("TODO", "IN_PROGRESS", "REVIEW"):
+    for blocker_state in ("TO_DO", "IN_PROGRESS", "REVIEW"):
         backlog = tmp_path / f"backlog-{blocker_state}"
         _write(
             backlog, "tasks", "T-FB100-US01-blocker.md",
@@ -87,7 +87,7 @@ def test_task_with_a_dependency_not_done_is_excluded(tmp_path: Path) -> None:
         )
         _write(
             backlog, "tasks", "T-FB100-US01-blocked.md",
-            _task("T-FB100-US01-blocked", "TODO", ["T-FB100-US01-blocker"], "Media"),
+            _task("T-FB100-US01-blocked", "TO_DO", ["T-FB100-US01-blocker"], "Media"),
         )
 
         graph = load_backlog(backlog)
@@ -102,7 +102,7 @@ def test_task_without_dependencies_is_ready_if_todo(tmp_path: Path) -> None:
     backlog = tmp_path / "backlog"
     _write(
         backlog, "tasks", "T-FB100-US01-01.md",
-        _task("T-FB100-US01-01", "TODO", [], "Baja"),
+        _task("T-FB100-US01-01", "TO_DO", [], "Baja"),
     )
 
     graph = load_backlog(backlog)
@@ -115,19 +115,19 @@ def test_result_order_respects_priority_then_id_tie_break(tmp_path: Path) -> Non
     backlog = tmp_path / "backlog"
     _write(
         backlog, "tasks", "T-FB100-US01-03.md",
-        _task("T-FB100-US01-03", "TODO", [], "Media"),
+        _task("T-FB100-US01-03", "TO_DO", [], "Media"),
     )
     _write(
         backlog, "tasks", "T-FB100-US01-01.md",
-        _task("T-FB100-US01-01", "TODO", [], "Alta"),
+        _task("T-FB100-US01-01", "TO_DO", [], "Alta"),
     )
     _write(
         backlog, "tasks", "T-FB100-US01-02.md",
-        _task("T-FB100-US01-02", "TODO", [], "Alta"),
+        _task("T-FB100-US01-02", "TO_DO", [], "Alta"),
     )
     _write(
         backlog, "tasks", "T-FB100-US01-04.md",
-        _task("T-FB100-US01-04", "TODO", [], "Crítica"),
+        _task("T-FB100-US01-04", "TO_DO", [], "Crítica"),
     )
 
     graph = load_backlog(backlog)
@@ -147,7 +147,7 @@ def test_dependency_with_nonexistent_id_does_not_qualify_the_task(
     backlog = tmp_path / "backlog"
     _write(
         backlog, "tasks", "T-FB100-US01-01.md",
-        _task("T-FB100-US01-01", "TODO", ["T-FB100-US01-999"], "Alta"),
+        _task("T-FB100-US01-01", "TO_DO", ["T-FB100-US01-999"], "Alta"),
     )
 
     graph = load_backlog(backlog)
@@ -166,12 +166,12 @@ def test_user_stories_and_epics_are_never_returned_even_when_todo(
             "id": "FB-100",
             "type": "epic",
             "title": "Epic",
-            "state": "TODO",
+            "state": "TO_DO",
             "dependencies": [],
         },
     )
     _write(
-        backlog, "user-stories", "US-FB100-01.md", _user_story("US-FB100-01", "TODO")
+        backlog, "user-stories", "US-FB100-01.md", _user_story("US-FB100-01", "TO_DO")
     )
 
     graph = load_backlog(backlog)

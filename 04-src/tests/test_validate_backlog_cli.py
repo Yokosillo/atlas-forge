@@ -32,7 +32,7 @@ _VALID_TASK = (
     "id: T-FB900-US01-01\n"
     "type: task\n"
     "title: Ejemplo válido\n"
-    "state: TODO\n"
+    "state: TO_DO\n"
     "dependencies: []\n"
     "epic: FB-900\n"
     "user_story: US-FB900-01\n"

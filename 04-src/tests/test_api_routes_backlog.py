@@ -119,7 +119,7 @@ def _seed_backlog(repo_path: Path) -> Path:
         backlog / "user-stories" / "US-FB999-01.md",
         "US-FB999-01",
         epic="FB-999 · Epic de prueba",
-        state="TODO",
+        state="TO_DO",
         historia="Como desarrollador quiero ver el backlog para saber su estado.",
         criterios="- El listado muestra el conteo.\n- El detalle muestra la historia.",
     )
@@ -127,7 +127,7 @@ def _seed_backlog(repo_path: Path) -> Path:
         backlog / "tasks" / "T-FB999-US01-01.md",
         "T-FB999-US01-01",
         epic="FB-999 · Epic de prueba (alcance v1)",
-        state="TODO",
+        state="TO_DO",
         dependencies="**US-FB999-01**",
     )
     _write_task(
@@ -238,7 +238,7 @@ def test_get_backlog_item_for_epic_task_count_reflects_real_tasks_in_yaml_format
     def _us_yaml(us_id: str) -> str:
         return (
             "---\n"
-            f"id: {us_id}\ntype: user_story\ntitle: Historia\nstate: TODO\n"
+            f"id: {us_id}\ntype: user_story\ntitle: Historia\nstate: TO_DO\n"
             "dependencies: []\nepic: FB-999\npriority: Alta\n---\n\n"
             "## Historia\n\nHistoria.\n\n## Criterios de aceptación\n\n1. Y.\n"
         )
@@ -255,7 +255,7 @@ def test_get_backlog_item_for_epic_task_count_reflects_real_tasks_in_yaml_format
     (backlog / "user-stories" / "US-FB999-01.md").write_text(_us_yaml("US-FB999-01"), encoding="utf-8")
     (backlog / "user-stories" / "US-FB999-02.md").write_text(_us_yaml("US-FB999-02"), encoding="utf-8")
     (backlog / "tasks" / "T-FB999-US01-01.md").write_text(
-        _task_yaml("T-FB999-US01-01", "US-FB999-01", "TODO"), encoding="utf-8"
+        _task_yaml("T-FB999-US01-01", "US-FB999-01", "TO_DO"), encoding="utf-8"
     )
     (backlog / "tasks" / "T-FB999-US01-02.md").write_text(
         _task_yaml("T-FB999-US01-02", "US-FB999-01", "DONE"), encoding="utf-8"
@@ -306,7 +306,7 @@ def test_get_backlog_item_for_epic_returns_objective_and_user_stories_breakdown(
     # `test_backlog_detail.py` para el caso con Tasks en formato YAML
     # vigente sí contadas.
     assert body["user_stories"] == [
-        {"id": "US-FB999-01", "state": "TODO", "priority": "Alta.", "task_count": 0}
+        {"id": "US-FB999-01", "state": "TO_DO", "priority": "Alta.", "task_count": 0}
     ]
 
 
@@ -351,7 +351,7 @@ def test_get_backlog_item_for_user_story_returns_objective_and_criteria(
     body = response.json()
     assert body["id"] == "US-FB999-01"
     assert body["kind"] == "US"
-    assert body["state"] == "TODO"
+    assert body["state"] == "TO_DO"
     assert body["objetivo"] == "Como desarrollador quiero ver el backlog para saber su estado."
     assert body["criterios_aceptacion"] == (
         "- El listado muestra el conteo.\n- El detalle muestra la historia."
@@ -389,7 +389,7 @@ def test_get_backlog_item_with_malformed_optional_section_returns_content_with_w
     (backlog / "tasks" / "T-FB999-US01-03.md").write_text(
         "# T-FB999-US01-03\n"
         "**Epic:** FB-999 · Epic de prueba\n\n"
-        "## Estado\n\nTODO\n\n"
+        "## Estado\n\nTO_DO\n\n"
         "## Dependencias\n\nNinguna.\n\n"
         "## Prioridad\n\nMedia.\n",
         encoding="utf-8",
@@ -401,7 +401,7 @@ def test_get_backlog_item_with_malformed_optional_section_returns_content_with_w
     assert response.status_code == 200
     body = response.json()
     assert body["id"] == "T-FB999-US01-03"
-    assert body["state"] == "TODO"
+    assert body["state"] == "TO_DO"
     assert body["objetivo"] is None
     assert body["criterios_aceptacion"] is None
     assert "parse_warning" in body
@@ -435,7 +435,7 @@ def test_get_backlog_item_for_epic_without_epic_file_but_with_referencing_user_s
     # `test_backlog_detail.py` para el caso con Tasks en formato YAML
     # vigente sí contadas.
     assert body["user_stories"] == [
-        {"id": "US-FB999-01", "state": "TODO", "priority": "Alta.", "task_count": 0}
+        {"id": "US-FB999-01", "state": "TO_DO", "priority": "Alta.", "task_count": 0}
     ]
 
 
@@ -511,7 +511,7 @@ def test_get_backlog_item_reconciles_user_story_done_with_reopened_task(
     tmp_path: Path, monkeypatch
 ) -> None:
     """T-FB022-US13-05, criterio 1: reproduce el caso real de hoy (US con
-    `state: DONE` en disco y una Task hija con `state: TODO`, sin pasar
+    `state: DONE` en disco y una Task hija con `state: TO_DO`, sin pasar
     por ningún commit) contra `GET /backlog/{us_id}` real — no la
     presenta como completada sin matiz."""
     repo_path = _active_project(tmp_path, monkeypatch)
@@ -525,7 +525,7 @@ def test_get_backlog_item_reconciles_user_story_done_with_reopened_task(
         encoding="utf-8",
     )
     (backlog / "tasks" / "T-FB997-US01-01.md").write_text(
-        "---\nid: T-FB997-US01-01\ntype: task\ntitle: Task\nstate: TODO\n"
+        "---\nid: T-FB997-US01-01\ntype: task\ntitle: Task\nstate: TO_DO\n"
         "dependencies: []\nepic: FB-997\nuser_story: US-FB997-01\npriority: Alta\n---\n\n"
         "## Objetivo\n\nObjetivo.\n\n## Criterios de aceptación\n\n1. Y.\n",
         encoding="utf-8",
@@ -538,7 +538,7 @@ def test_get_backlog_item_reconciles_user_story_done_with_reopened_task(
     body = response.json()
     assert body["state"] == "IN_PROGRESS"
     assert body["drift"] is True
-    assert body["tasks"] == [{"id": "T-FB997-US01-01", "state": "TODO", "priority": "Alta"}]
+    assert body["tasks"] == [{"id": "T-FB997-US01-01", "state": "TO_DO", "priority": "Alta"}]
 
     # No se escribió nada en disco (solo lectura).
     on_disk = (backlog / "user-stories" / "US-FB997-01.md").read_text(encoding="utf-8")

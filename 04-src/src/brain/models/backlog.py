@@ -21,7 +21,7 @@ ITEM_KIND_USER_STORY = "US"
 ITEM_KIND_EPIC = "E"
 
 STATE_DONE = "DONE"
-STATE_TODO = "TODO"
+STATE_TO_DO = "TO_DO"
 
 
 @dataclass(frozen=True)

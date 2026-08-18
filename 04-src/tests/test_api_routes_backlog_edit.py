@@ -35,7 +35,7 @@ def _write(path: Path, content: str) -> None:
     path.write_text(content, encoding="utf-8")
 
 
-def _epic(backlog: Path, epic_id: str, state: str = "TODO") -> None:
+def _epic(backlog: Path, epic_id: str, state: str = "TO_DO") -> None:
     _write(
         backlog / "epics" / f"{epic_id}.md",
         f"---\nid: {epic_id}\ntype: epic\ntitle: {epic_id}\nstate: {state}\n"
@@ -43,7 +43,7 @@ def _epic(backlog: Path, epic_id: str, state: str = "TODO") -> None:
     )
 
 
-def _story(backlog: Path, us_id: str, epic_id: str, state: str = "TODO", priority: str = "Alta") -> None:
+def _story(backlog: Path, us_id: str, epic_id: str, state: str = "TO_DO", priority: str = "Alta") -> None:
     _write(
         backlog / "user-stories" / f"{us_id}.md",
         f"---\nid: {us_id}\ntype: user_story\ntitle: {us_id}\nstate: {state}\n"
@@ -51,7 +51,7 @@ def _story(backlog: Path, us_id: str, epic_id: str, state: str = "TODO", priorit
     )
 
 
-def _task(backlog: Path, task_id: str, epic_id: str, us_id: str, state: str = "TODO", priority: str = "Alta") -> None:
+def _task(backlog: Path, task_id: str, epic_id: str, us_id: str, state: str = "TO_DO", priority: str = "Alta") -> None:
     _write(
         backlog / "tasks" / f"{task_id}.md",
         f"---\nid: {task_id}\ntype: task\ntitle: {task_id}\nstate: {state}\n"
@@ -126,7 +126,7 @@ def test_put_state_cambia_el_fichero_real(tmp_path: Path, monkeypatch) -> None:
     backlog = project_path / "02-backlog"
     _epic(backlog, "FB-100")
     _story(backlog, "US-FB100-01", "FB-100")
-    _task(backlog, "T-FB100-US01-01", "FB-100", "US-FB100-01", state="TODO")
+    _task(backlog, "T-FB100-US01-01", "FB-100", "US-FB100-01", state="TO_DO")
 
     client = TestClient(create_app())
     response = client.put("/backlog/T-FB100-US01-01/state", json={"state": "IN_PROGRESS"})
@@ -141,7 +141,7 @@ def test_put_state_valor_invalido_devuelve_400(tmp_path: Path, monkeypatch) -> N
     backlog = project_path / "02-backlog"
     _epic(backlog, "FB-100")
     _story(backlog, "US-FB100-01", "FB-100")
-    _task(backlog, "T-FB100-US01-01", "FB-100", "US-FB100-01", state="TODO")
+    _task(backlog, "T-FB100-US01-01", "FB-100", "US-FB100-01", state="TO_DO")
 
     client = TestClient(create_app())
     response = client.put("/backlog/T-FB100-US01-01/state", json={"state": "CANCELADA"})
@@ -171,15 +171,15 @@ def test_put_state_done_en_user_story_sin_epic_completa_no_promociona(tmp_path: 
     backlog = project_path / "02-backlog"
     _epic(backlog, "FB-100")
     _story(backlog, "US-FB100-01", "FB-100", state="IN_PROGRESS")
-    _task(backlog, "T-FB100-US01-01", "FB-100", "US-FB100-01", state="TODO")
-    _story(backlog, "US-FB100-02", "FB-100", state="TODO")
+    _task(backlog, "T-FB100-US01-01", "FB-100", "US-FB100-01", state="TO_DO")
+    _story(backlog, "US-FB100-02", "FB-100", state="TO_DO")
 
     client = TestClient(create_app())
     response = client.put("/backlog/US-FB100-01/state", json={"state": "DONE"})
 
     assert response.status_code == 200
     assert response.json()["promoted_epics"] == []
-    assert _field(backlog / "epics" / "FB-100.md", "state") == "TODO"
+    assert _field(backlog / "epics" / "FB-100.md", "state") == "TO_DO"
 
 
 def test_put_state_sobre_epic_devuelve_400(tmp_path: Path, monkeypatch) -> None:

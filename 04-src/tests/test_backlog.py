@@ -58,7 +58,7 @@ _WELL_FORMED_TASK_TODO = (
     "id: T-FB001-US01-01\n"
     "type: task\n"
     "title: Ejemplo\n"
-    "state: TODO\n"
+    "state: TO_DO\n"
     "dependencies:\n"
     "  - US-FB001-01\n"
     "epic: FB-001\n"
@@ -107,7 +107,7 @@ def _mini_backlog(tmp_path: Path) -> tuple[Path, list[str]]:
         .replace("type: task", "type: user_story")
         .replace("user_story: US-FB001-01\n", "")
         .replace("  - US-FB001-01\n", "  - US-FB001-01\n")
-        .replace("state: TODO", "state: TODO"),
+        .replace("state: TO_DO", "state: TO_DO"),
     )
     _write(
         backlog,
@@ -117,13 +117,13 @@ def _mini_backlog(tmp_path: Path) -> tuple[Path, list[str]]:
         .replace("type: task", "type: user_story")
         .replace("user_story: US-FB001-01\n", "")
         .replace("  - US-FB001-01\n", "  - US-FB001-01\n")
-        .replace("state: TODO", "state: TODO"),
+        .replace("state: TO_DO", "state: TO_DO"),
     )
     _write(
         backlog,
         "tasks",
         "T-FB001-US01-01-done.md",
-        _WELL_FORMED_TASK_TODO.replace("state: TODO", "state: DONE"),
+        _WELL_FORMED_TASK_TODO.replace("state: TO_DO", "state: DONE"),
     )
     _write(
         backlog,
@@ -191,7 +191,7 @@ def test_parse_backlog_item_extracts_fields_from_a_well_formed_file(
 
     assert item.id == "T-FB001-US01-01"
     assert item.kind == "T"
-    assert item.state == "TODO"
+    assert item.state == "TO_DO"
     assert item.dependencies == ("US-FB001-01",)
     assert item.epic == "FB-001"
     assert item.path == path
@@ -237,7 +237,7 @@ def test_parse_backlog_item_reports_missing_dependencias(tmp_path: Path) -> None
         "tasks",
         "T-FB001-US01-03-sin-deps.md",
         "---\nid: T-FB001-US01-03\ntype: task\nepic: FB-001\nuser_story: US-FB001-01\n"
-        "title: Sin deps\nstate: TODO\npriority: Alta\n---\n",
+        "title: Sin deps\nstate: TO_DO\npriority: Alta\n---\n",
     )
 
     with pytest.raises(BacklogParseError) as excinfo:
@@ -321,7 +321,7 @@ def test_load_backlog_reports_malformed_files_without_aborting_the_rest(
         "tasks",
         "T-FB999-US01-02-sin-deps.md",
         "---\nid: T-FB999-US01-02\ntype: task\nepic: FB-999\nuser_story: US-FB999-01\n"
-        "title: Sin deps\nstate: TODO\npriority: Alta\n---\n",
+        "title: Sin deps\nstate: TO_DO\npriority: Alta\n---\n",
     )
 
     graph = load_backlog(backlog)

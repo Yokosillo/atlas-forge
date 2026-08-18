@@ -32,7 +32,7 @@ def _yaml_list(items: list[str]) -> str:
 
 
 def _make_task(task_id: str, us_id: str, deps: list[str],
-               epic: str = "FB-022", state: str = "TODO") -> str:
+               epic: str = "FB-022", state: str = "TO_DO") -> str:
     return (
         "---\n"
         f"id: {task_id}\n"
@@ -48,7 +48,7 @@ def _make_task(task_id: str, us_id: str, deps: list[str],
 
 
 def _make_us(us_id: str, epic: str = "FB-022", deps: list[str] | None = None,
-             state: str = "TODO") -> str:
+             state: str = "TO_DO") -> str:
     deps = deps or []
     return (
         "---\n"
@@ -63,7 +63,7 @@ def _make_us(us_id: str, epic: str = "FB-022", deps: list[str] | None = None,
     )
 
 
-def _make_epic(epic_id: str, state: str = "TODO") -> str:
+def _make_epic(epic_id: str, state: str = "TO_DO") -> str:
     return (
         "---\n"
         f"id: {epic_id}\n"

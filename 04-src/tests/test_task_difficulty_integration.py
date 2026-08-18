@@ -91,13 +91,13 @@ class TestDifficultyInYAML:
             description="Descripción",
             criteria=["Criterio 1"],
             priority="Alta",
-            difficulty="Critica",
+            difficulty="Crítica",
         )
 
         content = _build_task_content(task)
 
-        assert "difficulty: Critica" in content, \
-            "El YAML debe incluir 'difficulty: Critica'"
+        assert "difficulty: 9" in content, \
+            "El YAML debe incluir 'difficulty: 9' (etiqueta 'Crítica' normalizada a entero 0-10)"
         assert content.startswith("---"), "Debe empezar con frontmatter"
         assert "---" in content[4:], "Debe tener cierre de frontmatter"
 

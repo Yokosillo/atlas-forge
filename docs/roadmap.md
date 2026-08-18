@@ -44,8 +44,8 @@ Source: the `state` frontmatter field of each Epic in `02-backlog/epics/` (canon
 
 | Epic | Tasks | What it provides |
 |---|---|---|
-| **FB-022** Backlog-centric Pipeline | Most User Stories DONE; US-FB022-16 still TODO | Architect and Tester roles, Epic→US→Task generators with validator+self-audit, the state-driven Developer→Tester→Architect verdict cycle, file model catalog. |
-| **FB-024** Web UX improvements | Ongoing (23+ Tasks DONE across multiple User Stories, more added as real usage surfaces gaps) | DONE/TODO visual differentiation, badge, dependency blocking, Phase field, heat map, unified Roles/Agents screen (same fields/buttons per role, Developer "stop" deletes the instance instead of pausing it), configurable simultaneous-Developer limit, US-detail history. |
+| **FB-022** Backlog-centric Pipeline | Most User Stories DONE; US-FB022-16 still TO_DO | Architect and Tester roles, Epic→US→Task generators with validator+self-audit, the state-driven Developer→Tester→Architect verdict cycle, file model catalog. |
+| **FB-024** Web UX improvements | Ongoing (23+ Tasks DONE across multiple User Stories, more added as real usage surfaces gaps) | DONE/TO_DO visual differentiation, badge, dependency blocking, Phase field, heat map, unified Roles/Agents screen (same fields/buttons per role, Developer "stop" deletes the instance instead of pausing it), configurable simultaneous-Developer limit, US-detail history. |
 | **FB-025** Cross-cutting actions | 10/12 DONE (US01–07) | Web actions: document, analyze-architecture, suggest-ideas, test, audit-ux, index. |
 | **FB-027** Structured backlog format | 3/3 DONE | YAML frontmatter + Markdown body for every Epic/User Story/Task, replacing free-text `**ID**` bold-pattern parsing. Full migration of the existing backlog completed. |
 | **FB-029** Simultaneous project sessions | 4/4 DONE | Multiple live sessions in parallel, one per project; switching the active project in the web no longer stops any agent — the previously-focused project's agents stay alive in their own session and become reachable again once it regains focus. |
@@ -54,7 +54,7 @@ Source: the `state` frontmatter field of each Epic in `02-backlog/epics/` (canon
 | **FB-032** Live agent log in the web | DONE | `WS /ws/agents/{agent_id}/pane`: one channel per connection, server-side poller that only publishes on change, stops on disconnect. One agent at a time, read-only, separate tab/window. |
 
 !!! note "FB-025 pending"
-    `US-FB025-08` (audit OSS, 2 Tasks) is **TODO**: not implemented. The decision on `US-FB025-05` (Commit button) was **not to expose it**: commit already exists as a generic script.
+    `US-FB025-08` (audit OSS, 2 Tasks) is **TO_DO**: not implemented. The decision on `US-FB025-05` (Commit button) was **not to expose it**: commit already exists as a generic script.
 
 ### Planned, not implemented
 

@@ -27,26 +27,31 @@ El validador no modifica ni mueve ficheros.
 
 ### 2. Coherencia de estados
 
-`04-src/scripts/promote_states.py --check`
+`04-src/scripts/promote_states.py --check` / `--apply`
 
-Reglas:
+El estado de un padre es una **función determinista** del estado de sus hijos. La regla de derivación es la única fuente de verdad de la coherencia:
 
-1. User Story → `DONE` si tiene ≥1 Task y todas las Tasks están `DONE`.
-2. Epic → `DONE` si tiene ≥1 User Story y todas las User Stories están `DONE`.
+**User Story**
 
-`--check` detecta drift.
+1. Con **0 Tasks** → `NO_TASKS`.
+2. Con **≥1 Task** → el estado de su Task **más retrasada**, según el orden de progreso `TO_DO` < `EN_DESARROLLO` < `REVIEW` < `DONE`. `IN_PROGRESS` equivale a `EN_DESARROLLO` (compatibilidad pendiente de convergencia) y `FUERA_ROADMAP` equivale a `TO_DO`.
 
-`--apply` aplica promociones deterministas.
+**Epic**
 
-Las operaciones deben ser idempotentes.
+1. Con **0 User Stories** → `TO_DO`.
+2. Con **≥1 User Story** → `DONE` si todas están `DONE`; si no, al estado de su User Story **más retrasada**, con `NO_TASKS`/`EN_DISEÑO`/`FUERA_ROADMAP`/`TO_DO` → `TO_DO`.
 
-## Drift inverso
+`--check` detecta drift (estado en disco que no coincide con la derivación).
 
-Si una User Story o Epic está `DONE` pero un hijo directo deja de estar `DONE`, la consolidación determinista lo corrige: el padre se reabre automáticamente al estado del hijo **más retrasado**, según el orden de progreso `TODO` < `EN_DESARROLLO` < `REVIEW` < `DONE`. Un hijo `POSTERGADA` reabre el padre a `TODO`. El padre solo recibe estados válidos de su propio tipo (p. ej. una User Story nunca se marca `POSTERGADA`; un hijo `SIN_TAREAS`/`EN_DISEÑO` reabre una Epic a `TODO`).
+`--apply` consolida en **ambos sentidos** en una sola pasada idempotente: promueve (padre con todos los hijos `DONE` → `DONE`) y reabre (padre `DONE` o adelantado con un hijo que deja de estarlo → estado más retrasado). La regla es simétrica: nunca puede quedar desactualizada por ningún sentido.
 
-La regla es simétrica a la promoción: un padre con todos sus hijos `DONE` se promueve a `DONE`; un padre `DONE` con un hijo que deja de estarlo se reabre. Ambas direcciones las aplica `promote_states.py --apply` en una sola pasada idempotente.
+**Estados transitorios propiedad del pipeline** (no derivables de los hijos; los fija el pipeline explícitamente y la consolidación los respeta): `EN_DISEÑO` de User Story (solo válido con 0 Tasks, mientras el Arquitecto aterriza las Tasks) y `REVIEW` de User Story (solo válido con todas sus Tasks `DONE`, durante el veredicto del Arquitecto).
 
 La detección se reutiliza en las lecturas del backlog para evitar presentar al usuario una jerarquía falsamente cerrada.
+
+## Drift fuera del pipeline
+
+Los estados de Task y User Story los gobierna el pipeline. Si un cambio de estado de Tasks se produce **fuera** del pipeline (p. ej. edición manual de un fichero), la User Story debe actualizarse igualmente, tanto avanzando como retrasándose, según la regla de derivación anterior — tanto por la consolidación (`--apply`) como en las lecturas del backlog.
 
 ## Pre-commit
 

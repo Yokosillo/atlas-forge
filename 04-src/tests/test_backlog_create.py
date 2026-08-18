@@ -44,7 +44,7 @@ def test_create_epic_content_has_the_expected_frontmatter_and_sections(tmp_path:
     assert "id: FB-900" in content
     assert "type: epic" in content
     assert "title: Epic de prueba" in content
-    assert "state: TODO" in content
+    assert "state: TO_DO" in content
     assert "dependencies: []" in content
     assert "fase: Fase 1.0" in content
     assert "## Objetivo" in content
@@ -143,9 +143,9 @@ def test_create_user_story_content_has_the_expected_frontmatter_and_sections(tmp
     assert "type: user_story" in content
     assert "title: US de prueba" in content
     # T-FB008-US15-01 (2026-08-17): toda User Story nueva nace en
-    # SIN_TAREAS, no TODO — TODO queda reservado para cuando ya tiene al
+    # NO_TASKS, no TODO — TODO queda reservado para cuando ya tiene al
     # menos una Task real.
-    assert "state: SIN_TAREAS" in content
+    assert "state: NO_TASKS" in content
     assert "dependencies: []" in content
     assert "epic: FB-900" in content
     assert "priority: Media" in content
@@ -278,7 +278,7 @@ def test_create_task_content_has_the_expected_frontmatter_and_sections(tmp_path:
     assert "id: T-FB900-US01-01" in content
     assert "type: task" in content
     assert "title: Task de prueba" in content
-    assert "state: TODO" in content
+    assert "state: TO_DO" in content
     assert "- T-FB900-US01-02" in content
     assert "epic: FB-900" in content
     assert "user_story: US-FB900-01" in content
@@ -315,7 +315,7 @@ def test_create_task_under_orphan_user_story_creates_with_null_epic(tmp_path: Pa
     stories_dir = backlog / "user-stories"
     stories_dir.mkdir(parents=True)
     (stories_dir / "US-FB901-01-huerfana.md").write_text(
-        "---\nid: US-FB901-01\ntype: user_story\ntitle: US huerfana\nstate: TODO\n"
+        "---\nid: US-FB901-01\ntype: user_story\ntitle: US huerfana\nstate: TO_DO\n"
         "dependencies: []\npriority: Alta\n---\n\n## Historia\n\nHistoria.\n",
         encoding="utf-8",
     )

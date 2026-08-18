@@ -166,7 +166,7 @@ def test_run_dispatch_cycle_skips_task_with_pending_dependency_leaving_queue_unc
         backlog / "tasks", "T-FB999-US01-01", "US-FB999-01", "EN_DESARROLLO", priority="Crítica",
         dependencies='["T-FB999-US01-99"]',
     )
-    _write_task_yaml(backlog / "tasks", "T-FB999-US01-99", "US-FB999-01", "TODO")
+    _write_task_yaml(backlog / "tasks", "T-FB999-US01-99", "US-FB999-01", "TO_DO")
     enqueue_task(tmp_path, "proj", task_id="T-FB999-US01-01", us_id="US-FB999-01", priority="Crítica")
 
     session = DevelopmentSession(id="s1", project_id="p1")
@@ -292,7 +292,7 @@ def test_run_dispatch_cycle_marks_failed_without_blocking_the_queue_when_no_agen
     assert entries[0].result
 
     task_text = (backlog / "tasks" / "T-FB999-US01-01.md").read_text(encoding="utf-8")
-    assert "state: TODO" in task_text
+    assert "state: TO_DO" in task_text
 
 
 def test_run_dispatch_cycle_a_failed_task_does_not_block_the_next_one_in_a_later_cycle(
@@ -355,7 +355,7 @@ def test_run_dispatch_cycle_a_failed_task_does_not_block_the_next_one_in_a_later
     assert by_id["T-FB999-US01-02"].status == STATUS_DISPATCHED
 
     task1_text = (backlog / "tasks" / "T-FB999-US01-01.md").read_text(encoding="utf-8")
-    assert "state: TODO" in task1_text
+    assert "state: TO_DO" in task1_text
     task2_text = (backlog / "tasks" / "T-FB999-US01-02.md").read_text(encoding="utf-8")
     assert "state: REVIEW" in task2_text
 
@@ -821,7 +821,7 @@ def test_us_landing_dispatch_cycle_lands_designing_story_into_tasks(tmp_path) ->
 
     assert result == "US-FB999-01"
     story_text = (stories_dir / "US-FB999-01-titulo.md").read_text(encoding="utf-8")
-    assert "state: TODO" in story_text
+    assert "state: TO_DO" in story_text
 
     generated_tasks = list((backlog / "tasks").glob("T-FB999-US01-*.md"))
     assert len(generated_tasks) > 0, "Debe haberse generado al menos una Task real."

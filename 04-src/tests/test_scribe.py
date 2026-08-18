@@ -151,7 +151,7 @@ def test_resumir_estado_backlog_sends_the_fixed_prompt_template_without_real_oll
     # catálogo cerrado — plantilla fija e interna, mockeando la llamada HTTP
     # (no requiere Ollama corriendo). El JSON del informe se incrusta como
     # única entrada, sin que Scribe relea ningún fichero de 02-backlog/.
-    ejemplo_json = '{"total": {"items": 5, "tasks": {"TODO": 3}, "errors": 0}}'
+    ejemplo_json = '{"total": {"items": 5, "tasks": {"TO_DO": 3}, "errors": 0}}'
     with patch("brain.local_tools.scribe.requests.post") as mock_post:
         mock_post.return_value = _mock_ollama_response(
             "Hay 5 items. Hay 3 tasks TODO listas para empezar."

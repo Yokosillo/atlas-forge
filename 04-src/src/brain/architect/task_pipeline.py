@@ -39,10 +39,20 @@ def _yaml_block_list(items: list[str]) -> str:
     return "\n" + "\n".join(f"  - {item}" for item in items)
 
 
+_DIFFICULTY_INT = {"Crítica": 9, "Alta": 7, "Media": 4, "Baja": 2}
+
+
+def _normalize_difficulty(difficulty: str | int | None) -> int | None:
+    if isinstance(difficulty, str):
+        normalized = _DIFFICULTY_INT.get(difficulty)
+        return normalized if normalized is not None else None
+    return difficulty
+
+
 def _build_task_content(task) -> str:
     criteria_text = "\n".join(f"- {c}" for c in task.criteria)
     deps_block = _yaml_block_list(task.dependencies) if task.dependencies else " []"
-    difficulty = getattr(task, 'difficulty', None)
+    difficulty = _normalize_difficulty(getattr(task, 'difficulty', None))
     difficulty_line = f"difficulty: {difficulty}\n" if difficulty else ""
     return (
         "---\n"
@@ -51,7 +61,7 @@ def _build_task_content(task) -> str:
         f"title: {task.title}\n"
         f"epic: {task.epic_id}\n"
         f"user_story: {task.us_id}\n"
-        f"state: TODO\n"
+        f"state: TO_DO\n"
         f"dependencies:{deps_block}\n"
         f"priority: {task.priority}\n"
         f"{difficulty_line}"

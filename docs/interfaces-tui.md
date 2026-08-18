@@ -51,7 +51,7 @@ Navigation and state center: active project, session (id/state), launched agents
 
 Three-level breakdown (Epic → Epic detail → item detail) with `push_screen`/`pop_screen`:
 
-- Rich colors: `[green]` DONE, `[dark_orange]` TODO, `[bright_black]` unknown.
+- Rich colors: `[green]` DONE, `[dark_orange]` TO_DO, `[bright_black]` unknown.
 - Proportional progress bars (e.g. `███░░░░░░░ 3/10 US DONE`).
 - `⚠` warnings for items with parse errors.
 - In a User Story: **Launch development** with a Developer agent selector.

@@ -60,10 +60,10 @@ def test_post_propose_tasks_returns_404_for_unknown_story(tmp_path, monkeypatch)
 def test_post_propose_tasks_rejects_story_not_in_en_diseno(tmp_path, monkeypatch) -> None:
     """Criterio de aceptación 3: rechaza (400) una User Story fuera de
     `EN_DISEÑO` — verificado con una llamada directa al endpoint sin
-    pasar por la web, sobre una US real en `SIN_TAREAS`."""
+    pasar por la web, sobre una US real en `NO_TASKS`."""
     project_path = _active_project(tmp_path, monkeypatch)
     backlog = project_path / "02-backlog"
-    _write_us_yaml(backlog / "user-stories", "US-FB999-01", epic="FB-999", state="SIN_TAREAS")
+    _write_us_yaml(backlog / "user-stories", "US-FB999-01", epic="FB-999", state="NO_TASKS")
     client = TestClient(create_app())
 
     response = client.post("/backlog/us/US-FB999-01/propose-tasks")
@@ -77,7 +77,7 @@ def test_post_propose_tasks_rejects_story_already_in_todo(tmp_path, monkeypatch)
     (`TODO`) no debe permitir generar Tasks duplicadas."""
     project_path = _active_project(tmp_path, monkeypatch)
     backlog = project_path / "02-backlog"
-    _write_us_yaml(backlog / "user-stories", "US-FB999-02", epic="FB-999", state="TODO")
+    _write_us_yaml(backlog / "user-stories", "US-FB999-02", epic="FB-999", state="TO_DO")
     client = TestClient(create_app())
 
     response = client.post("/backlog/us/US-FB999-02/propose-tasks")
@@ -107,4 +107,4 @@ def test_post_propose_tasks_accepts_story_in_en_diseno_and_lands_tasks(tmp_path,
     # transiciona automáticamente de EN_DISEÑO a TODO.
     us_files = list((backlog / "user-stories").glob("US-FB999-03*.md"))
     assert len(us_files) == 1
-    assert "state: TODO" in us_files[0].read_text(encoding="utf-8")
+    assert "state: TO_DO" in us_files[0].read_text(encoding="utf-8")

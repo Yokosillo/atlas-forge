@@ -205,6 +205,59 @@ def test_session_name_for_does_not_collide_between_multiple_developers(
         assert instance.session_name == f"{expected_role_part}-{project_name}"
 
 
+def test_t_fb005_us01_08_killing_developer_1_does_not_produce_a_second_developer_2(
+    isolated_socket: str, tmp_path
+) -> None:
+    """T-FB005-US01-08: con Developer-1 y Developer-2 vivos, matar
+    Developer-1 (T-FB024-US12-02 lo retira de `session.agents`) y lanzar
+    un Developer nuevo NO produce un segundo Developer-2 colisionando con
+    el vivo — el nuevo recibe un número único entre los vivos
+    (Developer-3), y los nombres de sesión tmux reales siguen siendo todos
+    distintos entre sí."""
+    from brain.agents.stop import stop_agent
+    from brain.runtime import session_name_for
+
+    session = _active_session()
+    runtime = _test_runtime()
+    project_path = str(tmp_path)
+
+    first, first_instance = register_developer(
+        session, runtime, project_path, socket_name=isolated_socket
+    )
+    time.sleep(0.3)
+    second, second_instance = register_developer(
+        session, runtime, project_path, socket_name=isolated_socket
+    )
+    time.sleep(0.3)
+
+    assert first.name == "Developer-1"
+    assert second.name == "Developer-2"
+
+    # Matar Developer-1: se retira de session.agents (T-FB024-US12-02).
+    stop_agent(first, session, socket_name=isolated_socket)
+    assert first not in list_agents(session)
+
+    # El siguiente lanzamiento NO reutiliza el número 2, aún en uso por
+    # el Developer-2 vivo — recibe Developer-3 (criterios 1 y 3).
+    third, third_instance = register_developer(
+        session, runtime, project_path, socket_name=isolated_socket
+    )
+    time.sleep(0.3)
+
+    assert third.name == "Developer-3"
+    assert third.name != second.name
+
+    # Criterio 2: los nombres de sesión tmux de los Developers vivos son
+    # siempre distintos entre sí, y coinciden con el nombre real de cada
+    # RuntimeInstance (sin colisión de sesión).
+    live = (second, second_instance), (third, third_instance)
+    assert len({session_name_for(runtime, agent, project_path) for agent, _ in live}) == 2
+    for agent, instance in live:
+        assert session_name_for(runtime, agent, project_path) == instance.session_name
+    assert is_runtime_alive(second_instance, socket_name=isolated_socket) is True
+    assert is_runtime_alive(third_instance, socket_name=isolated_socket) is True
+
+
 def test_register_developer_rejects_when_limit_exceeded(
     isolated_socket: str, tmp_path
 ) -> None:

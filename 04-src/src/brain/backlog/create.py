@@ -159,7 +159,7 @@ def _build_epic_content(epic_id: str, title: str, objetivo: str, fase: str | Non
             "id": epic_id,
             "type": "epic",
             "title": title,
-            "state": "TODO",
+            "state": "TO_DO",
             "dependencies": [],
             "fase": fase,
         },
@@ -225,16 +225,17 @@ def _build_user_story_content(
     # concatenación manual — evita el mismo bug de `title`/`epic`/etc. con
     # `:` rompiendo el YAML generado (T-FB036-US02-01).
     #
-    # `state: SIN_TAREAS` (T-FB008-US15-01, 2026-08-17): toda User Story
-    # nueva nace sin Tasks — `TODO` queda reservado para cuando ya tiene
-    # al menos una Task real (transición automática al completar
-    # "Progresar"/el aterrizaje del Arquitecto, T-FB008-US15-02).
+    # `state: NO_TASKS` (T-FB008-US15-01, 2026-08-17; renombrado desde
+    # `SIN_TAREAS` 2026-08-18): toda User Story nueva nace sin Tasks —
+    # `TO_DO` queda reservado para cuando ya tiene al menos una Task real
+    # (transición automática al completar "Progresar"/el aterrizaje del
+    # Arquitecto, T-FB008-US15-02).
     frontmatter = yaml.safe_dump(
         {
             "id": us_id,
             "type": "user_story",
             "title": title,
-            "state": "SIN_TAREAS",
+            "state": "NO_TASKS",
             "dependencies": [],
             "epic": epic_id,
             "priority": priority,
@@ -339,7 +340,7 @@ def _build_task_content(
             "id": task_id,
             "type": "task",
             "title": title,
-            "state": "TODO",
+            "state": "TO_DO",
             "dependencies": dependencies,
             "epic": epic_id,
             "user_story": us_id,

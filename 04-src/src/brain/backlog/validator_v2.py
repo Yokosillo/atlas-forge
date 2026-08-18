@@ -8,7 +8,8 @@ Campos validados:
 - Frontmatter YAML válido entre `---`
 - `id` presente y coincide con el prefijo del nombre del fichero
 - `type` en {epic, user_story, task}
-- `state` en {TODO, IN_PROGRESS, REVIEW, DONE}
+- `state` en {TO_DO, EN_DESARROLLO, IN_PROGRESS, REVIEW, DONE, FUERA_ROADMAP}
+  para los tres tipos (US/Task/Epic usan `TO_DO` como "pendiente de empezar")
 - `dependencies` como lista de strings con IDs válidos
 - `priority` en {Critica, Alta, Media, Baja} o null (US/Task)
 - `epic` presente y con formato FB-NNN (US/Task)
@@ -37,13 +38,20 @@ class ValidationResultV2:
     errors: list[ValidationErrorV2] = field(default_factory=list)
 
 
-_VALID_STATES = {"TODO", "EN_DESARROLLO", "IN_PROGRESS", "REVIEW", "DONE", "POSTERGADA"}
-# 2026-08-17, "PIPELINE OPERATIVO Y RECONCILIACIÓN": SIN_TAREAS/EN_DISEÑO son
+# Estados comunes a los tres tipos: `TO_DO` es el valor "pendiente de
+# empezar" para User Story/Task/Epic (2026-08-18, unificación de grafía,
+# T-FB040-US01-01). `NO_TASKS`/`EN_DISEÑO` se añaden solo para User Story.
+_VALID_STATES = {"TO_DO", "EN_DESARROLLO", "IN_PROGRESS", "REVIEW", "DONE", "FUERA_ROADMAP"}
+# 2026-08-17, "PIPELINE OPERATIVO Y RECONCILIACIÓN": NO_TASKS/EN_DISEÑO son
 # los dos primeros pasos del ciclo de una User Story (antes de que el
 # Arquitecto la desgrane en Tasks) — no tienen sentido para una Task, que
 # nace directamente con Tasks generadas (nunca "sin tareas"). Conjunto
 # adicional, no sustituye a `_VALID_STATES`, solo para type == "user_story".
-_VALID_USER_STORY_ONLY_STATES = {"SIN_TAREAS", "EN_DISEÑO"}
+_VALID_USER_STORY_ONLY_STATES = {"NO_TASKS", "EN_DISEÑO"}
+# 2026-08-18 (T-FB040-US01-01): Epic ya no reserva la grafía `TODO` — el
+# conjunto es el mismo para los tres tipos.
+_VALID_EPIC_STATES = _VALID_STATES
+_VALID_US_TASK_STATES = _VALID_STATES
 _VALID_TYPES = {"epic", "user_story", "task"}
 _VALID_PRIORITIES = {"Crítica", "Alta", "Media", "Baja"}
 _VALID_DIFFICULTY_MIN = 0
@@ -142,7 +150,12 @@ def _validate_type(data: dict) -> list[ValidationErrorV2]:
 def _validate_state(data: dict) -> list[ValidationErrorV2]:
     errors: list[ValidationErrorV2] = []
     state = data.get("state")
-    allowed = _VALID_STATES | _VALID_USER_STORY_ONLY_STATES if data.get("type") == "user_story" else _VALID_STATES
+    if data.get("type") == "user_story":
+        allowed = _VALID_US_TASK_STATES | _VALID_USER_STORY_ONLY_STATES
+    elif data.get("type") == "task":
+        allowed = _VALID_US_TASK_STATES
+    else:
+        allowed = _VALID_EPIC_STATES
     if state is None or (isinstance(state, str) and not state.strip()):
         errors.append(ValidationErrorV2(0, "campo 'state' ausente o vacio"))
     elif not isinstance(state, str):

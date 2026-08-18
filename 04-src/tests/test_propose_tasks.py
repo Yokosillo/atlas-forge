@@ -216,6 +216,8 @@ class TestProposeTasksFromUserStory:
 class TestProposeTasksRealUS:
     def test_generates_tasks_from_real_us_fb022_02(self, tmp_path: Path):
         us_content = (
+            "---\nid: US-FB022-02-test\ntype: user_story\ntitle: Arquitecto propone User Stories\n"
+            "state: TO_DO\ndependencies: []\nepic: FB-022\npriority: Alta\n---\n\n"
             "# US-FB022-02 · Test\n\n"
             "**Epic:** FB-022\n\n"
             "## Historia\n\n"
@@ -228,10 +230,7 @@ class TestProposeTasksRealUS:
             "- Si la autoauditoria encuentra problemas, el Arquitecto corrige.\n"
             "- Ningun fichero se escribe hasta que el humano confirme.\n"
             "- Cada User Story se escribe siguiendo el formato estandar.\n"
-            "- Las User Stories generadas respetan el alcance v1/v2.\n\n"
-            "## Prioridad\n\nCritica\n\n"
-            "## Dependencias\n\n**FB-022**\n\n"
-            "## Estado\n\nTODO\n"
+            "- Las User Stories generadas respetan el alcance v1/v2.\n"
         )
         path = tmp_path / "US-FB022-02-test.md"
         path.write_text(us_content, encoding="utf-8")
@@ -249,16 +248,15 @@ class TestProposeTasksRealUS:
 
     def test_real_us_tasks_have_meaningful_content(self, tmp_path: Path):
         us_content = (
+            "---\nid: US-FB022-02-test\ntype: user_story\ntitle: Generar User Stories desde un Epic\n"
+            "state: TO_DO\ndependencies: []\nepic: FB-022\npriority: Alta\n---\n\n"
             "# US-FB022-02 · Test\n\n"
             "**Epic:** FB-022\n\n"
             "## Historia\n\n"
             "Como usuario quiero generar User Stories desde un Epic.\n\n"
             "## Criterios de aceptación\n\n"
             "- CR1: El sistema genera US a partir de un Epic.\n"
-            "- CR2: El resultado es verificable.\n\n"
-            "## Prioridad\n\nAlta\n\n"
-            "## Dependencias\n\n**FB-022**\n\n"
-            "## Estado\n\nTODO\n"
+            "- CR2: El resultado es verificable.\n"
         )
         path = tmp_path / "US-FB022-02-test.md"
         path.write_text(us_content, encoding="utf-8")
@@ -281,16 +279,15 @@ class TestProposeTasksRealUS:
 
     def test_real_us_tasks_pass_independent_value_check(self, tmp_path: Path):
         us_content = (
+            "---\nid: US-FB022-02-test\ntype: user_story\ntitle: Generar User Stories desde un Epic\n"
+            "state: TO_DO\ndependencies: []\nepic: FB-022\npriority: Alta\n---\n\n"
             "# US-FB022-02 · Test\n\n"
             "**Epic:** FB-022\n\n"
             "## Historia\n\n"
             "Como usuario quiero generar User Stories desde un Epic.\n\n"
             "## Criterios de aceptación\n\n"
             "- CR1: El sistema genera US.\n"
-            "- CR2: El resultado es verificable.\n\n"
-            "## Prioridad\n\nAlta\n\n"
-            "## Dependencias\n\n**FB-022**\n\n"
-            "## Estado\n\nTODO\n"
+            "- CR2: El resultado es verificable.\n"
         )
         path = tmp_path / "US-FB022-02-test.md"
         path.write_text(us_content, encoding="utf-8")

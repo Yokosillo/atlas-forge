@@ -7,7 +7,7 @@ en `brain/backlog/promote.py`:
   1. Una User Story -> DONE  si tiene al menos una Task y TODAS sus Tasks estan DONE.
   2. Una Epic        -> DONE  si tiene al menos una User Story y TODAS sus US estan DONE.
 
-Solo PROMUEVE (TODO/IN_PROGRESS/REVIEW -> DONE). Nunca revierte. Idempotente.
+Solo PROMUEVE (TO_DO/IN_PROGRESS/REVIEW -> DONE; para Epic, TODO). Nunca revierte. Idempotente.
 
 Uso:
   python3 scripts/promote_states.py --check   # falla (exit != 0) si hay drift, sin tocar nada
@@ -60,7 +60,7 @@ def main() -> int:
             if reopened.has_drift:
                 print(
                     "\nDrift inverso detectado: hay US/Epics DONE con un hijo reabierto "
-                    "(TODO/IN_PROGRESS/REVIEW) — revisar manualmente si el padre debe "
+                    "(TO_DO/IN_PROGRESS/REVIEW) — revisar manualmente si el padre debe "
                     "reabrirse; este chequeo no lo hace automáticamente."
                 )
             return 1

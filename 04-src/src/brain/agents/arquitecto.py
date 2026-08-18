@@ -28,7 +28,7 @@ ARQUITECTO_PROMPT = (
     "## Formato estándar del backlog\n"
     "Todo fichero de backlog que generes debe cumplir EXACTAMENTE el esquema "
     "de 02-backlog/README.md: título H1, secciones obligatorias según tipo, "
-    "campos de referencia limpios, Estado en TODO/IN_PROGRESS/REVIEW/DONE, "
+    "campos de referencia limpios, Estado en TO_DO/IN_PROGRESS/REVIEW/DONE, "
     "dependencias con formato **<ID>**.\n"
     "\n"
     "## Validador determinista (red de seguridad)\n"

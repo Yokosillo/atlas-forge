@@ -69,7 +69,7 @@ def _write_task_yaml(
 
 
 def _write_us_yaml(
-    us_dir: Path, us_id: str, *, epic: str, state: str = "TODO", priority: str = "Alta"
+    us_dir: Path, us_id: str, *, epic: str, state: str = "TO_DO", priority: str = "Alta"
 ) -> None:
     us_dir.mkdir(parents=True, exist_ok=True)
     (us_dir / f"{us_id}.md").write_text(
@@ -94,11 +94,11 @@ def _seed_backlog(project_path: Path) -> None:
     _write_us_yaml(backlog / "user-stories", "US-FB999-01", epic="FB-999")
     _write_task_yaml(
         backlog / "tasks", "T-FB999-US01-01", us_id="US-FB999-01", epic="FB-999",
-        state="TODO", priority="Alta",
+        state="TO_DO", priority="Alta",
     )
     _write_task_yaml(
         backlog / "tasks", "T-FB999-US01-02", us_id="US-FB999-01", epic="FB-999",
-        state="TODO", priority="Media",
+        state="TO_DO", priority="Media",
     )
     _write_task_yaml(
         backlog / "tasks", "T-FB999-US01-03", us_id="US-FB999-01", epic="FB-999",
@@ -116,7 +116,7 @@ def test_post_enqueue_task_returns_404_for_unknown_task(tmp_path, monkeypatch) -
     assert response.status_code == 404
 
 
-def test_post_enqueue_task_returns_400_when_not_todo(tmp_path, monkeypatch) -> None:
+def test_post_enqueue_task_returns_400_when_not_to_do(tmp_path, monkeypatch) -> None:
     project_path = _active_project(tmp_path, monkeypatch)
     _seed_backlog(project_path)
     client = TestClient(create_app())
@@ -125,7 +125,7 @@ def test_post_enqueue_task_returns_400_when_not_todo(tmp_path, monkeypatch) -> N
     response = client.post("/backlog/T-FB999-US01-03/enqueue")
 
     assert response.status_code == 400
-    assert "TODO" in response.json()["detail"]
+    assert "TO_DO" in response.json()["detail"]
 
 
 def test_post_enqueue_task_reflects_in_queue(tmp_path, monkeypatch) -> None:
@@ -165,7 +165,7 @@ def test_post_enqueue_task_twice_is_rejected(tmp_path, monkeypatch) -> None:
     assert "EN_DESARROLLO" in response.json()["detail"]
 
 
-def test_post_enqueue_all_adds_every_todo_task_of_the_story(tmp_path, monkeypatch) -> None:
+def test_post_enqueue_all_adds_every_to_do_task_of_the_story(tmp_path, monkeypatch) -> None:
     # Criterio de aceptación: "Encolar todas las Tasks TODO de una US
     # real las añade todas a la cola de una sola llamada."
     project_path = _active_project(tmp_path, monkeypatch)
@@ -200,7 +200,7 @@ def test_post_enqueue_all_returns_404_for_unknown_story(tmp_path, monkeypatch) -
 def test_post_enqueue_all_skips_tasks_already_en_cola(tmp_path, monkeypatch) -> None:
     """T-FB008-US14-01: una Task ya encolada individualmente ya tiene
     `state: EN_DESARROLLO` en el fichero real — `enqueue-all` la filtra de
-    `pending_tasks` (solo mira `state == "TODO"`) antes de intentar
+    `pending_tasks` (solo mira `state == "TO_DO"`) antes de intentar
     encolarla, así que ya no llega ni a `enqueued` ni a
     `skipped_already_queued` (ese campo solo capturaba el caso, ahora
     inalcanzable por esta vía, de una entrada JSON duplicada con el
@@ -238,7 +238,7 @@ def test_delete_dequeue_removes_task_without_side_effects(tmp_path, monkeypatch)
     assert "T-FB999-US01-02" in task_ids
 
 
-def test_put_state_en_desarrollo_on_user_story_enqueues_its_todo_tasks(tmp_path, monkeypatch) -> None:
+def test_put_state_en_desarrollo_on_user_story_enqueues_its_to_do_tasks(tmp_path, monkeypatch) -> None:
     """T-FB008-US14-04: marcar una User Story como EN_DESARROLLO desde
     `PUT /backlog/{item_id}/state` (selector genérico de US-FB036-08) es
     un atajo del mismo efecto que `POST /backlog/{us_id}/enqueue-all` —
@@ -317,15 +317,15 @@ def test_get_queue_orders_queued_entries_by_priority(tmp_path, monkeypatch) -> N
     _write_us_yaml(backlog / "user-stories", "US-FB999-01", epic="FB-999")
     _write_task_yaml(
         backlog / "tasks", "T-FB999-US01-01", us_id="US-FB999-01", epic="FB-999",
-        state="TODO", priority="Baja",
+        state="TO_DO", priority="Baja",
     )
     _write_task_yaml(
         backlog / "tasks", "T-FB999-US01-02", us_id="US-FB999-01", epic="FB-999",
-        state="TODO", priority="Crítica",
+        state="TO_DO", priority="Crítica",
     )
     _write_task_yaml(
         backlog / "tasks", "T-FB999-US01-03", us_id="US-FB999-01", epic="FB-999",
-        state="TODO", priority="Media",
+        state="TO_DO", priority="Media",
     )
     client = TestClient(create_app())
 

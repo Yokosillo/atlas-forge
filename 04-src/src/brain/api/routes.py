@@ -9,11 +9,12 @@ un texto reinventado en esta capa."""
 
 import json
 import re
+import subprocess
 import time
 from pathlib import Path
 
 from fastapi import APIRouter, HTTPException
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
 
 from brain.agents.lifecycle import InvalidAgentTransitionError
 from brain.agents.liveness import refresh_agent_liveness
@@ -191,6 +192,21 @@ class LaunchAgentRequest(BaseModel):
     model_id: str | None = None
     model: str | None = None  # legacy: alias de model_id
     initial_job_description: str | None = None
+    # T-FB005-US01-08 (2026-08-18): número de "slot" de Developer
+    # (Developer-1/2/3) elegido explícitamente por la interfaz al lanzar
+    # desde una fila concreta — el agente nace con ESE número, no con el
+    # que el conteo del backend decida. Solo aplica a `role: developer`;
+    # para el resto de roles se ignora.
+    developer_number: int | None = None
+
+    @field_validator("developer_number")
+    @classmethod
+    def _developer_number_positive(cls, value: int | None) -> int | None:
+        if value is not None and value < 1:
+            raise ValueError(
+                f"developer_number debe ser >= 1, recibido: {value}."
+            )
+        return value
 
     def resolved_runtime_type(self) -> str | None:
         """Resuelve el runtime para el lanzamiento.
@@ -639,6 +655,7 @@ def post_agents(body: LaunchAgentRequest) -> dict:
                 session,
                 project.path,
                 socket_name=_SOCKET_NAME,
+                developer_number=body.developer_number,
             )
             return _serialize_agent(agent)
 
@@ -650,6 +667,7 @@ def post_agents(body: LaunchAgentRequest) -> dict:
             project.path,
             initial_job_description=body.initial_job_description,
             socket_name=_SOCKET_NAME,
+            developer_number=body.developer_number,
         )
     except (
         AgentLaunchError,
@@ -1099,6 +1117,48 @@ def put_system_preferences(body: UpdateSystemPreferencesRequest) -> dict:
 
     save_system_preferences(current, state_dir=_STATE_DIR)
     return current
+
+
+# Comando fijo de reinicio (T-FB037-US05-01): nunca se interpola nada del
+# request — la lista de argumentos es una constante, no una entrada del
+# cliente. Requiere la regla sudoers documentada en OPERACION.md
+# (`secure_ai_atlas ALL=(root) NOPASSWD: /usr/bin/systemctl restart
+# factory-brain-api`), acotada a ese único comando para no abrir una
+# escalación de privilegios genérica.
+_RESTART_COMMAND = ["sudo", "/usr/bin/systemctl", "restart", "factory-brain-api"]
+
+
+@router.post("/system/restart", status_code=202)
+def post_system_restart() -> dict:
+    """Reinicia el servicio `factory-brain-api` (T-FB037-US05-01).
+
+    Fire-and-forget: lanza `systemctl restart` en un subproceso sin esperar
+    su resultado — esperarlo mataría a este mismo proceso (el reinicio
+    derriba el servicio que sirve esta petición). Responde `202 Accepted`
+    de inmediato; el frontend verifica la recuperación con polling a
+    `GET /agents`.
+
+    Si `sudo` no está configurado (regla sudoers ausente), el subproceso
+    falla al arrancar y se traduce a un 500 con un mensaje accionable que
+    apunta a la documentación — nunca un error genérico que oculte la
+    causa."""
+    try:
+        subprocess.Popen(
+            _RESTART_COMMAND,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            start_new_session=True,
+        )
+    except OSError as error:
+        raise HTTPException(
+            status_code=500,
+            detail=(
+                "No se pudo lanzar el reinicio del servicio: "
+                f"{error}. Revisa que la regla sudoers esté instalada "
+                "(ver 'Reinicio seguro' en 00-gobierno/OPERACION.md)."
+            ),
+        ) from error
+    return {"status": "restarting"}
 
 
 def _find_job_by_id(session, job_id: str) -> Job | None:
@@ -1630,12 +1690,12 @@ def _find_task_item(graph, task_id: str):
 
 @router.post("/backlog/{task_id}/enqueue", status_code=201)
 def post_enqueue_task(task_id: str) -> dict:
-    """Marca la Task `task_id` (debe estar en estado `TODO`) como
+    """Marca la Task `task_id` (debe estar en estado `TO_DO`) como
     encolada para desarrollo (T-FB008-US10-01, criterio de aceptación 1
     de `US-FB008-10`) — sin pasar por el flujo de Plan/aprobación.
 
     404 si `task_id` no existe como Task en el backlog del proyecto
-    activo; 400 si existe pero no está en `TODO` (no tiene sentido
+    activo; 400 si existe pero no está en `TO_DO` (no tiene sentido
     encolar algo ya `DONE`/`IN_PROGRESS`/`REVIEW`); 409 si ya estaba
     encolada (evita duplicados silenciosos ante un doble clic)."""
     project = _active_project_or_404()
@@ -1647,10 +1707,10 @@ def post_enqueue_task(task_id: str) -> dict:
             status_code=404,
             detail=f"No existe ninguna Task con id '{task_id}' en el backlog activo.",
         )
-    if item.state != "TODO":
+    if item.state != "TO_DO":
         raise HTTPException(
             status_code=400,
-            detail=f"La Task '{task_id}' no está en estado 'TODO' (estado real: '{item.state}') — no se puede encolar.",
+            detail=f"La Task '{task_id}' no está en estado 'TO_DO' (estado real: '{item.state}') — no se puede encolar.",
         )
 
     try:
@@ -1671,7 +1731,7 @@ def post_enqueue_task(task_id: str) -> dict:
     # `dispatched_at`), pero ya no es el único lugar donde "encolada" se
     # registra. Se escribe DESPUÉS de la entrada JSON: si esto fallara,
     # la entrada JSON ya escrita seguiría siendo consistente con el
-    # estado anterior (`TODO`) del fichero, sin dejar un estado a medias
+    # estado anterior (`TO_DO`) del fichero, sin dejar un estado a medias
     # peor que el actual.
     set_item_state(item.path, "EN_DESARROLLO")
 
@@ -1685,7 +1745,7 @@ def post_enqueue_task(task_id: str) -> dict:
 
 
 def _enqueue_all_pending_tasks_of_story(project, graph, us_id: str) -> dict:
-    """Encola todas las Tasks `TODO` de `us_id` — lógica compartida entre
+    """Encola todas las Tasks `TO_DO` de `us_id` — lógica compartida entre
     `POST /backlog/{us_id}/enqueue-all` y el atajo de `PUT
     /backlog/{item_id}/state` cuando se marca una User Story como
     `EN_DESARROLLO` (T-FB008-US14-04): ambos caminos deben producir
@@ -1693,7 +1753,7 @@ def _enqueue_all_pending_tasks_of_story(project, graph, us_id: str) -> dict:
     pending_tasks = [
         item
         for item in graph.items.values()
-        if item.kind == ITEM_KIND_TASK and item.user_story == us_id and item.state == "TODO"
+        if item.kind == ITEM_KIND_TASK and item.user_story == us_id and item.state == "TO_DO"
     ]
 
     enqueued = []
@@ -1723,7 +1783,7 @@ def _enqueue_all_pending_tasks_of_story(project, graph, us_id: str) -> dict:
 
 @router.post("/backlog/{us_id}/enqueue-all", status_code=201)
 def post_enqueue_all_tasks(us_id: str) -> dict:
-    """Encola de una sola llamada todas las Tasks `TODO` de la User
+    """Encola de una sola llamada todas las Tasks `TO_DO` de la User
     Story `us_id` (T-FB008-US10-01, criterio de aceptación 2 de
     `US-FB008-10`) — equivalente funcional al lote que hoy ofrece un
     Plan, pero sin el paso de aprobación explícita.
@@ -1772,8 +1832,8 @@ def delete_dequeue_task(task_id: str) -> dict:
     except TaskAlreadyDispatchedError as error:
         raise HTTPException(status_code=409, detail=str(error)) from error
 
-    # T-FB008-US14-01: desencolar revierte `state: EN_DESARROLLO` a `TODO` en
-    # el fichero real — mismo criterio de reversibilidad ya documentado
+    # T-FB008-US14-01: desencolar revierte `state: EN_DESARROLLO` a `TO_DO`
+    # en el fichero real — mismo criterio de reversibilidad ya documentado
     # arriba ("sin ningún efecto secundario"), ahora que EN_DESARROLLO vive en
     # el propio estado. Mejor esfuerzo: si el item ya no aparece en el
     # grafo (caso borde improbable), no se bloquea la respuesta 200 del
@@ -1782,7 +1842,7 @@ def delete_dequeue_task(task_id: str) -> dict:
     graph = _load_active_backlog_graph(project)
     item = graph.items.get(task_id)
     if item is not None and item.state == "EN_DESARROLLO":
-        set_item_state(item.path, "TODO")
+        set_item_state(item.path, "TO_DO")
 
     return {"task_id": task_id, "dequeued": True}
 
@@ -1850,10 +1910,10 @@ def put_backlog_item_state(item_id: str, body: dict) -> dict:
     Si el nuevo estado es `EN_DESARROLLO` y el item es una User Story
     (T-FB008-US14-04): atajo funcional equivalente a pulsar "Marcar toda
     la Story para desarrollo" — encola automáticamente todas sus Tasks
-    `TODO` (mismo criterio idempotente que `enqueue-all`), coordinado
+    `TO_DO` (mismo criterio idempotente que `enqueue-all`), coordinado
     para no divergir entre los dos caminos.
 
-    Body: `{"state": "TODO" | "EN_DESARROLLO" | "IN_PROGRESS" | "REVIEW" | "DONE"}`.
+    Body: `{"state": "TO_DO" | "EN_DESARROLLO" | "IN_PROGRESS" | "REVIEW" | "DONE"}`.
     400 si el valor no pertenece al conjunto cerrado, o si el contenido
     resultante no pasa el validador — `detail` verbatim en este caso."""
     project = _active_project_or_404()
@@ -2029,16 +2089,16 @@ def post_backlog_us_task(us_id: str, body: CreateTaskRequest) -> dict:
         raise HTTPException(status_code=400, detail=str(error)) from error
 
     # T-FB008-US15-01/-02, criterio 5: crear una Task manual sobre una US
-    # todavía en `SIN_TAREAS` la transiciona a `TODO` — mismo criterio que
+    # todavía en `NO_TASKS` la transiciona a `TO_DO` — mismo criterio que
     # el aterrizaje automático del Arquitecto, "ya tiene al menos una
-    # Task real" es la señal de salida de `SIN_TAREAS`, sea cual sea el
+    # Task real" es la señal de salida de `NO_TASKS`, sea cual sea el
     # camino que la creó. Si la US está en otro estado (p. ej.
     # `EN_DISEÑO`, esperando al Arquitecto — criterio 9 de la US: "+
     # Nueva Task" sigue disponible ahí), no se toca.
     graph_after_create = _load_active_backlog_graph(project)
     us_item_after_create = graph_after_create.items.get(us_id)
-    if us_item_after_create is not None and us_item_after_create.state == "SIN_TAREAS":
-        set_item_state(us_item_after_create.path, "TODO")
+    if us_item_after_create is not None and us_item_after_create.state == "NO_TASKS":
+        set_item_state(us_item_after_create.path, "TO_DO")
 
     return {
         "id": body.id,
@@ -2108,7 +2168,7 @@ def _job_plan_builder_story_id(story_id: str) -> str:
     construye sus Tasks de prueba con `story_id = "FB999-US01"`, nunca
     `"US-FB999-01"`) — sin esta conversión, `_pending_task_files_for_story`
     nunca encuentra ningún fichero real, aunque la Story sí tenga Tasks
-    `TODO` (el 400 de 'sin Tasks pendientes' se dispararía siempre,
+    `TO_DO` (el 400 de 'sin Tasks pendientes' se dispararía siempre,
     incorrectamente).
 
     Delega en `task_file_story_prefix` (`job_plan_builder.py`), el mismo
@@ -2123,7 +2183,7 @@ def _build_launch_development_description(story_id: str, story_detail: dict, tas
     """`description` del Job de "lanzar desarrollo de una User Story"
     (T-FB020-US02-01): objetivo/historia real de la US (ya resuelto por
     `build_item_detail`, `GET /backlog/{item_id}`) + títulos de sus Tasks
-    `TODO`, reutilizando `_pending_task_files_for_story`/`_read_task_title`
+    `TO_DO`, reutilizando `_pending_task_files_for_story`/`_read_task_title`
     (`brain.dispatcher.job_plan_builder`) tal cual — mismo mecanismo ya
     usado por `build_job_plan_for_story` para encontrar las Tasks
     pendientes de una Story, sin reimplementar esa búsqueda aquí."""
@@ -2151,7 +2211,7 @@ def post_launch_development(story_id: str, body: LaunchDevelopmentRequest) -> di
     resuelto (T-FB020-US02-01): construye la `description` del Job
     concatenando el objetivo/historia real de la US (mismo contenido que
     `GET /backlog/{item_id}`, T-FB020-US01-01) y los títulos de sus Tasks
-    en `TODO` (reutilizando `_pending_task_files_for_story`/
+    en `TO_DO` (reutilizando `_pending_task_files_for_story`/
     `_read_task_title` de `job_plan_builder.py` tal cual — no un segundo
     mecanismo de búsqueda de Tasks pendientes), y despacha con el mismo
     motor ya existente (`create_and_record_job`/`dispatch_job`,
@@ -2160,7 +2220,7 @@ def post_launch_development(story_id: str, body: LaunchDevelopmentRequest) -> di
     `GET /jobs` (mismo criterio de aceptación explícito): mismo
     mecanismo, sin tabla/campo propio.
 
-    Una User Story sin ninguna Task `TODO` (todas `DONE`, o ninguna
+    Una User Story sin ninguna Task `TO_DO` (todas `DONE`, o ninguna
     creada todavía) responde 400 con `detail` explícito, SIN llegar a
     invocar `create_and_record_job`/`dispatch_job` — nunca se despacha un
     Job vacío (criterio de aceptación explícito). `story_id` inexistente
@@ -2420,7 +2480,7 @@ def post_propose_tasks(us_id: str) -> dict:
     # -> "FB999", SIN el guion que exige el formato real `FB-NNN`) — el
     # campo `epic` de cada Task generada nunca pasaba el validador
     # determinista, `approved_tasks` quedaba siempre vacío, y la
-    # transición EN_DISEÑO -> TODO (criterio 4) nunca llegaba a
+    # transición EN_DISEÑO -> TO_DO (criterio 4) nunca llegaba a
     # ejecutarse pese a que el endpoint devolvía 200 con Tasks "propuestas".
     # `us_id` real: "US-FB999-03" -> partes ["US", "FB999", "03"] -> epic
     # "FB-999".
@@ -2441,11 +2501,11 @@ def post_propose_tasks(us_id: str) -> dict:
 
     # T-FB008-US15-02, criterio 4/5: en cuanto `propose-tasks` completa
     # con éxito (al menos una Task real escrita a disco), la User Story
-    # transiciona automáticamente de `EN_DISEÑO` a `TODO` — mismo
+    # transiciona automáticamente de `EN_DISEÑO` a `TO_DO` — mismo
     # fichero que ya se verificó arriba en `EN_DISEÑO` antes de llegar
     # aquí, así que la transición siempre parte de ese estado real.
     if pipeline_result.approved_tasks:
-        set_item_state(us_file_path, "TODO")
+        set_item_state(us_file_path, "TO_DO")
 
     tasks_data = []
     for task in proposal.tasks:

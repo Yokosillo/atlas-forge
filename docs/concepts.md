@@ -42,7 +42,7 @@ A unit of work sent to an agent: a text description. States: `created → runnin
 
 ## The Dispatcher
 
-A single background process that polls every 5 seconds and moves work forward at four levels, purely driven by each item's `state`: assigns a `TODO`/`EN_DESARROLLO` Task to a free Developer, a Task in `REVIEW` to a free Tester, a User Story in `REVIEW` to a free Architect for a verdict, and a User Story in `EN_DISEÑO` to a free Architect to land it into Tasks. See [Jobs and the work pipeline](jobs.md#the-backlog-pipeline).
+A single background process that polls every 5 seconds and moves work forward at four levels, purely driven by each item's `state`: assigns a `TO_DO`/`EN_DESARROLLO` Task to a free Developer, a Task in `REVIEW` to a free Tester, a User Story in `REVIEW` to a free Architect for a verdict, and a User Story in `EN_DISEÑO` to a free Architect to land it into Tasks. See [Jobs and the work pipeline](jobs.md#the-backlog-pipeline).
 
 ## Scribe
 
@@ -71,7 +71,7 @@ sequenceDiagram
     B->>B: Start development session
     U->>B: Click "Progresar" on a new User Story
     B->>A: Land the Story into Tasks
-    A-->>B: Tasks written, Story → TODO
+    A-->>B: Tasks written, Story → TO_DO
     U->>B: Click "Progresar" again
     B->>D: Dispatch each Task
     D-->>B: Task closed → REVIEW

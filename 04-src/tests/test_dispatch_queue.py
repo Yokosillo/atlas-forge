@@ -144,7 +144,7 @@ def _write_task_md(tasks_dir, task_id, us_id, state):
     )
 
 
-def test_migrate_queued_entries_to_state_updates_task_still_in_todo(tmp_path):
+def test_migrate_queued_entries_to_state_updates_task_still_in_to_do(tmp_path):
     """Caso real de la migración: una Task se encoló ANTES de esta Task
     (entrada `queued` en el JSON) con el mecanismo antiguo — su fichero
     real sigue en `TODO`, nunca se escribió `EN_DESARROLLO`. La migración pone
@@ -152,7 +152,7 @@ def test_migrate_queued_entries_to_state_updates_task_still_in_todo(tmp_path):
     from brain.dispatcher.dispatch_queue import migrate_queued_entries_to_state
 
     backlog_dir = tmp_path / "02-backlog"
-    _write_task_md(backlog_dir / "tasks", "T-FB999-US01-01", "US-FB999-01", "TODO")
+    _write_task_md(backlog_dir / "tasks", "T-FB999-US01-01", "US-FB999-01", "TO_DO")
     enqueue_task(tmp_path, "proj", task_id="T-FB999-US01-01", us_id="US-FB999-01", priority="Alta")
 
     migrated = migrate_queued_entries_to_state(tmp_path, "proj", backlog_dir)
@@ -171,7 +171,7 @@ def test_migrate_queued_entries_to_state_is_idempotent(tmp_path):
     from brain.dispatcher.dispatch_queue import migrate_queued_entries_to_state
 
     backlog_dir = tmp_path / "02-backlog"
-    _write_task_md(backlog_dir / "tasks", "T-FB999-US01-01", "US-FB999-01", "TODO")
+    _write_task_md(backlog_dir / "tasks", "T-FB999-US01-01", "US-FB999-01", "TO_DO")
     enqueue_task(tmp_path, "proj", task_id="T-FB999-US01-01", us_id="US-FB999-01", priority="Alta")
 
     first = migrate_queued_entries_to_state(tmp_path, "proj", backlog_dir)

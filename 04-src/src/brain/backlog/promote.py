@@ -5,7 +5,7 @@ Regla determinista (la unica fuente de verdad de trazabilidad):
   1. Una User Story -> DONE  si tiene al menos una Task y TODAS sus Tasks estan DONE.
   2. Una Epic        -> DONE  si tiene al menos una User Story y TODAS sus US estan DONE.
 
-Solo PROMUEVE (TODO/IN_PROGRESS/REVIEW -> DONE). Nunca revierte ni toca estados
+Solo PROMUEVE (TO_DO/IN_PROGRESS/REVIEW -> DONE; para Epic, TO_DO). Nunca revierte ni toca estados
 que no proceda promover. Idempotente: ejecutarlo dos veces no cambia nada.
 
 Convencion: el campo `state` es el primero que aparece en el frontmatter YAML de
@@ -18,7 +18,7 @@ contrario: una US/Epic marcada `DONE` que tiene un hijo directo
 (Task/US) en un estado no-DONE — caso real encontrado en vivo
 2026-08-16 (una Task nueva anadida bajo una US ya `DONE`, sin que nadie
 reabriera la US). Decision de diseno explicita: SOLO detectar, nunca
-corregir automaticamente (revertir DONE -> TODO sin intervencion humana
+corregir automaticamente (revertir DONE -> TO_DO sin intervencion humana
 tiene mas impacto que promocionar hacia DONE — un usuario pudo marcar
 DONE deliberadamente por otro motivo). `detect_reopened_drift` reutiliza
 la misma recoleccion (`_collect`) que la promocion, para que ambos

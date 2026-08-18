@@ -872,9 +872,9 @@ body {
   font-weight: 600;
 }
 
-/* T-FB008-US15-01/-02 (2026-08-17): SIN_TAREAS/EN_DISEÑO, cada uno con su
+/* T-FB008-US15-01/-02 (2026-08-17): NO_TASKS/EN_DISEÑO, cada uno con su
    propio color, no confundibles entre sí ni con EN_DESARROLLO/POSTERGADA. */
-.backlog-edit-state--sin-tasks {
+.backlog-edit-state--no-tasks {
   background: #eceff1;
   border-color: #78909c;
   color: #37474f;

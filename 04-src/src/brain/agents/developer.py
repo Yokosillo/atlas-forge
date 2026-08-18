@@ -60,6 +60,21 @@ def build_developer_prompt(project_path: str) -> str:
     )
 
 
+def _developer_name_number(name: str) -> int | None:
+    """Extrae el número de instancia de un nombre de Developer
+    ("Developer-3" -> 3); `None` si el nombre no sigue el patrón
+    `Developer-N`. Nombres fuera de patrón (legacy o de otros roles que
+    nunca deberían llegar aquí) se ignoran en la numeración en vez de
+    romperla."""
+    prefix = "Developer-"
+    if not name.startswith(prefix):
+        return None
+    try:
+        return int(name[len(prefix):])
+    except ValueError:
+        return None
+
+
 def _next_developer_name(session: DevelopmentSession) -> str:
     """Numeración incremental (`Developer-1`, `Developer-2`, ...) — esquema
     elegido, entre las alternativas consideradas (sufijo corto del
@@ -69,20 +84,25 @@ def _next_developer_name(session: DevelopmentSession) -> str:
     el ORDEN de lanzamiento, que es justo el dato útil para el
     desarrollador que lanzó varios Developer y quiere saber cuál es cuál
     ("el segundo que lancé", no "el que tiene id a3f9"). El número se
-    calcula contando cuántos agentes con `DEVELOPER_ROLE` ya existen en
-    `session` — no se persiste como contador aparte, así que si un
-    Developer se detuviera y no se contara para el intervalo, el esquema
-    seguiría siendo único (nunca se reutiliza el `agent.id`
-    subyacente, solo el nombre visible), aunque pudiera repetir un número
-    si el conteo cambia entre llamadas — aceptable para un nombre
-    puramente informativo, no un identificador (`agent.id` sigue siendo el
-    identificador real y único)."""
-    existing_developer_count = sum(
-        1
-        for agent in list_agents(session)
-        if isinstance(agent, Agent) and agent.role == DEVELOPER_ROLE
-    )
-    return f"Developer-{existing_developer_count + 1}"
+    calcula como `max(números en uso entre los Developers vivos) + 1`,
+    no como `count + 1` (T-FB005-US01-08): desde T-FB024-US12-02,
+    `stop_agent` retira por completo el Developer de `session.agents`, así
+    que un conteo bajaría al matar uno y `count + 1` reutilizaría un
+    número aún en uso por otro Developer vivo. Ese nombre visible alimenta
+    el nombre de sesión tmux (`session_name_for`, `brain/runtime/
+    generic.py`), así que un nombre duplicado ya no es cosmético: es una
+    colisión real de sesión tmux. El `max + 1` garantiza que un número en
+    uso nunca se reutilice mientras su Developer siga vivo. No se persiste
+    un contador aparte: si no queda ningún Developer vivo, la numeración
+    "vuelve" a empezar en `Developer-1`, aceptable porque en ese momento
+    no hay ninguna sesión tmux con la que colisionar."""
+    highest_number = 0
+    for agent in list_agents(session):
+        if isinstance(agent, Agent) and agent.role == DEVELOPER_ROLE:
+            number = _developer_name_number(agent.name)
+            if number is not None:
+                highest_number = max(highest_number, number)
+    return f"Developer-{highest_number + 1}"
 
 
 def register_developer(
@@ -91,6 +111,7 @@ def register_developer(
     project_path: str,
     socket_name: str = DEFAULT_SOCKET_NAME,
     state_dir: Path | None = None,
+    developer_number: int | None = None,
 ) -> tuple[Agent, RuntimeInstance]:
     """Registra un agente Developer NUEVO en `session` (T-FB005-US01-04):
     a diferencia de Arquitecto (sigue con `register_agent_with_reuse`,
@@ -113,13 +134,25 @@ def register_developer(
     (`state_dir`, mismo criterio que `_STATE_DIR` en `brain.api.routes` —
     `None` resuelve al `state_dir` real del proceso, parámetro expuesto
     solo para que los tests puedan aislarse en uno propio).
+
+    `developer_number` (2026-08-18, T-FB005-US01-08): cada Developer es
+    un "slot" independiente y con posición fija (Developer-1/2/3, ver la
+    US-FB005-01) — la interfaz Web lanza desde una fila concreta y el
+    agente debe nacer con ESE número, no con el que el conteo del backend
+    decida en ese instante. Si viene informado, el nombre se fija como
+    "Developer-<developer_number>" (rechazando duplicados entre los vivos
+    y números < 1); si viene `None`, se mantiene el esquema incremental
+    `_next_developer_name` (`max + 1`), usado por la TUI y por los tests
+    que no eligen slot. Ambos caminos garantizan que un número nunca se
+    reutiliza mientras su Developer siga vivo.
     """
     max_developers = get_max_simultaneous_developers(state_dir=state_dir)
-    existing = sum(
-        1
+    developers = [
+        agent
         for agent in list_agents(session)
         if isinstance(agent, Agent) and agent.role == DEVELOPER_ROLE
-    )
+    ]
+    existing = len(developers)
     if existing >= max_developers:
         raise RuntimeError(
             f"No se puede lanzar otro Developer: ya hay "
@@ -128,7 +161,20 @@ def register_developer(
             f"lanzar uno nuevo."
         )
 
-    name = _next_developer_name(session)
+    if developer_number is not None:
+        if developer_number < 1:
+            raise RuntimeError(
+                f"Número de Developer inválido: {developer_number} "
+                f"(mínimo 1)."
+            )
+        name = f"Developer-{developer_number}"
+        if any(agent.name == name for agent in developers):
+            raise RuntimeError(
+                f"Ya existe un Developer '{name}' vivo en la sesión — "
+                f"deténlo antes de relanzarlo."
+            )
+    else:
+        name = _next_developer_name(session)
     return register_agent(
         name=name,
         role=DEVELOPER_ROLE,

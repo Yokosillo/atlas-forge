@@ -18,11 +18,12 @@ temas de terminal para transmitir "éxito"/"pendiente"/"neutro":
 | Estado             | Android (hex, WCAG ≥3:1)      | TUI (Rich markup) |
 |---------------------|--------------------------------|--------------------|
 | `DONE`              | `0xFF2E7D32` (verde)           | `[green]`          |
-| `TODO`              | `0xFFEF6C00` (ámbar/naranja)   | `[dark_orange]`    |
+| `TO_DO`             | `0xFFEF6C00` (ámbar/naranja)   | `[dark_orange]`    |
+| `TODO` (Epic, grafía legacy) | `0xFFEF6C00` (ámbar/naranja)   | `[dark_orange]`    |
 | no reconocido       | `0xFF757575` (gris)            | `[bright_black]`   |
 
 Mismo criterio de igualdad EXACTA que el backend
-(`brain/models/backlog.py::STATE_DONE`/`STATE_TODO`,
+(`brain/models/backlog.py::STATE_DONE`/`STATE_TO_DO`,
 `parser.py::classify_todo_items`, `state == "DONE"`): un valor como
 `"DONE (aplicada directamente por el crítico...)"` (caso real verificado
 en el backlog de este proyecto) NO es `"DONE"` para el propio dominio,
@@ -92,7 +93,7 @@ _EPIC_LABEL_PREFIX_PATTERN = re.compile(r"^(FB-\d{3,})")
 
 _STATE_MARKUP_COLOR = {
     "DONE": "green",
-    "TODO": "dark_orange",
+    "TO_DO": "dark_orange",
 }
 _UNKNOWN_STATE_MARKUP_COLOR = "bright_black"
 
@@ -102,10 +103,10 @@ _PROGRESS_BAR_WIDTH = 10
 def _markup_color_for_state(state: str | None) -> str:
     """Nombre de color Rich equivalente semántico de `colorForBacklogState`
     (Android) — ver tabla de equivalencia en el docstring de módulo.
-    Igualdad EXACTA contra `"DONE"`/`"TODO"` (mismo criterio que el propio
+    Igualdad EXACTA contra `"DONE"`/`"TO_DO"` (mismo criterio que el propio
     backend, `state == "DONE"`), nunca un prefijo/heurística de texto
     libre: un estado no reconocido cae siempre al gris neutro, nunca se
-    confunde con `DONE`/`TODO` (criterio de aceptación explícito)."""
+    confunde con `DONE`/`TO_DO` (criterio de aceptación explícito)."""
     return _STATE_MARKUP_COLOR.get(state, _UNKNOWN_STATE_MARKUP_COLOR)
 
 
@@ -407,7 +408,7 @@ class BacklogItemScreen(Screen):
     no despacha un segundo Job") — el botón se deshabilita nada más
     pulsarlo, ANTES de arrancar el worker, así que un segundo clic
     mientras el primero sigue en vuelo no llega a ejecutar el handler.
-    Un 400 (sin Tasks `TODO`)/404 (agente inválido) se muestra con el
+    Un 400 (sin Tasks `TO_DO`)/404 (agente inválido) se muestra con el
     `detail` REAL del backend (`error_detail`, ya compartido con el resto
     de esta TUI) — nunca un mensaje genérico."""
 
@@ -562,7 +563,7 @@ class BacklogItemScreen(Screen):
             return
         except Exception as error:
             # Criterio de aceptación explícito: el motivo REAL del backend
-            # (400 sin Tasks TODO, 404 agente inválido) — `error_detail`
+            # (400 sin Tasks TO_DO, 404 agente inválido) — `error_detail`
             # extrae el `detail` real, nunca un mensaje genérico.
             self.app.call_from_thread(
                 self._show_launch_development_error, error_detail(error)

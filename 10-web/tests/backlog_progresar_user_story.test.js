@@ -6,7 +6,7 @@
  * DEPRECATED en ese punto).
  *
  * El botón cambia de acción según el `state` real de la US:
- *   - `SIN_TAREAS` -> "Progresar" marca `EN_DISEÑO` (el Dispatcher
+ *   - `NO_TASKS` -> "Progresar" marca `EN_DISEÑO` (el Dispatcher
  *     reparte el aterrizaje US→Tasks al Arquitecto libre,
  *     `run_us_landing_dispatch_cycle`).
  *   - `EN_DISEÑO` -> el botón queda deshabilitado con el texto
@@ -14,12 +14,12 @@
  *     este estado, es una señal para el Dispatcher, no un click.
  *
  * Caso real (sin mockear nada): una User Story recién creada vía el
- * formulario real nace en `SIN_TAREAS` — se verifica que el botón
+ * formulario real nace en `NO_TASKS` — se verifica que el botón
  * aparece con el texto correcto, y que pulsarlo marca `EN_DISEÑO` de
  * verdad en el fichero real (visible en el propio detalle tras el
  * refresco, sin recargar la página).
  *
- * Aterrizaje real US→Tasks (transición `EN_DISEÑO` -> `TODO`) es
+ * Aterrizaje real US→Tasks (transición `EN_DISEÑO` -> `TO_DO`) es
  * responsabilidad del Dispatcher en segundo plano (`run_us_landing_dispatch_cycle`,
  * `04-src/tests/test_dispatch_queue_worker.py`) — no se ejercita aquí,
  * fuera del alcance de "verificar el botón desde la web". */
@@ -156,7 +156,7 @@ async function _clickButtonByText(page, text) {
 }
 
 // ---------------------------------------------------------------------
-// Caso real: US recién creada nace en SIN_TAREAS, botón "Progresar"
+// Caso real: US recién creada nace en NO_TASKS, botón "Progresar"
 // visible, click la marca EN_DISEÑO de verdad (sin recargar la página).
 // ---------------------------------------------------------------------
 
@@ -169,7 +169,7 @@ async function test_progresar_button_on_sin_tareas_marks_en_diseno() {
 
     await _openUserStoryDetail(page, "US-FB930-01");
 
-    // Criterio: la US recién creada nace en SIN_TAREAS — el botón
+    // Criterio: la US recién creada nace en NO_TASKS — el botón
     // "Progresar" debe estar visible y habilitado en ese estado.
     await page.waitForFunction(
       () =>
@@ -206,7 +206,7 @@ async function test_progresar_button_on_sin_tareas_marks_en_diseno() {
 
 // ---------------------------------------------------------------------
 // El selector de estado genérico (US-FB036-08) también permite ver/fijar
-// SIN_TAREAS y EN_DISEÑO como cualquier otro estado — confirma que ambos
+// NO_TASKS y EN_DISEÑO como cualquier otro estado — confirma que ambos
 // valores están en el conjunto editable, sin depender solo del botón.
 // ---------------------------------------------------------------------
 
@@ -228,18 +228,18 @@ async function test_state_selector_includes_sin_tareas_and_en_diseno_options() {
     }, "US-FB931-01");
 
     assert.ok(optionValues, "No se encontró el selector de estado de la User Story.");
-    assert.ok(optionValues.includes("SIN_TAREAS"), "El selector debe incluir 'SIN_TAREAS'.");
+    assert.ok(optionValues.includes("NO_TASKS"), "El selector debe incluir 'NO_TASKS'.");
     assert.ok(optionValues.includes("EN_DISEÑO"), "El selector debe incluir 'EN_DISEÑO'.");
   });
 }
 
 module.exports = [
   {
-    name: "Botón 'Progresar' sobre una User Story en SIN_TAREAS la marca EN_DISEÑO de verdad, sin recargar la página",
+    name: "Botón 'Progresar' sobre una User Story en NO_TASKS la marca EN_DISEÑO de verdad, sin recargar la página",
     fn: test_progresar_button_on_sin_tareas_marks_en_diseno,
   },
   {
-    name: "El selector de estado genérico incluye SIN_TAREAS y EN_DISEÑO como opciones",
+    name: "El selector de estado genérico incluye NO_TASKS y EN_DISEÑO como opciones",
     fn: test_state_selector_includes_sin_tareas_and_en_diseno_options,
   },
 ];

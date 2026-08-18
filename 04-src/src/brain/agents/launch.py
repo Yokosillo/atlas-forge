@@ -27,6 +27,7 @@ def launch_agent(
     session: DevelopmentSession,
     project_path: str,
     socket_name: str = DEFAULT_SOCKET_NAME,
+    developer_number: int | None = None,
 ) -> tuple[Agent, RuntimeInstance]:
     """Lanza el agente `role` sobre `runtime_type` (con `model` si se
     indica) en la sesión de desarrollo activa `session`.
@@ -85,6 +86,20 @@ def launch_agent(
             f"No se puede lanzar el agente: rol '{role}' no tiene función de "
             f"registro asociada."
         )
+    if role == "developer":
+        # T-FB005-US01-08 (2026-08-18): cada Developer es un slot
+        # independiente con posición fija (Developer-1/2/3) en la interfaz
+        # Web — el lanzamiento desde una fila concreta fija el número de la
+        # instancia (`developer_number`), en vez de dejar que el conteo del
+        # backend decida el nombre. Para el resto de roles el parámetro no
+        # aplica y se ignora.
+        return register_developer(
+            session,
+            runtime,
+            project_path,
+            socket_name=socket_name,
+            developer_number=developer_number,
+        )
     return register_agent_for_role(
         session, runtime, project_path, socket_name=socket_name
     )
@@ -98,6 +113,7 @@ def launch_agent_with_initial_job(
     project_path: str,
     initial_job_description: str | None = None,
     socket_name: str = DEFAULT_SOCKET_NAME,
+    developer_number: int | None = None,
     job_timeout_seconds: float = 30.0,
     job_poll_interval_seconds: float = 0.2,
 ) -> tuple[Agent, RuntimeInstance, Job | None]:
@@ -129,7 +145,13 @@ def launch_agent_with_initial_job(
     caso el Job devuelto sí está, en estado `failed`)."""
 
     agent, runtime_instance = launch_agent(
-        role, runtime_type, model, session, project_path, socket_name=socket_name
+        role,
+        runtime_type,
+        model,
+        session,
+        project_path,
+        socket_name=socket_name,
+        developer_number=developer_number,
     )
 
     if initial_job_description is None:

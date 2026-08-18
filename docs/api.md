@@ -195,32 +195,32 @@ Structured report of the active project's backlog (`02-backlog/`): counts per Ep
 Detail of an item. IDs of the type `FB-xxx` resolve as an Epic; anything else as Task/User Story. Includes objective/story, acceptance criteria, dependencies (with their state) and, for User Stories, its Tasks and (FB-024-US09) execution history. 404 with a parse reason if the file exists but could not be parsed.
 
 ### `POST /backlog/{story_id}/launch-development` → 201
-Isolated-Job path (no `state` change to `EN_DESARROLLO`): builds the Job from the real story + pending (`TODO`) Tasks and dispatches it to the indicated agent. 400 if the Story has no pending Tasks. Publishes `job_status`.
+Isolated-Job path (no `state` change to `EN_DESARROLLO`): builds the Job from the real story + pending (`TO_DO`) Tasks and dispatches it to the indicated agent. 400 if the Story has no pending Tasks. Publishes `job_status`.
 
 ```json
 {"agent_id": "..."}
 ```
 
 ### `PUT /backlog/{item_id}/state`
-Changes a Task/User Story's `state` directly. For a User Story, setting `EN_DESARROLLO` also queues all of its pending `TODO` Tasks (same effect as `enqueue-all` below); setting `DONE` triggers automatic Epic promotion if all its User Stories are now `DONE`.
+Changes a Task/User Story's `state` directly. For a User Story, setting `EN_DESARROLLO` also queues all of its pending `TO_DO` Tasks (same effect as `enqueue-all` below); setting `DONE` triggers automatic Epic promotion if all its User Stories are now `DONE`.
 
 ### `POST /backlog/{task_id}/enqueue` → 201
-Marks a `TODO` Task as `EN_DESARROLLO`, making it eligible for the Dispatcher. 400 if the Task is not `TODO`.
+Marks a `TO_DO` Task as `EN_DESARROLLO`, making it eligible for the Dispatcher. 400 if the Task is not `TO_DO`.
 
 ### `POST /backlog/{us_id}/enqueue-all` → 201
 Same as above for every pending Task of a User Story in one call.
 
 ### `DELETE /backlog/{task_id}/enqueue`
-Reverts an `EN_DESARROLLO` Task back to `TODO`, only if the Dispatcher has not picked it up yet.
+Reverts an `EN_DESARROLLO` Task back to `TO_DO`, only if the Dispatcher has not picked it up yet.
 
 ### `GET /backlog/queue`
 Current dispatch-queue entries (auxiliary FIFO ordering/audit data — `state` on the real files is the source of truth for eligibility).
 
 ### `POST /backlog/epic/{epic_id}/propose-stories`
-Runs the deterministic Epic→User-Story pipeline (format validator + self-audit) and writes the approved User Stories, born in `SIN_TAREAS`.
+Runs the deterministic Epic→User-Story pipeline (format validator + self-audit) and writes the approved User Stories, born in `NO_TASKS`.
 
 ### `POST /backlog/us/{us_id}/propose-tasks`
-Runs the deterministic User-Story→Task pipeline. Requires the Story to be in `EN_DISEÑO` (400 otherwise); on success writes the Tasks and moves the Story to `TODO`.
+Runs the deterministic User-Story→Task pipeline. Requires the Story to be in `EN_DISEÑO` (400 otherwise); on success writes the Tasks and moves the Story to `TO_DO`.
 
 ## Scripts
 
@@ -263,6 +263,6 @@ See also `WS /ws/agents/{agent_id}/pane` above (live tmux pane content, not a `j
 |---|---|
 | Agent | `idle`, `working`, `unavailable`, `stopped` (Developer never reaches `stopped` — stopping a Developer deletes it instead) |
 | Job | `created`, `running`, `completed`, `failed`, `cancelled` |
-| Task | `TODO`, `EN_DESARROLLO`, `IN_PROGRESS`, `REVIEW`, `DONE`, `POSTERGADA` |
-| User Story | `SIN_TAREAS`, `EN_DISEÑO`, plus all Task states above |
+| Task | `TO_DO`, `EN_DESARROLLO`, `IN_PROGRESS`, `REVIEW`, `DONE`, `POSTERGADA` |
+| User Story | `NO_TASKS`, `EN_DISEÑO`, plus all Task states above |
 | Session | `created`, `active`, `closed` |

@@ -98,7 +98,7 @@ def test_build_job_plan_accepts_canonical_us_prefixed_story_id(tmp_path: Path) -
     # reales (T-FB999-US01-...) aunque reciba la forma canónica US-FB999-01,
     # que es la que envía la web desde el selector de historias.
     _write_task(
-        tmp_path, "FB999-US01", "01", "primer-paso", "Primer paso", state="TODO"
+        tmp_path, "FB999-US01", "01", "primer-paso", "Primer paso", state="TO_DO"
     )
     _write_task(
         tmp_path, "FB999-US01", "02", "segundo-paso", "Segundo paso", state="DONE"
@@ -115,10 +115,10 @@ def test_build_job_plan_returns_one_step_per_pending_task_in_backlog_order(
 ) -> None:
     story_id = "FB999-US01"
     _write_task(
-        tmp_path, story_id, "02", "segundo-paso", "Segundo paso", state="TODO"
+        tmp_path, story_id, "02", "segundo-paso", "Segundo paso", state="TO_DO"
     )
     _write_task(
-        tmp_path, story_id, "01", "primer-paso", "Primer paso", state="TODO"
+        tmp_path, story_id, "01", "primer-paso", "Primer paso", state="TO_DO"
     )
     _write_task(
         tmp_path, story_id, "03", "ya-hecho", "Ya cerrado", state="DONE"
@@ -136,10 +136,10 @@ def test_build_job_plan_returns_one_step_per_pending_task_in_backlog_order(
 
 def test_build_job_plan_ignores_tasks_from_other_stories(tmp_path: Path) -> None:
     _write_task(
-        tmp_path, "FB999-US01", "01", "propia", "Task propia", state="TODO"
+        tmp_path, "FB999-US01", "01", "propia", "Task propia", state="TO_DO"
     )
     _write_task(
-        tmp_path, "FB999-US02", "01", "ajena", "Task de otra story", state="TODO"
+        tmp_path, "FB999-US02", "01", "ajena", "Task de otra story", state="TO_DO"
     )
 
     plan = build_job_plan_for_story("FB999-US01", tasks_dir=tmp_path)
@@ -157,7 +157,7 @@ def test_build_job_plan_marks_task_mentioning_script_as_script_mechanism(
         "01",
         "paso-script",
         "Ejecutar el script de limpieza",
-        state="TODO",
+        state="TO_DO",
         extra_body="Reutiliza un script determinista ya existente.",
     )
 
@@ -178,7 +178,7 @@ def test_build_job_plan_marks_task_mentioning_scribe_as_scribe_mechanism(
         "01",
         "paso-scribe",
         "Resumir con Scribe el contexto",
-        state="TODO",
+        state="TO_DO",
         extra_body="Invoca a Scribe para resumir el documento.",
     )
 
@@ -199,7 +199,7 @@ def test_build_job_plan_marks_task_without_script_or_scribe_as_agent_mechanism(
         "01",
         "paso-agente",
         "Diseñar la nueva pantalla",
-        state="TODO",
+        state="TO_DO",
         extra_body="Requiere criterio de diseño y juicio del desarrollador.",
     )
 
@@ -220,7 +220,7 @@ def test_build_job_plan_with_only_deterministic_steps_has_no_agent_step(
         "01",
         "paso-script",
         "Automatizar el chequeo",
-        state="TODO",
+        state="TO_DO",
         extra_body="Un script determinista ya resuelve este paso.",
     )
     _write_task(
@@ -229,7 +229,7 @@ def test_build_job_plan_with_only_deterministic_steps_has_no_agent_step(
         "02",
         "paso-scribe",
         "Resumir con Scribe",
-        state="TODO",
+        state="TO_DO",
         extra_body="Se apoya en Scribe para el resumen.",
     )
 
@@ -259,10 +259,10 @@ def test_build_job_plan_reads_pending_tasks_in_yaml_frontmatter_format(
     # `POST /plans` con una Story real de 5 Tasks TODO devolvía `steps: []`.
     story_id = "FB999-US01"
     _write_yaml_task(
-        tmp_path, story_id, "01", "primer-paso", "Primer paso", state="TODO"
+        tmp_path, story_id, "01", "primer-paso", "Primer paso", state="TO_DO"
     )
     _write_yaml_task(
-        tmp_path, story_id, "02", "segundo-paso", "Segundo paso", state="TODO"
+        tmp_path, story_id, "02", "segundo-paso", "Segundo paso", state="TO_DO"
     )
     _write_yaml_task(
         tmp_path, story_id, "03", "ya-hecho", "Ya cerrado", state="DONE"
@@ -281,7 +281,7 @@ def test_build_job_plan_skips_yaml_task_in_review_or_in_progress(
 ) -> None:
     story_id = "FB999-US01"
     _write_yaml_task(
-        tmp_path, story_id, "01", "pendiente", "Pendiente", state="TODO"
+        tmp_path, story_id, "01", "pendiente", "Pendiente", state="TO_DO"
     )
     _write_yaml_task(
         tmp_path, story_id, "02", "en-curso", "En curso", state="IN_PROGRESS"
@@ -315,7 +315,7 @@ def test_build_job_plan_does_not_misclassify_spanish_escribe_as_scribe_mechanism
         "01",
         "endpoint-crear-epic",
         "Endpoint para crear una Epic",
-        state="TODO",
+        state="TO_DO",
         extra_body="Escribe el fichero `02-backlog/epics/{id}-{slug}.md` con el esquema exacto.",
     )
     _write_yaml_task(
@@ -324,7 +324,7 @@ def test_build_job_plan_does_not_misclassify_spanish_escribe_as_scribe_mechanism
         "02",
         "endpoint-crear-us",
         "Endpoint para crear una User Story",
-        state="TODO",
+        state="TO_DO",
         extra_body="Escribe el fichero `02-backlog/user-stories/{id}-{slug}.md` con el esquema exacto.",
     )
     _write_yaml_task(
@@ -333,7 +333,7 @@ def test_build_job_plan_does_not_misclassify_spanish_escribe_as_scribe_mechanism
         "03",
         "endpoint-crear-task",
         "Endpoint para crear una Task",
-        state="TODO",
+        state="TO_DO",
         extra_body="Escribe el fichero `02-backlog/tasks/T-{id}-{slug}.md` con el esquema exacto.",
     )
 
@@ -356,7 +356,7 @@ def test_build_job_plan_does_not_misclassify_describe_suscribe_inscribe_as_scrib
         "01",
         "describe-comportamiento",
         "Documentar el comportamiento",
-        state="TODO",
+        state="TO_DO",
         extra_body="Esta sección describe el comportamiento esperado del endpoint.",
     )
     _write_yaml_task(
@@ -365,7 +365,7 @@ def test_build_job_plan_does_not_misclassify_describe_suscribe_inscribe_as_scrib
         "02",
         "suscribe-webhook",
         "Registrar webhook",
-        state="TODO",
+        state="TO_DO",
         extra_body="El cliente se suscribe a las notificaciones del backend.",
     )
 
@@ -388,7 +388,7 @@ def test_build_job_plan_still_marks_task_mentioning_scribe_as_word_as_scribe_mec
         "01",
         "paso-scribe",
         "Resumir contexto",
-        state="TODO",
+        state="TO_DO",
         extra_body="Invoca al rol Scribe para resumir el documento generado.",
     )
 
@@ -415,7 +415,7 @@ def test_build_job_plan_script_keyword_matches_whole_word_only(
         "01",
         "postscriptum",
         "Postscriptum del informe",
-        state="TODO",
+        state="TO_DO",
         extra_body="Añadir un postscriptum al final del informe generado.",
     )
     _write_yaml_task(
@@ -424,7 +424,7 @@ def test_build_job_plan_script_keyword_matches_whole_word_only(
         "02",
         "ejecutar-tarea",
         "Ejecutar el script real",
-        state="TODO",
+        state="TO_DO",
         extra_body="Este paso ejecuta un script determinista ya existente.",
     )
 

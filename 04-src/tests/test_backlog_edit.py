@@ -23,7 +23,7 @@ def _write(path: Path, content: str) -> None:
     path.write_text(content, encoding="utf-8")
 
 
-def _task(tmp_path: Path, task_id: str = "T-FB100-US01-01", *, state: str = "TODO", priority: str = "Alta") -> Path:
+def _task(tmp_path: Path, task_id: str = "T-FB100-US01-01", *, state: str = "TO_DO", priority: str = "Alta") -> Path:
     path = tmp_path / f"{task_id}.md"
     _write(
         path,
@@ -34,7 +34,7 @@ def _task(tmp_path: Path, task_id: str = "T-FB100-US01-01", *, state: str = "TOD
     return path
 
 
-def _user_story(tmp_path: Path, us_id: str = "US-FB100-01", *, state: str = "TODO", priority: str = "Alta") -> Path:
+def _user_story(tmp_path: Path, us_id: str = "US-FB100-01", *, state: str = "TO_DO", priority: str = "Alta") -> Path:
     path = tmp_path / f"{us_id}.md"
     _write(
         path,
@@ -81,7 +81,7 @@ def test_set_item_priority_valor_invalido_no_toca_el_fichero(tmp_path: Path) -> 
 
 
 def test_set_item_state_cambia_el_campo_en_el_fichero_real(tmp_path: Path) -> None:
-    path = _task(tmp_path, state="TODO")
+    path = _task(tmp_path, state="TO_DO")
 
     set_item_state(path, "IN_PROGRESS")
 
@@ -89,7 +89,7 @@ def test_set_item_state_cambia_el_campo_en_el_fichero_real(tmp_path: Path) -> No
 
 
 def test_set_item_state_valor_invalido_no_toca_el_fichero(tmp_path: Path) -> None:
-    path = _task(tmp_path, state="TODO")
+    path = _task(tmp_path, state="TO_DO")
     original = path.read_text(encoding="utf-8")
 
     with pytest.raises(InvalidFieldValueError):
@@ -107,7 +107,7 @@ def test_set_item_state_sobre_user_story_funciona_igual(tmp_path: Path) -> None:
 
 
 def test_backlog_validation_error_expone_los_mensajes_del_validador(tmp_path: Path) -> None:
-    path = _task(tmp_path, state="TODO")
+    path = _task(tmp_path, state="TO_DO")
 
     try:
         set_item_state(path, "DONE")

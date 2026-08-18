@@ -54,8 +54,8 @@ def _state_of(path: Path) -> str:
 
 def test_promocion_us_a_done_cuando_todas_las_tasks_estan_done(tmp_path: Path) -> None:
     backlog = tmp_path / "02-backlog"
-    _epic(backlog, "FB-100", "TODO")
-    _story(backlog, "US-FB100-01", "FB-100", "TODO")
+    _epic(backlog, "FB-100", "TO_DO")
+    _story(backlog, "US-FB100-01", "FB-100", "TO_DO")
     _task(backlog, "T-FB100-US01-01", "FB-100", "US-FB100-01", "DONE")
     _task(backlog, "T-FB100-US01-02", "FB-100", "US-FB100-01", "DONE")
 
@@ -67,8 +67,8 @@ def test_promocion_us_a_done_cuando_todas_las_tasks_estan_done(tmp_path: Path) -
 
 def test_promocion_transitiva_epic_a_done(tmp_path: Path) -> None:
     backlog = tmp_path / "02-backlog"
-    _epic(backlog, "FB-100", "TODO")
-    _story(backlog, "US-FB100-01", "FB-100", "TODO")
+    _epic(backlog, "FB-100", "TO_DO")
+    _story(backlog, "US-FB100-01", "FB-100", "TO_DO")
     _task(backlog, "T-FB100-US01-01", "FB-100", "US-FB100-01", "DONE")
 
     result = promote_backlog(backlog)
@@ -80,26 +80,26 @@ def test_promocion_transitiva_epic_a_done(tmp_path: Path) -> None:
 
 def test_no_promociona_con_hijo_pendiente(tmp_path: Path) -> None:
     backlog = tmp_path / "02-backlog"
-    _epic(backlog, "FB-100", "TODO")
-    _story(backlog, "US-FB100-01", "FB-100", "TODO")
+    _epic(backlog, "FB-100", "TO_DO")
+    _story(backlog, "US-FB100-01", "FB-100", "TO_DO")
     _task(backlog, "T-FB100-US01-01", "FB-100", "US-FB100-01", "DONE")
-    _task(backlog, "T-FB100-US01-02", "FB-100", "US-FB100-01", "TODO")
+    _task(backlog, "T-FB100-US01-02", "FB-100", "US-FB100-01", "TO_DO")
 
     result = promote_backlog(backlog)
 
     assert result.promoted_user_stories == []
     assert result.promoted_epics == []
-    assert _state_of(backlog / "user-stories" / "US-FB100-01.md") == "TODO"
-    assert _state_of(backlog / "epics" / "FB-100.md") == "TODO"
+    assert _state_of(backlog / "user-stories" / "US-FB100-01.md") == "TO_DO"
+    assert _state_of(backlog / "epics" / "FB-100.md") == "TO_DO"
 
 
 def test_no_revierte_estado_ya_done(tmp_path: Path) -> None:
     backlog = tmp_path / "02-backlog"
     _epic(backlog, "FB-100", "DONE")
     _story(backlog, "US-FB100-01", "FB-100", "DONE")
-    _story(backlog, "US-FB100-02", "FB-100", "TODO")
+    _story(backlog, "US-FB100-02", "FB-100", "TO_DO")
     _task(backlog, "T-FB100-US01-01", "FB-100", "US-FB100-01", "DONE")
-    _task(backlog, "T-FB100-US02-01", "FB-100", "US-FB100-02", "TODO")
+    _task(backlog, "T-FB100-US02-01", "FB-100", "US-FB100-02", "TO_DO")
 
     result = promote_backlog(backlog)
 
@@ -110,8 +110,8 @@ def test_no_revierte_estado_ya_done(tmp_path: Path) -> None:
 
 def test_idempotente(tmp_path: Path) -> None:
     backlog = tmp_path / "02-backlog"
-    _epic(backlog, "FB-100", "TODO")
-    _story(backlog, "US-FB100-01", "FB-100", "TODO")
+    _epic(backlog, "FB-100", "TO_DO")
+    _story(backlog, "US-FB100-01", "FB-100", "TO_DO")
     _task(backlog, "T-FB100-US01-01", "FB-100", "US-FB100-01", "DONE")
 
     first = promote_backlog(backlog)
@@ -125,15 +125,15 @@ def test_idempotente(tmp_path: Path) -> None:
 
 def test_check_no_escribe_nada(tmp_path: Path) -> None:
     backlog = tmp_path / "02-backlog"
-    _epic(backlog, "FB-100", "TODO")
-    _story(backlog, "US-FB100-01", "FB-100", "TODO")
+    _epic(backlog, "FB-100", "TO_DO")
+    _story(backlog, "US-FB100-01", "FB-100", "TO_DO")
     _task(backlog, "T-FB100-US01-01", "FB-100", "US-FB100-01", "DONE")
 
     result = check_backlog_promotion(backlog)
 
     assert result.has_drift
     assert result.promoted_user_stories == ["US-FB100-01"]
-    assert _state_of(backlog / "user-stories" / "US-FB100-01.md") == "TODO"
+    assert _state_of(backlog / "user-stories" / "US-FB100-01.md") == "TO_DO"
 
 
 def test_mark_story_tasks_done_accepts_canonical_us_prefixed_story_id(
@@ -146,10 +146,10 @@ def test_mark_story_tasks_done_accepts_canonical_us_prefixed_story_id(
     from brain.dispatcher.job_plan_dispatch import _mark_story_tasks_done
 
     backlog = tmp_path / "02-backlog"
-    _epic(backlog, "FB-100", "TODO")
-    _story(backlog, "US-FB100-01", "FB-100", "TODO")
-    _task(backlog, "T-FB100-US01-01", "FB-100", "US-FB100-01", "TODO")
-    _task(backlog, "T-FB100-US01-02", "FB-100", "US-FB100-01", "TODO")
+    _epic(backlog, "FB-100", "TO_DO")
+    _story(backlog, "US-FB100-01", "FB-100", "TO_DO")
+    _task(backlog, "T-FB100-US01-01", "FB-100", "US-FB100-01", "TO_DO")
+    _task(backlog, "T-FB100-US01-02", "FB-100", "US-FB100-01", "TO_DO")
 
     _mark_story_tasks_done("US-FB100-01", backlog_dir=backlog)
 
@@ -165,9 +165,9 @@ def test_mark_story_tasks_done_also_accepts_normalized_story_id(tmp_path: Path) 
     from brain.dispatcher.job_plan_dispatch import _mark_story_tasks_done
 
     backlog = tmp_path / "02-backlog"
-    _epic(backlog, "FB-100", "TODO")
-    _story(backlog, "US-FB100-01", "FB-100", "TODO")
-    _task(backlog, "T-FB100-US01-01", "FB-100", "US-FB100-01", "TODO")
+    _epic(backlog, "FB-100", "TO_DO")
+    _story(backlog, "US-FB100-01", "FB-100", "TO_DO")
+    _task(backlog, "T-FB100-US01-01", "FB-100", "US-FB100-01", "TO_DO")
 
     _mark_story_tasks_done("FB100-US01", backlog_dir=backlog)
 
@@ -184,10 +184,10 @@ def test_detect_reopened_drift_reports_us_done_with_task_reopened(
     # Caso real encontrado en vivo 2026-08-16: el Arquitecto añadió una
     # Task nueva bajo una US ya DONE, sin reabrir la US.
     backlog = tmp_path / "02-backlog"
-    _epic(backlog, "FB-100", "TODO")
+    _epic(backlog, "FB-100", "TO_DO")
     _story(backlog, "US-FB100-01", "FB-100", "DONE")
     _task(backlog, "T-FB100-US01-01", "FB-100", "US-FB100-01", "DONE")
-    _task(backlog, "T-FB100-US01-02", "FB-100", "US-FB100-01", "TODO")
+    _task(backlog, "T-FB100-US01-02", "FB-100", "US-FB100-01", "TO_DO")
 
     result = detect_reopened_drift(backlog)
 
@@ -196,7 +196,7 @@ def test_detect_reopened_drift_reports_us_done_with_task_reopened(
     item = result.items[0]
     assert item.parent_id == "US-FB100-01"
     assert item.parent_kind == "user_story"
-    assert item.reopened_children == (("T-FB100-US01-02", "TODO"),)
+    assert item.reopened_children == (("T-FB100-US01-02", "TO_DO"),)
 
 
 def test_detect_reopened_drift_reports_epic_done_with_us_reopened(
@@ -234,9 +234,9 @@ def test_detect_reopened_drift_ignores_us_not_marked_done(tmp_path: Path) -> Non
     # Una US en TODO/IN_PROGRESS/REVIEW con Tasks pendientes no es drift —
     # es el estado normal, no un padre completado prematuramente.
     backlog = tmp_path / "02-backlog"
-    _epic(backlog, "FB-100", "TODO")
-    _story(backlog, "US-FB100-01", "FB-100", "TODO")
-    _task(backlog, "T-FB100-US01-01", "FB-100", "US-FB100-01", "TODO")
+    _epic(backlog, "FB-100", "TO_DO")
+    _story(backlog, "US-FB100-01", "FB-100", "TO_DO")
+    _task(backlog, "T-FB100-US01-01", "FB-100", "US-FB100-01", "TO_DO")
 
     result = detect_reopened_drift(backlog)
 
@@ -245,9 +245,9 @@ def test_detect_reopened_drift_ignores_us_not_marked_done(tmp_path: Path) -> Non
 
 def test_detect_reopened_drift_does_not_write_any_file(tmp_path: Path) -> None:
     backlog = tmp_path / "02-backlog"
-    _epic(backlog, "FB-100", "TODO")
+    _epic(backlog, "FB-100", "TO_DO")
     _story(backlog, "US-FB100-01", "FB-100", "DONE")
-    _task(backlog, "T-FB100-US01-01", "FB-100", "US-FB100-01", "TODO")
+    _task(backlog, "T-FB100-US01-01", "FB-100", "US-FB100-01", "TO_DO")
 
     detect_reopened_drift(backlog)
 
@@ -262,11 +262,11 @@ def test_promotion_case_still_works_unchanged_alongside_reopened_drift(
     # DONE) sigue funcionando sin cambios de comportamiento, incluso en un
     # backlog que también tiene drift inverso en otra rama.
     backlog = tmp_path / "02-backlog"
-    _epic(backlog, "FB-100", "TODO")
-    _story(backlog, "US-FB100-01", "FB-100", "TODO")
+    _epic(backlog, "FB-100", "TO_DO")
+    _story(backlog, "US-FB100-01", "FB-100", "TO_DO")
     _task(backlog, "T-FB100-US01-01", "FB-100", "US-FB100-01", "DONE")
     _story(backlog, "US-FB100-02", "FB-100", "DONE")
-    _task(backlog, "T-FB100-US02-01", "FB-100", "US-FB100-02", "TODO")
+    _task(backlog, "T-FB100-US02-01", "FB-100", "US-FB100-02", "TO_DO")
 
     promotion = check_backlog_promotion(backlog)
     reopened = detect_reopened_drift(backlog)

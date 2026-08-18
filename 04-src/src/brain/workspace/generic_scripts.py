@@ -12,7 +12,7 @@ Los seis scripts del catálogo:
   código — requiere una herramienta externa (ver decisión y mecanismo de
   instalación más abajo).
 - `backlog_status` (T-FB018-US02-02): estado del backlog (conteo US/Task por
-  estado agrupado por Epic, items TODO LISTA por prioridad, items TODO
+  estado agrupado por Epic, items TO_DO LISTA por prioridad, items TO_DO
   BLOQUEADA con su dependencia pendiente y cadena de mayor apalancamiento).
   Es la ÚNICA entrada pura de Python del catálogo: no ejecuta un subproceso
   sobre el proyecto, sino que reusa `build_backlog_report` de

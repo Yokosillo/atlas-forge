@@ -302,7 +302,14 @@ def create_app() -> FastAPI:
         async def get_response(self, path, scope):
             try:
                 response = await super().get_response(path, scope)
-                # T-FB021-US01-03: inyectar cache-bust version en HTML servido
+                # T-FB021-US01-03: inyectar cache-bust version en HTML servido.
+                # Starlette pasa `path="."` (normpath de la raíz) cuando se pide
+                # `/ui/` — sin normalizarlo aquí, el placeholder
+                # `{{CACHE_BUST_VERSION}}` llegaba literal al navegador en la
+                # ruta principal y el cache-busting nunca invalidaba los assets
+                # cacheados.
+                if path in ("", "."):
+                    path = "index.html"
                 if path in ("index.html", "agent-pane.html"):
                     # Lee el fichero y reemplaza el placeholder
                     file_path = self.directory / path

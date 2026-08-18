@@ -38,6 +38,20 @@ def test_index_html_has_cache_bust_version_injected(client):
     assert all(v == versions[0] for v in versions)
 
 
+def test_root_ui_serves_index_html_with_cache_bust_injected(client):
+    """GET /ui/ (raíz, la ruta que abre el navegador) también inyecta el
+    cache-bust version — Starlette pasa `path=""` para el directorio y antes
+    de T-FB021-US01-03-fix el placeholder llegaba literal."""
+    response = client.get("/ui/")
+
+    assert response.status_code == 200
+    html = response.text
+
+    assert "{{CACHE_BUST_VERSION}}" not in html
+    assert "app.js?v=" in html
+    assert "backend-client.js?v=" in html
+
+
 def test_agent_pane_html_has_cache_bust_version_injected(client):
     """GET /ui/agent-pane.html inyecta un cache-bust version real."""
     response = client.get("/ui/agent-pane.html")

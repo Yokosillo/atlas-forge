@@ -8,13 +8,13 @@ Canonical structure (see `02-backlog/README.md`): Roadmap → Epic (`FB-NNN`) �
 
 Common frontmatter fields: `id`, `type` (`epic | user_story | task`), `title`, `state`, `dependencies` (a YAML list of IDs — no bold markup, no free text). Optional: `priority` (User Story/Task), `fase`. User Stories and Tasks also carry `epic` (and Tasks additionally `user_story`) pointing to their parent.
 
-Task `state`: `TODO | EN_DESARROLLO | IN_PROGRESS | REVIEW | DONE | POSTERGADA`. User Story `state` adds two states exclusive to that type at the front of the cycle: `SIN_TAREAS | EN_DISEÑO | TODO | EN_DESARROLLO | IN_PROGRESS | REVIEW | DONE | POSTERGADA` — see [Jobs and the work pipeline](jobs.md#the-backlog-pipeline) for what each state means and how the Dispatcher moves items through them.
+Task `state`: `TO_DO | EN_DESARROLLO | IN_PROGRESS | REVIEW | DONE | POSTERGADA`. User Story `state` adds two states exclusive to that type at the front of the cycle: `NO_TASKS | EN_DISEÑO | TO_DO | EN_DESARROLLO | IN_PROGRESS | REVIEW | DONE | POSTERGADA` — see [Jobs and the work pipeline](jobs.md#the-backlog-pipeline) for what each state means and how the Dispatcher moves items through them.
 
 ## Deterministic parser (`brain/backlog/parser.py`)
 
 - Extracts per file: id, type, `state`, `dependencies` (parsed directly from the YAML list), priority, phase, parent references — all read from the frontmatter, no regex over free-form Markdown.
 - `load_backlog(backlog_path) → BacklogGraph`: parses the three subdirectories; malformed files are collected in `graph.errors` without aborting the rest.
-- `classify_todo_items(graph)`: splits TODO items into **LISTA** (all dependencies DONE) and **BLOQUEADA** (some pending/missing dependency).
+- `classify_todo_items(graph)`: splits TO_DO items into **LISTA** (all dependencies DONE) and **BLOQUEADA** (some pending/missing dependency).
 - `calculate_unblock_degree(graph, epic)`: ratio of a Epic's US/Tasks whose dependencies are all resolved (basis of the heat map).
 - `find_max_leverage_chain(graph)`: the chain [root + cascade] that unlocks the most items.
 
@@ -24,7 +24,7 @@ Task `state`: `TODO | EN_DESARROLLO | IN_PROGRESS | REVIEW | DONE | POSTERGADA`.
 
 - `empty` / `total` (counts per type and state + errors).
 - `by_epic` (per Epic: US/Task counts + `unblock_degree` + `fase`).
-- `items_lista` (TODO LISTA ordered by priority) and `items_bloqueada` (with `blocking_dependencies`).
+- `items_lista` (TO_DO LISTA ordered by priority) and `items_bloqueada` (with `blocking_dependencies`).
 - `max_leverage_chain`.
 - `errors`.
 
@@ -47,9 +47,9 @@ Mechanism to generate and execute work by the Architect, without writing Markdow
 Architect flow with **mandatory deterministic validator + self-audit**:
 
 1. **Propose User Stories** (`propose_user_stories.py`): loads an Epic's context (objective, v1 scope, deferred to v2, dependencies).
-2. **US pipeline** (`us_pipeline.py`): validates format → self-audit with external view → human approval → writing `US-*.md` files, born in `SIN_TAREAS`. Verdicts `APROBADO | APROBADO_CON_OBSERVACIONES | RECHAZADO`.
+2. **US pipeline** (`us_pipeline.py`): validates format → self-audit with external view → human approval → writing `US-*.md` files, born in `NO_TASKS`. Verdicts `APROBADO | APROBADO_CON_OBSERVACIONES | RECHAZADO`.
 3. **Gap review** (`review_user_story.py`): detects missing sections, empty stories, absent criteria; `ready_for_tasks` if there are no gaps.
-4. **Propose Tasks** (`propose_tasks.py`): only for a User Story in `EN_DISEÑO`; generates `T-*.md` and moves the Story to `TODO`.
+4. **Propose Tasks** (`propose_tasks.py`): only for a User Story in `EN_DISEÑO`; generates `T-*.md` and moves the Story to `TO_DO`.
 5. **Tasks pipeline** (`task_pipeline.py`): validation + self-audit + writing.
 
 Human comments on a US are processed as targeted adjustments (`architect/comments.py`).

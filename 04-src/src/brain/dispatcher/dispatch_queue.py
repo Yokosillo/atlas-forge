@@ -145,7 +145,7 @@ def enqueue_task(
     ts: str | None = None,
 ) -> QueueEntry:
     """Añade `task_id` a la cola con estado `queued`. No valida aquí que
-    la Task exista en el backlog ni que esté en estado `TODO` — esa
+    la Task exista en el backlog ni que esté en estado `TO_DO` — esa
     validación (404/400) vive en la capa HTTP (`routes.py`), que ya tiene
     el `BacklogGraph` cargado y no debe cargarlo dos veces.
 
@@ -214,12 +214,12 @@ def migrate_queued_entries_to_state(
     """T-FB008-US14-01, criterio de aceptación de migración: entradas ya
     encoladas en `dispatch_queue.json` (`status == "queued"`) ANTES de
     esta Task nunca tuvieron su `state` real escrito a `EN_DESARROLLO` — solo
-    vivían en el JSON, con el fichero real todavía en `TODO` (el
+    vivían en el JSON, con el fichero real todavía en `TO_DO` (el
     comportamiento anterior a esta Task). Esta función pone al día esos
     ficheros reales, sin tocar el propio JSON (sigue siendo el registro
     de orden/auditoría auxiliar, no cambia de formato).
 
-    Solo toca Tasks cuyo `state` real es TODAVÍA `TODO` — si ya está en
+    Solo toca Tasks cuyo `state` real es TODAVÍA `TO_DO` — si ya está en
     `EN_DESARROLLO` (encolada de nuevo tras esta Task) o en cualquier otro
     estado (alguien la movió manualmente, o el Dispatcher ya la tomó y
     el JSON quedó desincronizado), no se toca: mismo criterio de
@@ -228,7 +228,7 @@ def migrate_queued_entries_to_state(
 
     Devuelve la lista de `task_id` migrados. Idempotente: ejecutarlo dos
     veces no vuelve a tocar nada la segunda vez (las ya migradas están en
-    `EN_DESARROLLO`, no en `TODO`)."""
+    `EN_DESARROLLO`, no en `TO_DO`)."""
     from brain.backlog.edit import set_item_state
     from brain.backlog.parser import load_backlog
 
@@ -241,7 +241,7 @@ def migrate_queued_entries_to_state(
     migrated = []
     for task_id in sorted(queued_task_ids):
         item = graph.items.get(task_id)
-        if item is None or item.state != "TODO":
+        if item is None or item.state != "TO_DO":
             continue
         set_item_state(item.path, "EN_DESARROLLO")
         migrated.append(task_id)

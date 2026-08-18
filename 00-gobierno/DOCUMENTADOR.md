@@ -10,7 +10,7 @@ No documentar como existente aquello que solo está planeado.
 
 Orden:
 
-1. `02-backlog/` — distinguir DONE de TODO.
+1. `02-backlog/` — distinguir DONE de TO_DO.
 2. `07-informes/` — evidencia de implementación.
 3. `docs/` — documentación pública, única fuente.
 4. código — solo para confirmar detalles concretos.

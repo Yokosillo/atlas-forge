@@ -111,12 +111,21 @@ def _write_task(
     tasks_dir: Path, story_id: str, correlative: str, slug: str, title: str, body: str
 ) -> None:
     content = (
-        f"# T-{story_id}-{correlative}-{slug} · {title}\n\n"
-        f"**User Story:** {story_id}\n\n"
+        "---\n"
+        f"id: T-{story_id}-{correlative}\n"
+        "type: task\n"
+        f"title: {title}\n"
+        "epic: FB-999\n"
+        f"user_story: {story_id}\n"
+        "state: TO_DO\n"
+        "dependencies: []\n"
+        "priority: Crítica\n"
+        "---\n\n"
+        "## Objetivo\n\n"
+        f"{body}\n\n"
         "## Descripción\n\n"
         f"{body}\n\n"
-        "## Estado\n\n"
-        "TODO\n"
+        "## Criterios de aceptación\n\n- CR1: La Task cierra la User Story.\n"
     )
     (tasks_dir / f"T-{story_id}-{correlative}-{slug}.md").write_text(
         content, encoding="utf-8"

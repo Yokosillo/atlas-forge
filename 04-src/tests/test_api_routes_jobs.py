@@ -271,7 +271,7 @@ def test_post_jobs_rejects_developer_to_developer_chaining(
     after = {job["id"] for job in client.get("/jobs").json()}
 
     assert response.status_code == 400
-    assert "debe encadenarse a un Critic" in response.json()["detail"]
+    assert "debe encadenarse a un Arquitecto" in response.json()["detail"]
     assert after == before  # ningún Job nuevo registrado
 
     stop_runtime(dev_runtime, socket_name=isolated_socket)

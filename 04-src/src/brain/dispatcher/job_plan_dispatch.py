@@ -506,7 +506,7 @@ def _process_verdict_result(
     todas sus Tasks `DONE` por el ciclo de Tester).
 
     - APROBADO / APROBADO_CON_OBSERVACIONES: marca `Estado: DONE` en
-      todos los ficheros de Task de `story_id` que estén en TODO/EN_DESARROLLO
+      todos los ficheros de Task de `story_id` que estén en TO_DO/EN_DESARROLLO
       (caso residual, plan que no cubrió toda la Story) y promueve la
       propia US de REVIEW a DONE.
     - RECHAZADO por falta de cobertura de producto (rediseño 2026-08-17,
@@ -514,7 +514,7 @@ def _process_verdict_result(
       anterior de `US-FB008-14`): el Arquitecto AÑADE UNA TASK NUEVA A LA
       MISMA User Story, nunca crea una US nueva — decisión explícita del
       usuario. Esa Task entra DIRECTAMENTE en `state: EN_DESARROLLO` (se
-      salta `TODO`, el Dispatcher la despacha ya en el siguiente ciclo,
+      salta `TO_DO`, el Dispatcher la despacha ya en el siguiente ciclo,
       sin esperar a que el humano la progrese). La US original NO se
       promueve a `DONE` en este caso — tiene trabajo pendiente de nuevo,
       así que `_mark_story_tasks_done` no se invoca aquí; el ciclo normal
@@ -536,7 +536,7 @@ def _process_verdict_result(
 
 def _mark_story_tasks_done(story_id: str, backlog_dir: Path | None = None) -> None:
     """Marca `Estado: DONE` en todos los ficheros de Task de `story_id`
-    que actualmente están en `TODO`/`EN_DESARROLLO` (ambos tratados como
+    que actualmente están en `TO_DO`/`EN_DESARROLLO` (ambos tratados como
     "todavía no empezado", ver más abajo), y promueve transitivamente la
     propia User Story (y su Epic) a `DONE` si con esto quedan todos sus
     hijos completados (T-FB022-US13-01) — misma invocación, sin paso
@@ -553,11 +553,11 @@ def _mark_story_tasks_done(story_id: str, backlog_dir: Path | None = None) -> No
         text = task_path.read_text(encoding="utf-8")
         state = _read_task_state(text)
         # T-FB008-US14-01: EN_DESARROLLO se trata como "todavía no empezado",
-        # igual que TODO — si una Story despachada por Plan tenía además
+        # igual que TO_DO — si una Story despachada por Plan tenía además
         # alguna Task marcada para desarrollo por el otro mecanismo
         # (cola de US-FB008-14), el veredicto del Arquitecto la cierra
         # igual, sin dejarla huérfana en EN_DESARROLLO.
-        if state in ("TODO", "EN_DESARROLLO"):
+        if state in ("TO_DO", "EN_DESARROLLO"):
             updated = text.replace(f"state: {state}", "state: DONE", 1)
             task_path.write_text(updated, encoding="utf-8")
 
@@ -590,7 +590,7 @@ def _create_rejection_correction_task(
     RECHAZADO del Arquitecto sobre una User Story, crea una Task nueva
     bajo LA MISMA US (nunca una US nueva) con el contenido del rechazo
     como objetivo/descripción, y la escribe directamente en
-    `state: EN_DESARROLLO` — se salta `TODO`, el Dispatcher la despacha
+    `state: EN_DESARROLLO` — se salta `TO_DO`, el Dispatcher la despacha
     en el siguiente ciclo sin esperar a que el humano la progrese.
 
     Devuelve el `task_id` creado, o `None` si no se pudo (US inexistente

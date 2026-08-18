@@ -12,7 +12,7 @@ existente en el backlog (`US-FBNNN-nn`, ver `02-backlog/README.md`) —
 las User Stories de una fase del roadmap salvo lectura manual de
 `roadmap.md`; ver nota en la User Story sobre alcance acotado). Se listan
 los ficheros de Task en `02-backlog/tasks/` cuyo nombre empieza por
-`T-<identificador-US>-`, se descartan los que no están en estado `TODO`
+`T-<identificador-US>-`, se descartan los que no están en estado `TO_DO`
 (los ya `DONE`/`IN_PROGRESS`/`REVIEW` no son candidatos a un paso nuevo del
 plan) y se ordenan por el correlativo `mm` del nombre de fichero — el mismo
 orden en que ya aparecen en el backlog, tal como pide el criterio de
@@ -183,7 +183,7 @@ def _pending_task_files_for_story(story_id: str, tasks_dir: Path) -> list[Path]:
     pending = []
     for path in candidates:
         text = path.read_text(encoding="utf-8")
-        if _read_task_state(text) == "TODO":
+        if _read_task_state(text) == "TO_DO":
             pending.append(path)
     return pending
 
@@ -193,7 +193,7 @@ def build_job_plan_for_story(
 ) -> JobPlan:
     """Construye un `JobPlan` a partir del identificador de una User Story
     (p. ej. `"US-FB008-04"`): un `JobPlanStep` por cada Task en estado
-    `TODO` de esa Story, en el orden en que aparecen en el backlog (ver
+    `TO_DO` de esa Story, en el orden en que aparecen en el backlog (ver
     docstring de módulo para el criterio completo de interpretación y la
     heurística de mecanismo). El plan se construye en estado `"proposed"`
     — no se despacha nada (T-FB008-US04-03)."""

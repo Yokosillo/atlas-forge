@@ -305,6 +305,11 @@
     return request("PUT", "/system/preferences", { post: true, body: payload });
   }
 
+  /** `POST /system/restart` — reinicia el servicio brain-api (T-FB037-US05-01). Fire-and-forget: responde 202 y el backend se cae; el llamador debe verificar la recuperación con polling. */
+  async function restartSystem() {
+    return request("POST", "/system/restart", { post: true });
+  }
+
   /* ------------------------------------------------------------------ */
   /* Jobs                                                                 */
   /* ------------------------------------------------------------------ */
@@ -474,9 +479,9 @@
 
   /** `POST /backlog/{story_id}/launch-development` — lanza el desarrollo
    * de la User Story `story_id` con contexto ya resuelto por el backend
-   * (objetivo + Tasks `TODO`), despachado al agente `agentId`. Bloqueante
+   * (objetivo + Tasks `TO_DO`), despachado al agente `agentId`. Bloqueante
    * como `createAndDispatchJob` (mismo motor de despacho). 400 (sin Tasks
-   * `TODO`)/404 (`story_id`/agente inválido) propagan el `detail` real. */
+   * `TO_DO`)/404 (`story_id`/agente inválido) propagan el `detail` real. */
   async function launchDevelopment(storyId, agentId) {
     return request("POST", "/backlog/" + encodeURIComponent(storyId) + "/launch-development", {
       post: true,
@@ -499,15 +504,15 @@
   /* ------------------------------------------------------------------ */
 
   /** `POST /backlog/{task_id}/enqueue` — marca la Task `taskId` (debe
-   * estar `TODO`) como encolada para desarrollo, sin pasar por el flujo
-   * de Plan/aprobación. 404 (Task inexistente)/400 (no está `TODO`)/409
+   * estar `TO_DO`) como encolada para desarrollo, sin pasar por el flujo
+   * de Plan/aprobación. 404 (Task inexistente)/400 (no está `TO_DO`)/409
    * (ya encolada) propagan el `detail` real del backend. */
   async function enqueueTask(taskId) {
     return request("POST", "/backlog/" + encodeURIComponent(taskId) + "/enqueue", { post: true });
   }
 
   /** `POST /backlog/{us_id}/enqueue-all` — encola de una sola llamada
-   * todas las Tasks `TODO` de la User Story `usId`. 404 si `usId` no
+   * todas las Tasks `TO_DO` de la User Story `usId`. 404 si `usId` no
    * existe. */
   async function enqueueAllTasks(usId) {
     return request("POST", "/backlog/" + encodeURIComponent(usId) + "/enqueue-all", { post: true });
@@ -543,12 +548,12 @@
 
   /** `PUT /backlog/{item_id}/state` — cambia el estado de una User
    * Story/Task ya existente directamente en su fichero real.
-   * `newState` es una de `'TODO'|'EN_DESARROLLO'|'IN_PROGRESS'|'REVIEW'|'DONE'`.
+   * `newState` es una de `'TO_DO'|'EN_DESARROLLO'|'IN_PROGRESS'|'REVIEW'|'DONE'`.
    * Si el item es una User Story y `newState` es `'DONE'`, el backend
    * dispara la promoción automática de su Epic si corresponde
    * (`promoted_epics` en la respuesta). Si es una User Story y
    * `newState` es `'EN_DESARROLLO'` (T-FB008-US14-04), el backend encola
-   * automáticamente sus Tasks `TODO` (`enqueued`/`skipped_already_queued`
+   * automáticamente sus Tasks `TO_DO` (`enqueued`/`skipped_already_queued`
    * en la respuesta, mismo formato que `enqueueAllTasks`). 400 (valor
    * inválido, o Epic) propaga el `detail` real del backend. */
   async function setBacklogItemState(itemId, newState) {
@@ -583,6 +588,7 @@
     updateModelsPreferences: updateModelsPreferences,
     getSystemPreferences: getSystemPreferences,
     updateSystemPreferences: updateSystemPreferences,
+    restartSystem: restartSystem,
     getJobs: getJobs,
     getJob: getJob,
     createAndDispatchJob: createAndDispatchJob,

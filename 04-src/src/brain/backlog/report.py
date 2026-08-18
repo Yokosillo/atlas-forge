@@ -4,8 +4,8 @@ sin gastar tokens de agente cognitivo").
 
 Capa de presentación sobre el parser de T-FB018-US02-01: `build_backlog_report`
 construye UN solo dict estructurado (serializable a JSON) con el conteo de
-US/Task por estado agrupado por Epic, la lista de items TODO LISTA ordenada
-por Prioridad, la lista de items TODO BLOQUEADA con su dependencia pendiente,
+US/Task por estado agrupado por Epic, la lista de items TO_DO LISTA ordenada
+por Prioridad, la lista de items TO_DO BLOQUEADA con su dependencia pendiente,
 y la cadena de mayor apalancamiento.
 
 Tanto el formateo legible (`format_human_report`) como la salida `--json`
@@ -133,7 +133,7 @@ def reconcile_graph_state(graph):
     trabajo real bajo un padre que se creía cerrado) — decisión explícita
     de esta Task, no un intento de adivinar un estado más fino a partir
     de los estados concretos de los hijos reabiertos (que pueden ser una
-    mezcla de TODO/IN_PROGRESS/REVIEW).
+    mezcla de TO_DO/IN_PROGRESS/REVIEW).
 
     Nunca escribe en disco — reemplaza únicamente los `BacklogItem` en
     memoria del `BacklogGraph` ya cargado (frozen dataclass, se sustituye
@@ -303,7 +303,7 @@ def format_human_report(report: dict) -> str:
         if epic["tasks"]:
             lines.append(f"    Task: {format_kind('Task', epic['tasks'])}")
 
-    lines.append("\nItems TODO LISTA (ordenados por prioridad):")
+    lines.append("\nItems TO_DO LISTA (ordenados por prioridad):")
     if report["items_lista"]:
         for entry in report["items_lista"]:
             label = _PRIORITY_LABEL[priority_rank(entry["priority"])]
@@ -311,7 +311,7 @@ def format_human_report(report: dict) -> str:
     else:
         lines.append("  (ninguno)")
 
-    lines.append("\nItems TODO BLOQUEADA (con dependencia pendiente):")
+    lines.append("\nItems TO_DO BLOQUEADA (con dependencia pendiente):")
     if report["items_bloqueada"]:
         for entry in report["items_bloqueada"]:
             pending = ", ".join(
@@ -328,7 +328,7 @@ def format_human_report(report: dict) -> str:
         chain_ids = " → ".join(entry["id"] for entry in report["max_leverage_chain"])
         lines.append(f"  {chain_ids}")
     else:
-        lines.append("  (ninguna: no hay item TODO que desbloquee a otros)")
+        lines.append("  (ninguna: no hay item TO_DO que desbloquee a otros)")
 
     if report["errors"]:
         lines.append("\nErrores de parseo:")

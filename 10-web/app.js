@@ -126,7 +126,7 @@
     sections: { jobs: null, plan: null, scripts: null, backlog: null, models: null, roles: null, configuracion: null },
     showPicker: false,
     pickerReason: "initial", // "initial" (onboarding) | "change" (voluntario)
-    pendingBacklogCount: 0, // T-FB024-US01-02: numero de Epics/US con TODO>0
+    pendingBacklogCount: 0, // T-FB024-US01-02: numero de Epics/US con TO_DO>0
   };
 
   var SECTION_LOADERS = {
@@ -293,7 +293,7 @@
     agentIndex: 0,
     descriptionInput: "",
     previousJobId: null, // job_id encadenado | null
-    // T-FB024-US15-02: Story TODO opcional a asociar al Job (`story_id`
+    // T-FB024-US15-02: Story TO_DO opcional a asociar al Job (`story_id`
     // en `POST /jobs`, T-FB024-US15-01) — índice sobre el mismo catálogo
     // compartido `plansSection.todoStories` (0 = "Sin Story asociada").
     storySelectIndex: 0,
@@ -326,7 +326,7 @@
     currentPlanId: null, // filtro de eventos WS (punto 3)
     goalInput: "",
     goalSelectIndex: 0,
-    // T-FB024-US04-02: historias TODO del backlog como opciones del selector.
+    // T-FB024-US04-02: historias TO_DO del backlog como opciones del selector.
     todoStories: null, // null = sin cargar | array = [{id, epic}]
     todoStoriesLoading: false,
     todoStoriesError: null,
@@ -422,7 +422,7 @@
     // User Story, T-FB020-US02-02): agentes Developer ya lanzados
     // (mismo catálogo que Agentes/Jobs, filtrado a role === "developer"),
     // single-flight de la propia llamada, y el resultado/`detail` real
-    // del backend ante un rechazo (400 sin Tasks TODO, 404 agente
+    // del backend ante un rechazo (400 sin Tasks TO_DO, 404 agente
     // inválido) — nunca un mensaje genérico (criterio de aceptación
     // explícito, mismo patrón que T-FB021-US04-01).
     developerAgents: null,
@@ -444,7 +444,7 @@
     filterText: "",
     filterTextInput: "",
     filterTextDebounceTimer: null,
-    filterState: "all", // "all" | "TODO" | "IN_PROGRESS" | "REVIEW" | "DONE" | "blocked"
+    filterState: "all", // "all" | "TO_DO" | "IN_PROGRESS" | "REVIEW" | "DONE" | "blocked"
     filterPriority: "all", // "all" | "Crítica" | "Alta" | "Media" | "Baja" | "none"
     // T-FB036-US01-02: panel "Próximo foco" (report.max_leverage_chain),
     // colapsable, expandido por defecto — solo estado de UI local, sin
@@ -484,7 +484,7 @@
     // T-FB024-US15-02: índice sobre el mismo catálogo compartido
     // `plansSection.todoStories` (0 = "Sin Story asociada", igual que
     // `jobsSection.storySelectIndex`) — se inicializa a la Story cuyo
-    // detalle está abierto SI esa Story está en TODO (ver
+    // detalle está abierto SI esa Story está en TO_DO (ver
     // `toggleItemDetail`), desmarcable si el humano quiere un Job suelto
     // sin veredicto automático.
     manualJobStorySelectIndex: 0,
@@ -600,6 +600,13 @@
     dirty: false,
     saving: false,
     saveError: null,
+    // Reinicio del servicio (T-FB037-US05-02): confirmación de doble
+    // pulsación, estado "Reiniciando…" y polling de recuperación.
+    restartPendingFor: null, // true mientras espera la segunda pulsación
+    restarting: false,
+    restartMessage: null,
+    restartError: null,
+    restartPollTimer: null,
   };
 
   // --------------------------------------------------------- FB-025 Hilo 3
@@ -634,7 +641,7 @@
     { id: "desgranar-tasks", label: "Desgranar en Tasks", desc: "Toma una User Story y genera sus Tasks.", needsSelect: "us", promptPrefix: "Genera las Tasks para la siguiente User Story:" },
     { id: "emitir-veredicto", label: "Emitir veredicto", desc: "Revisa el trabajo del Developer sobre una US en progreso y emite veredicto estructurado.", needsSelect: "us_in_progress", promptPrefix: "Revisa el trabajo del Developer sobre esta User Story y emite tu veredicto:" },
     { id: "auditar-consistencia", label: "Auditar consistencia", desc: "Revisa todo el backlog buscando US sin Epic, Tasks sin US, formatos rotos y dependencias circulares.", needsSelect: null, promptPrefix: "Audita la consistencia del backlog completo del proyecto. Busca: User Stories sin Epic, Tasks sin User Story, formatos rotos en cualquier fichero del backlog, y dependencias circulares. Genera un informe con los hallazgos." },
-    { id: "informe-progreso", label: "Informe de progreso", desc: "Genera un resumen del pipeline: US en cada estado, bloqueos y cuellos de botella.", needsSelect: null, promptPrefix: "Genera un informe completo del estado del pipeline de desarrollo. Incluye: cuántas User Stories hay en cada estado (TODO, in_progress, DONE), qué bloqueos existen (dependencias sin resolver), y qué cuellos de botella detectas. Resume también el estado de cada Epic." },
+    { id: "informe-progreso", label: "Informe de progreso", desc: "Genera un resumen del pipeline: US en cada estado, bloqueos y cuellos de botella.", needsSelect: null, promptPrefix: "Genera un informe completo del estado del pipeline de desarrollo. Incluye: cuántas User Stories hay en cada estado (TO_DO, in_progress, DONE), qué bloqueos existen (dependencias sin resolver), y qué cuellos de botella detectas. Resume también el estado de cada Epic." },
   ];
 
   var arquitectoTabState = {
@@ -1265,7 +1272,7 @@
     connectJobsWebSocket();
     refreshJobsAgents();
     refreshJobs();
-    // T-FB024-US15-02: mismo catálogo de Stories TODO que el selector del
+    // T-FB024-US15-02: mismo catálogo de Stories TO_DO que el selector del
     // flujo de Plan — cargado aquí también por si el usuario llega
     // directo a Jobs sin haber visitado Plan antes.
     loadTodoStories();
@@ -1627,7 +1634,7 @@
     });
     form.appendChild(prevSelect);
 
-    // T-FB024-US15-02: Story TODO opcional a asociar al Job — mismo
+    // T-FB024-US15-02: Story TO_DO opcional a asociar al Job — mismo
     // selector (mismo catálogo `plansSection.todoStories`, cargado por
     // `loadTodoStories`) que ya usa el flujo de Plan, no un campo de texto
     // libre nuevo (criterio de aceptación explícito de la Task). Sin
@@ -1653,12 +1660,12 @@
       todoStories.forEach(function (story, idx) {
         var o = document.createElement("option");
         o.setAttribute("value", String(idx + 1));
-        o.textContent = story.id + " (" + (story.epic || "") + ") — TODO";
+        o.textContent = story.id + " (" + (story.epic || "") + ") — TO_DO";
         storySelect.appendChild(o);
       });
       if (todoStories.length === 0) {
         storySelect.disabled = true;
-        noStoryOpt.textContent = "No hay User Stories en TODO en el backlog";
+        noStoryOpt.textContent = "No hay User Stories en TO_DO en el backlog";
       }
       storySelect.selectedIndex = 0;
       if (jobsSection.storySelectIndex > 0 && jobsSection.storySelectIndex <= todoStories.length) {
@@ -1725,7 +1732,7 @@
 
     // T-FB024-US15-02: `storySelectIndex` 0 es "Sin Story asociada" — solo
     // se envía `story_id` si el usuario eligió una Story real del
-    // catálogo TODO. Sin este campo, `POST /jobs` se comporta igual que
+    // catálogo TO_DO. Sin este campo, `POST /jobs` se comporta igual que
     // antes de `US-FB024-15` (criterio de aceptación 1).
     var todoStories = plansSection.todoStories || [];
     if (jobsSection.storySelectIndex > 0 && jobsSection.storySelectIndex <= todoStories.length) {
@@ -1976,9 +1983,9 @@
     if (statusText) wrap.appendChild(h("p", "ws-status-note", statusText));
   }
 
-  // T-FB024-US04-02: carga las User Stories en TODO desde el backlog para
+  // T-FB024-US04-02: carga las User Stories en TO_DO desde el backlog para
   // poblar el selector del formulario de Plan.
-  // T-FB024-US15-02: catálogo de User Stories TODO compartido entre el
+  // T-FB024-US15-02: catálogo de User Stories TO_DO compartido entre el
   // selector del flujo de Plan (`renderPlansForm`), el del formulario de
   // Job manual/suelto en la pantalla Jobs (`renderJobsForm`) y el del
   // formulario de Job manual en el detalle de una US en Backlog
@@ -2009,7 +2016,7 @@
       detail &&
       detail.id === backlogSection.selectedItemId &&
       detail.kind === "US" &&
-      detail.state === "TODO" &&
+      detail.state === "TO_DO" &&
       plansSection.todoStories
     ) {
       var storyIdx = plansSection.todoStories.findIndex(function (s) { return s.id === detail.id; });
@@ -2023,7 +2030,7 @@
     BackendClient.getBacklog()
       .then(function (report) {
         var epicsWithTodo = (report.by_epic || []).filter(function (epic) {
-          return epic.user_stories && epic.user_stories.TODO > 0;
+          return epic.user_stories && epic.user_stories.TO_DO > 0;
         });
         if (epicsWithTodo.length === 0) {
           plansSection.todoStories = [];
@@ -2043,7 +2050,7 @@
           BackendClient.getBacklogItem(epicId)
             .then(function (detail) {
               (detail.user_stories || []).forEach(function (us) {
-                if (us.state === "TODO") {
+                if (us.state === "TO_DO") {
                   stories.push({ id: us.id, epic: epicId, state: us.state });
                 }
               });
@@ -2072,13 +2079,13 @@
   // Punto 1: formulario para pedir un plan (`POST /plans`, campo `goal`
   // con el identificador de la User Story). Single-flight en el envío
   // (mismo criterio que enviar Job/lanzar agente).
-  // T-FB024-US04-02: `goal` es un selector poblado con las Stories TODO
+  // T-FB024-US04-02: `goal` es un selector poblado con las Stories TO_DO
   // del backlog (no texto libre sin validar).
   function renderPlansForm(wrap) {
     var form = h("div", "plans-form");
     form.appendChild(h("div", "field-label", "Pedir un plan al Arquitecto"));
 
-    // T-FB024-US04-02: selector de User Stories TODO en vez de texto libre.
+    // T-FB024-US04-02: selector de User Stories TO_DO en vez de texto libre.
     if (plansSection.todoStories === null || plansSection.todoStoriesLoading) {
       form.appendChild(h("p", "section-note", "Cargando User Stories del backlog…"));
     } else if (plansSection.todoStoriesError) {
@@ -2094,7 +2101,7 @@
       });
       form.appendChild(fallbackInput);
     } else if (plansSection.todoStories.length === 0) {
-      form.appendChild(h("p", "section-note", "No hay User Stories en TODO en el backlog."));
+      form.appendChild(h("p", "section-note", "No hay User Stories en TO_DO en el backlog."));
     } else {
       var select = document.createElement("select");
       select.className = "clickable launch-select";
@@ -2102,7 +2109,7 @@
       plansSection.todoStories.forEach(function (story, idx) {
         var o = document.createElement("option");
         o.setAttribute("value", String(idx));
-        o.textContent = story.id + " (" + (story.epic || "") + ") — TODO";
+        o.textContent = story.id + " (" + (story.epic || "") + ") — TO_DO";
         select.appendChild(o);
       });
       select.selectedIndex = plansSection.goalSelectIndex;
@@ -2228,7 +2235,7 @@
 
   function requestPlan() {
     if (plansSection.requesting) return; // single-flight
-    // T-FB024-US04-02: el goal se toma del selector de TODO stories (si
+    // T-FB024-US04-02: el goal se toma del selector de TO_DO stories (si
     // está disponible), o del input de texto libre como fallback.
     var goal;
     if (plansSection.todoStories && plansSection.todoStories.length > 0) {
@@ -3562,7 +3569,7 @@
   // filtro de prioridad).
   var BACKLOG_STATE_OPTIONS = [
     { value: "all", label: "Todos" },
-    { value: "TODO", label: "TODO" },
+    { value: "TO_DO", label: "TO_DO" },
     { value: "IN_PROGRESS", label: "IN_PROGRESS" },
     { value: "REVIEW", label: "REVIEW" },
     { value: "DONE", label: "DONE" },
@@ -3653,7 +3660,7 @@
     });
     priorityWrap.appendChild(prioritySelect);
     priorityWrap.appendChild(
-      h("p", "backlog-filter-priority-note", "El filtro de prioridad solo considera items pendientes (TODO).")
+      h("p", "backlog-filter-priority-note", "El filtro de prioridad solo considera items pendientes (TO_DO).")
     );
     bar.appendChild(priorityWrap);
 
@@ -3671,7 +3678,7 @@
     wrap.appendChild(bar);
   }
 
-  // Items TODO (de `items_lista`/`items_bloqueada`) que pertenecen a la
+  // Items TO_DO (de `items_lista`/`items_bloqueada`) que pertenecen a la
   // Epic `epicLabel` — mismo cruce por prefijo que usa `epicIdFromLabel`
   // para el resto de la pantalla. Único subconjunto de items con
   // `priority` presente en el informe raíz (ver "Casos borde" de la
@@ -3727,10 +3734,10 @@
         });
         if (!hasBlocked) return false;
       } else {
-        // Filtro por estado sobre los conteos agregados de `by_epic`
-        // (única fuente disponible para TODO/IN_PROGRESS/REVIEW/DONE en
-        // el informe raíz, ver "Casos borde" de la especificación UX): la
-        // Epic se muestra si tiene al menos 1 item en ese estado.
+    // Filtro por estado sobre los conteos agregados de `by_epic`
+    // (única fuente disponible para TO_DO/IN_PROGRESS/REVIEW/DONE en
+    // el informe raíz, ver "Casos borde" de la especificación UX): la
+    // Epic se muestra si tiene al menos 1 item en ese estado.
         var usCount = (epic.user_stories && epic.user_stories[backlogSection.filterState]) || 0;
         var taskCount = (epic.tasks && epic.tasks[backlogSection.filterState]) || 0;
         if (usCount + taskCount === 0) return false;
@@ -3879,18 +3886,18 @@
   function epicIsDone(epic) {
     var totalCount = sumCounts(epic.user_stories) + sumCounts(epic.tasks);
     // Bug corregido (2026-08-17, encontrado end-to-end vía el formulario
-    // real de "+ Nueva User Story"): antes solo contaba `TODO` como
-    // "pendiente" — una US recién creada nace en `SIN_TAREAS`
-    // (T-FB008-US15-01), no `TODO`, así que la Epic con una única US
+    // real de "+ Nueva User Story"): antes solo contaba `TO_DO` como
+    // "pendiente" — una US recién creada nace en `NO_TASKS`
+    // (T-FB008-US15-01), no `TO_DO`, así que la Epic con una única US
     // nueva se consideraba erróneamente "Terminada" (`todoCount === 0`)
     // y quedaba oculta bajo el grupo plegado "Terminadas (N)", pese a no
     // tener NADA completado — la Epic recién creada literalmente
-    // desaparecía del listado visible. `SIN_TAREAS`/`EN_DISEÑO` cuentan
-    // igual que `TODO`: cualquier estado que no sea `DONE` es trabajo
+    // desaparecía del listado visible. `NO_TASKS`/`EN_DISEÑO` cuentan
+    // igual que `TO_DO`: cualquier estado que no sea `DONE` es trabajo
     // pendiente.
     var pendingCount =
-      (epic.user_stories && (epic.user_stories.TODO || 0) + (epic.user_stories.SIN_TAREAS || 0) + (epic.user_stories["EN_DISEÑO"] || 0) + (epic.user_stories.EN_DESARROLLO || 0) + (epic.user_stories.IN_PROGRESS || 0) + (epic.user_stories.REVIEW || 0) || 0) +
-      (epic.tasks && (epic.tasks.TODO || 0) + (epic.tasks.EN_DESARROLLO || 0) + (epic.tasks.IN_PROGRESS || 0) + (epic.tasks.REVIEW || 0) || 0);
+      (epic.user_stories && (epic.user_stories.TO_DO || 0) + (epic.user_stories.NO_TASKS || 0) + (epic.user_stories["EN_DISEÑO"] || 0) + (epic.user_stories.EN_DESARROLLO || 0) + (epic.user_stories.IN_PROGRESS || 0) + (epic.user_stories.REVIEW || 0) || 0) +
+      (epic.tasks && (epic.tasks.TO_DO || 0) + (epic.tasks.EN_DESARROLLO || 0) + (epic.tasks.IN_PROGRESS || 0) + (epic.tasks.REVIEW || 0) || 0);
     return totalCount > 0 && pendingCount === 0;
   }
 
@@ -4291,7 +4298,7 @@
   // se listan los `id` individuales de cada item huérfano porque el
   // informe raíz (`GET /backlog`) no los expone agregados de esa forma
   // sin backend nuevo (fuera de alcance de esta Task, ver
-  // `items_lista`/`items_bloqueada`, que solo cubren items `TODO`/
+  // `items_lista`/`items_bloqueada`, que solo cubren items `TO_DO`/
   // bloqueados, no todos los estados).
   function renderOrphanDetail(epic) {
     var box = h("div", "job-detail");
@@ -4341,7 +4348,7 @@
         // valor de state en detail.user_stories (igual que en Task).
         return userStory.state === "BLOQUEADA";
       }
-      // Filtro por estado: TODO, IN_PROGRESS, REVIEW, DONE.
+      // Filtro por estado: TO_DO, IN_PROGRESS, REVIEW, DONE.
       return userStory.state === backlogSection.filterState;
     });
 
@@ -4614,19 +4621,19 @@
   var EDITABLE_PRIORITIES = ["Crítica", "Alta", "Media", "Baja"];
   // T-FB008-US14-01: EN_DESARROLLO añadido al conjunto editable — alineado con
   // `validator_v2._VALID_STATES`/`backlog/edit.py::VALID_STATES`
-  // (backend). POSTERGADA queda fuera deliberadamente: ya se gestiona
+  // (backend). FUERA_ROADMAP queda fuera deliberadamente: ya se gestiona
   // con su propio control dedicado (US-FB036-09), no por este selector
   // genérico.
   //
-  // T-FB008-US15-01/-02 (2026-08-17): `SIN_TAREAS`/`EN_DISEÑO` incluidos
+  // T-FB008-US15-01/-02 (2026-08-17): `NO_TASKS`/`EN_DISEÑO` incluidos
   // como `<option>` — necesario para que el `<select>` HTML muestre
   // correctamente el estado ACTUAL de una User Story recién creada (nace
-  // en `SIN_TAREAS`) o en tránsito (`EN_DISEÑO`), aunque el flujo normal
+  // en `NO_TASKS`) o en tránsito (`EN_DISEÑO`), aunque el flujo normal
   // para entrar/salir de esos estados es el botón único "Progresar"
   // (`renderProgresarUserStoryControls`), no este selector — mismo
   // criterio que ya aplica a `EN_DESARROLLO`/`DONE`: el selector permite
   // corrección manual excepcional, no sustituye el flujo guiado.
-  var EDITABLE_STATES = ["SIN_TAREAS", "EN_DISEÑO", "TODO", "EN_DESARROLLO", "IN_PROGRESS", "REVIEW", "DONE"];
+  var EDITABLE_STATES = ["NO_TASKS", "EN_DISEÑO", "TO_DO", "EN_DESARROLLO", "IN_PROGRESS", "REVIEW", "DONE"];
 
   // T-FB036-US08-01, criterio de aceptación 1/5: los dos `<select>` de
   // prioridad/estado en la línea de título — solo para User Story/Task
@@ -4669,12 +4676,12 @@
     // T-FB008-US14-01, criterio "distinguible visualmente": clase
     // modificadora cuando el estado ACTUAL es EN_DESARROLLO — mismo patrón que
     // el resto de la pantalla, un color propio no confundible con
-    // TODO/IN_PROGRESS/REVIEW/DONE (ver `.backlog-edit-state--en-desarrollo`
+    // TO_DO/IN_PROGRESS/REVIEW/DONE (ver `.backlog-edit-state--en-desarrollo`
     // en style.css). T-FB008-US15-01/-02: mismo criterio para
-    // SIN_TAREAS/EN_DISEÑO, cada uno con su propia clase/color.
+    // NO_TASKS/EN_DISEÑO, cada uno con su propia clase/color.
     var STATE_CSS_CLASS = {
       "EN_DESARROLLO": "backlog-edit-state--en-desarrollo",
-      "SIN_TAREAS": "backlog-edit-state--sin-tasks",
+      "NO_TASKS": "backlog-edit-state--no-tasks",
       "EN_DISEÑO": "backlog-edit-state--en-diseno",
     };
     stateSelect.className = "backlog-edit-state" + (STATE_CSS_CLASS[currentState] ? " " + STATE_CSS_CLASS[currentState] : "");
@@ -4699,7 +4706,7 @@
   }
 
   // T-FB008-US10-03, criterio de aceptación 1: marca/desmarca una Task
-  // TODO para desarrollo. Single-flight por `task_id` (guarda el id en
+  // TO_DO para desarrollo. Single-flight por `task_id` (guarda el id en
   // vuelo, no un booleano — mismo criterio ya usado por
   // `proposeStoriesInFlight`). Éxito: refresca la cola completa (para
   // que el cambio se refleje "de inmediato en la vista de cola", mismo
@@ -4740,7 +4747,7 @@
       .then(function () {
         backlogSection.enqueueTaskInFlight = null;
         loadDispatchQueue();
-        // T-FB008-US14-01: desencolar revierte `state` a `TODO` — mismo
+        // T-FB008-US14-01: desencolar revierte `state` a `TO_DO` — mismo
         // motivo que en enqueueTaskAction, refrescar el detalle ya
         // cargado.
         refreshOpenDetailsFor(taskId);
@@ -4754,7 +4761,7 @@
   }
 
   // T-FB008-US10-03, criterio de aceptación 2: encola todas las Tasks
-  // TODO de una User Story de una sola llamada. Single-flight por
+  // TO_DO de una User Story de una sola llamada. Single-flight por
   // `us_id`.
   function enqueueAllTasksAction(usId) {
     if (backlogSection.enqueueAllInFlight) return;
@@ -4998,10 +5005,10 @@
     backlogSection.advancedOptionsCollapsed = true;
     // T-FB024-US15-02: reinicia el selector de Story del formulario de Job
     // manual al abrir cualquier detalle nuevo — se recalcula abajo si la
-    // Story recién abierta está en TODO.
+    // Story recién abierta está en TO_DO.
     backlogSection.manualJobStorySelectIndex = 0;
     renderBacklogBody();
-    // T-FB024-US15-02: mismo catálogo de Stories TODO que el flujo de
+    // T-FB024-US15-02: mismo catálogo de Stories TO_DO que el flujo de
     // Plan/Jobs — necesario aquí para poder preseleccionar la propia US
     // del detalle si aplica (justo debajo).
     loadTodoStories();
@@ -5010,12 +5017,12 @@
       .then(function (detail) {
         if (backlogSection.selectedItemId !== itemId) return;
         backlogSection.itemDetail = detail;
-        // T-FB024-US15-02: si la US recién abierta está en TODO y ya
+        // T-FB024-US15-02: si la US recién abierta está en TO_DO y ya
         // figura en el catálogo cargado, se preselecciona por defecto en
         // el formulario de Job manual — es la Story del propio contexto
         // donde vive ese formulario, desmarcable por el humano si quiere
         // un Job suelto sin veredicto automático.
-        if (detail.kind === "US" && detail.state === "TODO" && plansSection.todoStories) {
+        if (detail.kind === "US" && detail.state === "TO_DO" && plansSection.todoStories) {
           var storyIdx = plansSection.todoStories.findIndex(function (s) { return s.id === itemId; });
           if (storyIdx >= 0) backlogSection.manualJobStorySelectIndex = storyIdx + 1;
         }
@@ -5266,10 +5273,10 @@
       // T-FB008-US15-02 (2026-08-17): botón único "Progresar" sustituye
       // a "Aterrizar en Tasks" (que llamaba SIEMPRE disponible, de forma
       // síncrona, directo a propose-tasks) — su acción depende del
-      // estado real de la User Story: en `SIN_TAREAS` marca `EN_DISEÑO`
+      // estado real de la User Story: en `NO_TASKS` marca `EN_DISEÑO`
       // (el Dispatcher reparte el aterrizaje al Arquitecto libre,
       // `run_us_landing_dispatch_cycle`); en `EN_DISEÑO` queda
-      // deshabilitado ("esperando al Arquitecto"); en `TODO` (ya con
+      // deshabilitado ("esperando al Arquitecto"); en `TO_DO` (ya con
       // Tasks) es el mismo atajo que "Marcar toda la Story para
       // desarrollo" (`T-FB008-US14-04`, marca `EN_DESARROLLO`).
       box.appendChild(renderProgresarUserStoryControls(detail));
@@ -5288,7 +5295,7 @@
       // foco"/"Cola de despacho").
       box.appendChild(renderAdvancedOptionsCollapsible(detail.id));
     } else {
-      // Task individual: botón "Marcar para desarrollo" (si TODO y no
+      // Task individual: botón "Marcar para desarrollo" (si TO_DO y no
       // encolada) / "Quitar de la cola" (si ya encolada) — criterio de
       // aceptación 1. `dispatchQueueEntryForTask` cruza sobre
       // `backlogSection.dispatchQueue` ya cargado, sin fetch adicional.
@@ -5303,8 +5310,8 @@
     var inFlight = backlogSection.enqueueTaskInFlight === detail.id;
 
     if (queueEntry === null) {
-      if (detail.state !== "TODO") {
-        // Fuera de TODO no tiene sentido encolar (mismo criterio 400
+      if (detail.state !== "TO_DO") {
+        // Fuera de TO_DO no tiene sentido encolar (mismo criterio 400
         // que ya aplica el backend) — no se muestra ningún botón en vez
         // de mostrar uno que siempre fallaría al pulsarlo.
         return wrap;
@@ -5338,17 +5345,17 @@
 
   // T-FB008-US15-02 (2026-08-17): botón único "Progresar" en el detalle
   // de una User Story — su texto/acción depende del `state` real:
-  // `SIN_TAREAS` -> marca `EN_DISEÑO` (el Dispatcher reparte el
+  // `NO_TASKS` -> marca `EN_DISEÑO` (el Dispatcher reparte el
   // aterrizaje al Arquitecto); `EN_DISEÑO` -> deshabilitado, esperando
-  // al Arquitecto; `TODO` (con Tasks) -> marca `EN_DESARROLLO`, mismo
+  // al Arquitecto; `TO_DO` (con Tasks) -> marca `EN_DESARROLLO`, mismo
   // atajo que `T-FB008-US14-04`; cualquier otro estado (`EN_DESARROLLO`,
-  // `REVIEW`, `DONE`, `POSTERGADA`) -> el botón no se muestra, no define
+  // `REVIEW`, `DONE`, `FUERA_ROADMAP`) -> el botón no se muestra, no define
   // ninguna acción "Progresar" ahí (fuera de alcance de esta Task).
   function renderProgresarUserStoryControls(detail) {
     var wrap = h("div", "accion-controls");
     var inFlight = backlogSection.editItemInFlight === detail.id;
 
-    if (detail.state === "SIN_TAREAS") {
+    if (detail.state === "NO_TASKS") {
       var progresarBtn = button(inFlight ? "Progresando…" : "Progresar", "accion-run");
       if (inFlight) progresarBtn.disabled = true;
       progresarBtn.addEventListener("click", function () {
@@ -5361,7 +5368,7 @@
       waitingBtn.title = "Esperando a que el Arquitecto la desgrane en Tasks.";
       wrap.appendChild(waitingBtn);
       wrap.appendChild(h("p", "section-note", "Esperando al Arquitecto."));
-    } else if (detail.state === "TODO") {
+    } else if (detail.state === "TO_DO") {
       var progresarToDevBtn = button(inFlight ? "Progresando…" : "Progresar", "accion-run");
       if (inFlight) progresarToDevBtn.disabled = true;
       progresarToDevBtn.addEventListener("click", function () {
@@ -5434,7 +5441,7 @@
   // conteos ya presentes en `by_epic` (sin backend nuevo) — sustituye a
   // `unblock_degree` (T-FB024-US07-01, grado de desbloqueo por
   // dependencias) como barra PRINCIPAL de cada tarjeta de Epic, porque
-  // `unblock_degree` no mide progreso: una Epic con Tasks TODO sin
+  // `unblock_degree` no mide progreso: una Epic con Tasks TO_DO sin
   // dependencias entre sí marca 100% sin nada hecho (diagnóstico de
   // `07-informes/FB-036/especificacion-ux-backlog.md`, estado 3 punto 3).
   function sumCounts(counts) {
@@ -5518,7 +5525,7 @@
 
   // Formulario "Lanzar desarrollo" (criterio de aceptación 4, consume
   // `POST /backlog/{story_id}/launch-development`, T-FB020-US02-01): el
-  // backend resuelve el contexto completo (objetivo + Tasks TODO), aquí
+  // backend resuelve el contexto completo (objetivo + Tasks TO_DO), aquí
   // solo se elige el agente Developer destinatario y se despacha — sin
   // escribir ninguna descripción a mano.
   function renderLaunchDevelopmentForm(storyId) {
@@ -5584,7 +5591,7 @@
 
     if (backlogSection.launchError) {
       // Criterio de aceptación explícito: el motivo REAL del backend
-      // (400 sin Tasks TODO, 404 agente inválido) — `buildErrorMessage`
+      // (400 sin Tasks TO_DO, 404 agente inválido) — `buildErrorMessage`
       // ya surge del `detail` verbatim de `BackendRequestError`, nunca
       // un mensaje genérico (mismo patrón que T-FB021-US04-01).
       form.appendChild(h("p", "agent-error", backlogSection.launchError));
@@ -5652,10 +5659,10 @@
     });
     form.appendChild(descArea);
 
-    // T-FB024-US15-02: Story TODO opcional a asociar al Job — mismo
+    // T-FB024-US15-02: Story TO_DO opcional a asociar al Job — mismo
     // selector/catálogo (`plansSection.todoStories`) que ya usa el flujo
     // de Plan, no un campo de texto libre nuevo. Preseleccionada a la
-    // propia US de este detalle si está en TODO (`toggleItemDetail`/
+    // propia US de este detalle si está en TO_DO (`toggleItemDetail`/
     // `recalculateManualJobStoryPreselection`); desmarcable por el
     // humano si quiere un Job suelto sin veredicto automático.
     form.appendChild(h("div", "field-label", "Asociar a una Story (opcional — dispara veredicto del Arquitecto al cerrar)"));
@@ -5674,12 +5681,12 @@
       todoStoriesForManual.forEach(function (story, idx) {
         var o = document.createElement("option");
         o.setAttribute("value", String(idx + 1));
-        o.textContent = story.id + " (" + (story.epic || "") + ") — TODO";
+        o.textContent = story.id + " (" + (story.epic || "") + ") — TO_DO";
         storySelect.appendChild(o);
       });
       if (todoStoriesForManual.length === 0) {
         storySelect.disabled = true;
-        noStoryOpt.textContent = "No hay User Stories en TODO en el backlog";
+        noStoryOpt.textContent = "No hay User Stories en TO_DO en el backlog";
       }
       storySelect.selectedIndex = 0;
       if (
@@ -5734,7 +5741,7 @@
     var payload = { agent_id: agent.id, description: description };
     // T-FB024-US15-02: 0 es "Sin Story asociada" — solo se envía
     // `story_id` si el humano eligió (o dejó preseleccionada) una Story
-    // real del catálogo TODO.
+    // real del catálogo TO_DO.
     var todoStoriesForManual = plansSection.todoStories || [];
     if (
       backlogSection.manualJobStorySelectIndex > 0 &&
@@ -5930,35 +5937,36 @@
       rows.push(syntheticRow("arquitecto", "stopped"));
     }
 
-    // Developer: siempre se muestran tantas filas como el límite
-    // configurado (`rolesSection.maxSimultaneousDevelopers`,
-    // US-FB024-12). Las instancias reales (vivas o detenidas) ocupan las
-    // primeras filas; las que falten hasta el límite se rellenan con
-    // filas sintéticas "Developer-N" en `stopped`, cada una con su propio
-    // botón Lanzar ya funcional — el rol developer sí está registrado en
-    // el backend, así que lanzar desde una fila sintética crea la
-    // instancia real correspondiente (US-FB024-11, regla de filas fijas
-    // de Developer).
+    // Developer: filas FIJAS e independientes — una por número
+    // (Developer-1, Developer-2, ..., Developer-N con N = límite
+    // configurado, `rolesSection.maxSimultaneousDevelopers`,
+    // US-FB024-12). Cada fila es un "slot" estable: si existe una
+    // instancia real con ESE nombre se muestra; si no, fila sintética
+    // "stopped" con el MISMO nombre, lanzable por su cuenta — mismo
+    // patrón que Auditor-OSS/UX (agentes no relacionados que comparten
+    // rol). T-FB005-US01-08 (2026-08-18): matar un Developer NO renumera
+    // las filas ni hace aparecer "Developer-4" — la fila de la instancia
+    // muerta vuelve a su estado lanzable con su nombre original, y
+    // lanzar desde ella crea la instancia con ese número (el backend lo
+    // fija vía `developer_number` en el payload, no por conteo).
     var devAgents = agents.filter(function (a) { return a.role === "developer"; });
     var maxDevelopers = rolesSection.maxSimultaneousDevelopers !== null
       ? rolesSection.maxSimultaneousDevelopers
       : DEFAULT_MAX_SIMULTANEOUS_DEVELOPERS;
-    devAgents.forEach(function (a) { rows.push(a); });
-    // Bug real corregido (T-FB024-US11-13, 2026-08-17): el nombre real
-    // de la instancia ("Developer-N") lo asigna el BACKEND por conteo de
-    // instancias ya existentes (`_next_developer_name`,
-    // `brain/agents/developer.py`) — nunca por la posición de la fila
-    // sintética pulsada. Lanzar "Developer-3" mientras "Developer-2" no
-    // existe hacía que la instancia real naciera como "Developer-2" (la
-    // siguiente posición libre según el backend), no "Developer-3" — el
-    // modelo/runtime elegidos en la fila 3 aparecían aplicados a la fila
-    // 2 tras el refresco. Solo la PRIMERA fila sintética (la siguiente
-    // posición libre real) puede lanzarse; el resto queda bloqueada con
-    // motivo explícito hasta que le toque el turno.
-    for (var devIdx = devAgents.length; devIdx < maxDevelopers; devIdx++) {
-      var syntheticDev = syntheticRow("developer", "stopped", "Developer-" + (devIdx + 1));
-      syntheticDev._launchable = devIdx === devAgents.length;
-      rows.push(syntheticDev);
+    for (var devNum = 1; devNum <= maxDevelopers; devNum++) {
+      var devName = "Developer-" + devNum;
+      var realDev = null;
+      for (var di = 0; di < devAgents.length; di++) {
+        if (devAgents[di].name === devName) {
+          realDev = devAgents[di];
+          break;
+        }
+      }
+      if (realDev) {
+        rows.push(realDev);
+      } else {
+        rows.push(syntheticRow("developer", "stopped", devName));
+      }
     }
 
     // UX y Auditor-OSS (T-FB024-US13-01/-02/-03): igual que Arquitecto,
@@ -5972,10 +5980,12 @@
       rows.push(existing || syntheticRow(role, "stopped"));
     });
 
-    // Tester: rol aún no registrado en el backend — fila sintética
-    // "unregistered", Lanzar deshabilitado (fuera de alcance de
-    // T-FB024-US13-01/-02/-03).
-    rows.push(syntheticRow("tester"));
+    // Tester: rol SÍ registrado en el backend (`brain/agents/tester.py`,
+    // T-FB022-US15-01) — fila sintética "stopped" (Lanzar habilitado al
+    // elegir runtime, igual que Auditor-OSS/UX/Developer). Bug corregido
+    // 2026-08-18: se trataba como "unregistered", por lo que el botón
+    // Lanzar quedaba siempre deshabilitado incluso tras elegir runtime.
+    rows.push(syntheticRow("tester", "stopped"));
 
     return rows;
   }
@@ -6615,18 +6625,12 @@
     if (isUnregistered) {
       devLaunch.disabled = true;
       devLaunch.title = "rol no disponible todavía: pendiente de registrar en el backend";
-    } else if (agent._synthetic && agent._launchable === false) {
-      // Bug real corregido (T-FB024-US11-13, 2026-08-17): el nombre real
-      // lo asigna el backend por conteo, no por la fila pulsada — lanzar
-      // fuera de orden hacía que la instancia naciera en la posición
-      // libre anterior, no en la fila que se pulsó. Se bloquea con el
-      // motivo explícito.
-      devLaunch.disabled = true;
-      devLaunch.title = "Lanza primero las filas de Developer anteriores (el nombre real lo asigna el orden de lanzamiento, no esta fila).";
     } else if (!chosenRuntimeForRow(agent)) {
       // T-FB005-US07-03: el lanzamiento exige un runtime elegido — se
       // bloquea con aviso explícito si no hay ninguno (criterio 1 de
-      // US-FB005-07).
+      // US-FB005-07). Cada fila de Developer/Tester/UX/Auditor-OSS es un
+      // slot independiente lanzable por su cuenta cuando se elige runtime
+      // (T-FB005-US01-08, 2026-08-18).
       devLaunch.disabled = true;
       devLaunch.title = "Elige un runtime antes de lanzar";
     } else if (isStopped || isUnavailable) {
@@ -6661,12 +6665,19 @@
     return match.runtime === "claude_code" ? "claude-code" : match.runtime;
   }
 
-  function launchStoppedDev(agent) {
-    // Defensa por si se invoca sin pasar por el botón ya deshabilitado
-    // (ver `renderLanzarDetenerBtn`): nunca lanzar una fila sintética
-    // fuera de orden.
-    if (agent._synthetic && agent._launchable === false) return;
+function launchStoppedDev(agent) {
     var payload = { role: agent.role };
+    // T-FB005-US01-08 (2026-08-18): para Developer se envía el número de
+    // slot de la fila pulsada (`developer_number`), de modo que el agente
+    // nace con el nombre de ESA fila ("Developer-N"), no con el que el
+    // conteo del backend decida en ese instante. Cada slot es
+    // independiente (Developer-1/2/3), igual que Auditor-OSS/UX.
+    if (agent.role === "developer") {
+      var devMatch = /^Developer-(\d+)$/.exec(agent.name || "");
+      if (devMatch) {
+        payload.developer_number = parseInt(devMatch[1], 10);
+      }
+    }
     // T-FB005-US07-02/-03: el runtime se manda SIEMPRE explícito en
     // `POST /agents` (contrato: runtime separado del modelo), y es la
     // elección OBLIGATORIA de esta pantalla — se toma del selector de la
@@ -6695,16 +6706,9 @@
     if (chosenModel) {
       payload.model_id = chosenModel;
     }
-    // T-FB024-US11-06: el nombre de la fila sintética ("Developer-N") es
-    // solo una etiqueta visual por posición — el backend decide el nombre
-    // real por conteo de Developer ya registrados en ese instante
-    // (`_next_developer_name`, `agents/developer.py`), nunca por lo que
-    // envía este payload. Si `rolesSection.agentsList` está desactualizado
-    // (polling de 3s), la posición N pulsada puede no coincidir con la
-    // instancia real creada. Se refresca la lista justo antes de lanzar
-    // para reducir esa ventana al mínimo — el nombre real siempre se
-    // confirma después con `launchFeedbackMessageFor(result)`, nunca se
-    // asume el de la fila.
+    // Se refresca la lista justo antes de lanzar para reducir la ventana
+    // de desincronización con el polling de 3s; el nombre real de la
+    // instancia se confirma después con `launchFeedbackMessageFor(result)`.
     pollRolesAgents().then(function () {
       return BackendClient.launchAgent(payload);
     }).then(function (result) {
@@ -7249,6 +7253,36 @@
       form.appendChild(h("p", "agent-error", configuracionSection.reviewPreferenceSaveError));
     }
 
+    form.appendChild(h("div", "jobs-form-title", "Reiniciar Brain"));
+
+    form.appendChild(h(
+      "p",
+      "section-note",
+      "Reinicia el servicio brain-api. Durante unos segundos la web no podrá contactar con el backend y los agentes quedarán momentáneamente inaccesibles desde la web (sus sesiones tmux sobreviven al reinicio)."
+    ));
+
+    if (configuracionSection.restarting) {
+      form.appendChild(h("p", "section-note", "Reiniciando… esperando a que el backend vuelva a responder."));
+    } else if (configuracionSection.restartPendingFor) {
+      var restartConfirm = button("¿Seguro? Confirmar reinicio", "agent-stop");
+      restartConfirm.addEventListener("click", requestSystemRestart);
+      form.appendChild(restartConfirm);
+    } else {
+      var restartBtn = button("Reiniciar Brain", "agent-stop");
+      restartBtn.addEventListener("click", function () {
+        configuracionSection.restartPendingFor = true;
+        renderConfiguracionBody();
+      });
+      form.appendChild(restartBtn);
+    }
+
+    if (configuracionSection.restartMessage) {
+      form.appendChild(h("p", "section-note", configuracionSection.restartMessage));
+    }
+    if (configuracionSection.restartError) {
+      form.appendChild(h("p", "agent-error", configuracionSection.restartError));
+    }
+
     wrap.appendChild(form);
   }
 
@@ -7296,6 +7330,73 @@
         configuracionSection.saveError = buildErrorMessage(error);
         renderConfiguracionBody();
       });
+  }
+
+  // Reinicio del servicio (T-FB037-US05-02): captura el nº de agentes
+  // antes, lanza `POST /system/restart` (fire-and-forget, 202) y hace
+  // polling a `GET /agents` hasta que el backend vuelve a responder. Los
+  // errores de conexión durante la caída son esperados, no un fallo.
+  var RESTART_POLL_MILLIS = 3000;
+  var RESTART_POLL_TIMEOUT_MILLIS = 90000;
+
+  function requestSystemRestart() {
+    if (configuracionSection.restarting) return;
+    configuracionSection.restartPendingFor = false;
+    configuracionSection.restarting = true;
+    configuracionSection.restartMessage = null;
+    configuracionSection.restartError = null;
+    renderConfiguracionBody();
+
+    BackendClient.getAgents()
+      .then(function (agents) {
+        var beforeCount = Array.isArray(agents) ? agents.length : 0;
+        return BackendClient.restartSystem().then(function () {
+          startRestartPolling(beforeCount);
+        });
+      })
+      .catch(function (error) {
+        configuracionSection.restarting = false;
+        configuracionSection.restartError = buildErrorMessage(error);
+        renderConfiguracionBody();
+      });
+  }
+
+  function startRestartPolling(beforeAgentCount) {
+    var startedAt = Date.now();
+    var attempts = 0;
+
+    function poll() {
+      attempts += 1;
+      BackendClient.getAgents()
+        .then(function (agents) {
+          var afterCount = Array.isArray(agents) ? agents.length : 0;
+          configuracionSection.restarting = false;
+          configuracionSection.restartPollTimer = null;
+          if (afterCount === beforeAgentCount) {
+            configuracionSection.restartMessage =
+              "Reinicio completado. El backend responde de nuevo con " + afterCount + " agente(s), los mismos que antes del reinicio.";
+          } else {
+            configuracionSection.restartMessage =
+              "Reinicio completado, pero el número de agentes ha cambiado (antes: " + beforeAgentCount + ", ahora: " + afterCount + "). Revisa el log de reconciliación en .claude/state/<proyecto>/reconciliation_log.jsonl.";
+          }
+          renderConfiguracionBody();
+        })
+        .catch(function () {
+          // Backend caído todavía: esperado durante el reinicio. Se sigue
+          // sondeando hasta el timeout.
+          if (Date.now() - startedAt >= RESTART_POLL_TIMEOUT_MILLIS) {
+            configuracionSection.restarting = false;
+            configuracionSection.restartPollTimer = null;
+            configuracionSection.restartError =
+              "El backend no ha vuelto a responder tras " + Math.round(RESTART_POLL_TIMEOUT_MILLIS / 1000) + "s. Comprueba el estado del servicio (systemctl status factory-brain-api).";
+            renderConfiguracionBody();
+            return;
+          }
+          configuracionSection.restartPollTimer = setTimeout(poll, RESTART_POLL_MILLIS);
+        });
+    }
+
+    configuracionSection.restartPollTimer = setTimeout(poll, RESTART_POLL_MILLIS);
   }
 
   // ------------------------------------------------------------- FB-025
@@ -7462,15 +7563,15 @@
     BackendClient.getBacklog()
       .then(function (report) {
         var count = 0;
-        // T-FB008-US15-01/-02 (2026-08-17): SIN_TAREAS/EN_DISEÑO también
+        // T-FB008-US15-01/-02 (2026-08-17): NO_TASKS/EN_DISEÑO también
         // son trabajo pendiente real (una US recién creada, o esperando
-        // al Arquitecto) — antes solo contaba TODO, dejando el badge en
+        // al Arquitecto) — antes solo contaba TO_DO, dejando el badge en
         // 0 pese a haber Epics/US con trabajo real por hacer.
         (report.by_epic || []).forEach(function (epic) {
-          count += (epic.user_stories && epic.user_stories.TODO || 0)
-                 + (epic.user_stories && epic.user_stories.SIN_TAREAS || 0)
+          count += (epic.user_stories && epic.user_stories.TO_DO || 0)
+                 + (epic.user_stories && epic.user_stories.NO_TASKS || 0)
                  + (epic.user_stories && epic.user_stories["EN_DISEÑO"] || 0)
-                 + (epic.tasks && epic.tasks.TODO || 0);
+                 + (epic.tasks && epic.tasks.TO_DO || 0);
         });
         state.pendingBacklogCount = count;
         render();
