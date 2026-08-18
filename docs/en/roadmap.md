@@ -27,7 +27,7 @@ Source: the `state` frontmatter field of each Epic in `02-backlog/epics/` (canon
 | **FB-004** Runtime Manager | Claude Code and OpenCode in tmux, model switching (OpenCode). |
 | **FB-005** Agent Manager | Developer and Critic roles, two-layer prompts, liveness. |
 
-> Historical note: the Critic role was folded into the Architect (see `00-gobierno/old/CRITICO.md`); the current product pipeline drives work from the backlog (`docs/backlog.md`).
+> Historical note: the Critic role was folded into the Architect (see `00-gobierno/old/CRITICO.md`); the current product pipeline drives work from the backlog (see [Backlog and pipeline](backlog.md)).
 
 | **FB-008** Dispatcher | Jobs, chaining, isolated-Job dispatch, cancellation, automatic Scribe. |
 | **FB-014** Local Tools | Scribe: local summarization/indexing (Ollama), including the `index_scripts` operation. |

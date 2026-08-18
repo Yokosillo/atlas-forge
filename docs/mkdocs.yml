@@ -12,7 +12,6 @@ docs_dir: .
 
 theme:
   name: material
-  language: en
   features:
     - navigation.sections
     - navigation.expand
@@ -52,6 +51,16 @@ extra_javascript:
 
 plugins:
   - search
+  - i18n:
+      default_language: en
+      languages:
+        - locale: en
+          name: English
+          build: true
+          default: true
+        - locale: es
+          name: Español
+          build: true
 
 nav:
   - Home: index.md
