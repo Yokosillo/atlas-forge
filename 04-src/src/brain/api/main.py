@@ -1,10 +1,9 @@
 """Entrypoint `brain-api` (T-FB016-US01-01): arranca el servidor FastAPI
 como proceso único de larga duración (`uvicorn`), escuchando por defecto
 en la interfaz Tailscale de esta VM — nunca `0.0.0.0` (ver
-`brain.api.host` para la justificación completa). Análogo al entrypoint
-`brain` ya existente para la TUI (`brain.cli.main`), pero un proceso
-Python completamente distinto: ambos pueden convivir, cada uno con su
-propio estado en memoria (ver docstring de `brain.api.app`)."""
+`brain.api.host` para la justificación completa). Es el único entrypoint
+del paquete: el antiguo `brain` (TUI, `brain.cli.main`) fue retirado del
+proyecto (ver el commit de archivado `archive/tui-android-2026-08-18`)."""
 
 import argparse
 import logging

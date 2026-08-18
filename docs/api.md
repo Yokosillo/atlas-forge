@@ -19,9 +19,6 @@ Checks that the backend responds.
 
 `session_id` is `null` until a project is selected.
 
-### `GET /apk`
-Serves `releases/factory-brain-latest.apk` (Android app download). 404 if the APK does not exist.
-
 ### `GET /ui/` (static mount)
 Serves the web interface (`10-web/`). `GET /ui` redirects to `/ui/`.
 

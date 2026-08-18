@@ -59,8 +59,6 @@ nav:
   - Architecture: architecture.md
   - Concepts: concepts.md
   - Web interface: interfaces-web.md
-  - TUI: interfaces-tui.md
-  - Android app: interfaces-android.md
   - API: api.md
   - Agents: agents.md
   - Runtime and Scribe: runtime.md
@@ -68,7 +66,6 @@ nav:
   - Scripts: scripts.md
   - Backlog and pipeline: backlog.md
   - Configuration: configuration.md
-  - CLI: cli.md
   - Roadmap: roadmap.md
   - FAQ and troubleshooting: faq.md
   - Development: development.md

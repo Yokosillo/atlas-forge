@@ -64,8 +64,6 @@ Execution failures are returned **structurally** inside the result (never as an 
 ## In the interfaces
 
 - **Web**: "Scripts" tab with Generic/Project groups, visible description and command hidden behind "▶ View command"; a message field only for `commit`.
-- **TUI**: Scripts screen with a `[Generic]`/`[Project]` labelled selector.
-- **Android app**: Scripts screen with the same catalog.
 
 ## Relationship with Scribe
 

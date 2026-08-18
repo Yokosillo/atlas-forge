@@ -12,7 +12,6 @@ dependencies = [
     "fastapi>=0.115,<1",
     "libtmux>=0.37,<1",
     "requests>=2.31,<3",
-    "textual>=8.2,<9",
     "uvicorn>=0.32,<1",
     "websockets>=13,<16",
 ]
@@ -25,7 +24,6 @@ dev = [
 ]
 
 [project.scripts]
-brain = "brain.cli.main:main"
 brain-api = "brain.api.main:main"
 
 [tool.setuptools.packages.find]

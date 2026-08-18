@@ -6018,12 +6018,17 @@
 
   // Nombre visible del modelo por defecto del rol (a partir del model_id
   // guardado en default_model_by_role), o null si no hay default o el id
-  // ya no está en el catálogo.
+  // ya no está en el catálogo. Bug corregido 2026-08-18: si el default
+  // persistido no es un id válido del catálogo (p. ej. "claude-code", un
+  // runtime, guardado por un camino legacy), se devuelve null en vez de
+  // mostrar el id corrupto como nombre — una fila no lanzada sin runtime
+  // elegido muestra "Modelo: se define al lanzar", nunca "Modelo:
+  // claude-code".
   function defaultModelLabelFor(role) {
     var modelId = rolesSection.defaults && rolesSection.defaults[role];
     if (!modelId) return null;
     var match = (rolesSection.models || []).filter(function (m) { return m.id === modelId; })[0];
-    return match ? match.name : modelId;
+    return match ? match.name : null;
   }
 
   // T-FB005-US07-03: runtime elegido para la fila ANTES de lanzar. Si el

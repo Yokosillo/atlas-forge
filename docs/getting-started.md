@@ -28,7 +28,7 @@ This installs the `brain` package and the `brain` and `brain-api` entrypoints.
 
 ## Running
 
-Factory Brain operates as **a single process of truth** (`brain-api`) that exposes the API and serves the web interface. All clients (web, TUI, app) connect to it.
+Factory Brain operates as **a single process of truth** (`brain-api`) that exposes the API and serves the web interface. All clients (the web) connect to it.
 
 ### 1. Start the backend
 
@@ -45,15 +45,7 @@ Navigate to `http://<host>:8000/ui/` (or `http://127.0.0.1:8000/ui/` locally).
 
 On first startup the web guides you: verify connectivity → choose your first project → enter the operational view. From there you can launch agents, drive the backlog pipeline with "Progresar", dispatch isolated Jobs, run scripts and trigger cross-cutting actions.
 
-### 3. (Alternative) Use the TUI
-
-```bash
-brain
-```
-
-The TUI (Textual) is also an API client: it checks connectivity, selects or recovers the project and offers Workspace, Dashboard, Agents, Jobs, Scripts and Backlog screens. It assumes `brain-api` is already running (e.g. via systemd).
-
-### 4. (Alternative) Install as a systemd service
+### 3. (Alternative) Install as a systemd service
 
 ```bash
 sudo cp deploy/systemd/factory-brain-api.service /etc/systemd/system/

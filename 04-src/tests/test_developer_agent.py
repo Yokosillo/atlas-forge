@@ -323,3 +323,65 @@ def test_register_developer_without_saved_preference_uses_default(
         register_developer(
             session, runtime, str(tmp_path), socket_name=isolated_socket, state_dir=state_dir
         )
+
+
+def test_register_developer_honors_explicit_developer_number(
+    isolated_socket: str, tmp_path
+) -> None:
+    """T-FB005-US01-08 (2026-08-18): los Developers son slots fijos e
+    independientes (Developer-1/2/3, criterio nuevo de US-FB005-01) — al
+    indicar `developer_number`, el agente nace con ESE número aunque no
+    sea el siguiente por orden de lanzamiento. Lanzar fuera de orden
+    (primero el 2 y luego el 1) respeta cada slot."""
+    session = _active_session()
+    runtime = _test_runtime()
+
+    second_agent, _ = register_developer(
+        session, runtime, str(tmp_path), socket_name=isolated_socket,
+        developer_number=2,
+    )
+    first_agent, _ = register_developer(
+        session, runtime, str(tmp_path), socket_name=isolated_socket,
+        developer_number=1,
+    )
+
+    assert second_agent.name == "Developer-2"
+    assert first_agent.name == "Developer-1"
+
+
+def test_register_developer_rejects_duplicate_explicit_number(
+    isolated_socket: str, tmp_path
+) -> None:
+    """T-FB005-US01-08: relanzar el slot de un Developer aún vivo se
+    rechaza con mensaje claro — un número nunca se reutiliza mientras su
+    Developer siga vivo (garantiza nombres únicos y ausencia de colisión
+    de sesión tmux)."""
+    session = _active_session()
+    runtime = _test_runtime()
+
+    first, _ = register_developer(
+        session, runtime, str(tmp_path), socket_name=isolated_socket,
+        developer_number=2,
+    )
+    assert first.name == "Developer-2"
+
+    with pytest.raises(RuntimeError, match="Ya existe un Developer 'Developer-2'"):
+        register_developer(
+            session, runtime, str(tmp_path), socket_name=isolated_socket,
+            developer_number=2,
+        )
+
+
+def test_register_developer_rejects_invalid_developer_number(
+    isolated_socket: str, tmp_path
+) -> None:
+    """T-FB005-US01-08: un `developer_number` < 1 es inválido (no existe
+    el slot Developer-0)."""
+    session = _active_session()
+    runtime = _test_runtime()
+
+    with pytest.raises(RuntimeError, match="Número de Developer inválido"):
+        register_developer(
+            session, runtime, str(tmp_path), socket_name=isolated_socket,
+            developer_number=0,
+        )

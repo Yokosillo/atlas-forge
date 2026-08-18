@@ -21,6 +21,7 @@ ciclo — mismo patrón ya aplicado en `runtime/generic.py`
 
 import uuid
 from pathlib import Path
+from typing import Any
 
 from brain.core.session_lifecycle import assign_agent, list_agents
 from brain.models import Agent, DevelopmentSession
@@ -30,7 +31,49 @@ from brain.runtime.agent_runtime_registry import (
     register_runtime_instance_for_agent,
 )
 from brain.runtime.claude_code import register_claude_code_runtime
-from brain.tmux.manager import DEFAULT_SOCKET_NAME, list_sessions
+from brain.tmux.manager import (
+    DEFAULT_SOCKET_NAME,
+    capture_pane_lines,
+    is_alive,
+    list_sessions,
+)
+
+
+def _infer_runtime_and_model_for_session(
+    session_name: str, socket_name: str = DEFAULT_SOCKET_NAME
+) -> tuple[Any, str | None]:
+    """Infiera el runtime real de una sesión tmux inspeccionando su pane
+    (US-FB031-03, T-FB031-US03-01): resuelve el bug confirmado de que
+    `GET /agents` mostraba `runtime_id: "claude-code"` para un agente que
+    en realidad seguía corriendo OpenCode tras reiniciar `brain-api`.
+
+    Heurística determinista de primer nivel (mismo enfoque ya usado en
+    US-FB030-04/US-FB024-21): si el pane está vivo y muestra la barra de
+    estado de OpenCode (`"Build · "`), el agente es OpenCode — se devuelve
+    un `Runtime` OpenCode y, si el texto extraído tras el patrón tiene
+    forma de id de modelo (`provider/model`), ese id como modelo; en caso
+    contrario `None` (nunca un valor inventado, criterio 2 de la US).
+
+    Si el pane no muestra ningún patrón reconocible (agente recién
+    lanzado sin salida aún, formato de CLI cambiado, o es Claude Code),
+    se conserva el comportamiento documentado: `claude-code` por defecto
+    y modelo `None` (criterio 3 — no se rompe el caso ya cubierto)."""
+    from brain.agent_model import _MODEL_STATUS_PATTERN, _parse_model_from_pane
+    from brain.runtime.opencode import register_opencode_runtime
+
+    try:
+        if not is_alive(session_name, socket_name=socket_name):
+            return register_claude_code_runtime(), None
+        lines = capture_pane_lines(session_name, socket_name=socket_name)
+    except Exception:
+        return register_claude_code_runtime(), None
+
+    for line in lines:
+        if _MODEL_STATUS_PATTERN in line:
+            model_text = _parse_model_from_pane(lines)
+            model_id = model_text if "/" in model_text else None
+            return register_opencode_runtime(model=model_id), model_id
+    return register_claude_code_runtime(), None
 
 
 def reconcile_session_agents(
@@ -124,7 +167,12 @@ def reconcile_session_agents(
             if parsed.instance is not None:
                 agent_name = f"{agent_name}-{parsed.instance}"
 
-            runtime = register_claude_code_runtime()
+            # US-FB031-03: inferir el runtime REAL del pane (OpenCode vs.
+            # el default documentado Claude Code) en vez de asumir siempre
+            # `claude-code` — ver `_infer_runtime_and_model_for_session`.
+            runtime, inferred_model = _infer_runtime_and_model_for_session(
+                tmux_session_name, socket_name=socket_name
+            )
             agent = Agent(
                 id=str(uuid.uuid4()),
                 name=agent_name,

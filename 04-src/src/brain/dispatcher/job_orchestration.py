@@ -1,18 +1,17 @@
 """Crear un Job y registrarlo en el histórico de la sesión como una única
 operación (T-FB016-US01-04): hasta ahora, `create_job` (FB-008 v1) y
 `record_job` (`job_history_registry`, T-FB002-US03-03) eran dos llamadas
-separadas que el único consumidor real, `JobsScreen` (la pantalla Jobs de
-la TUI), encadenaba manualmente — cualquier llamador nuevo (esta Task, la
-API) tendría que acordarse de hacer las dos llamadas por su cuenta o el
-histórico quedaría desincronizado en silencio (un Job creado pero invisible
-en `GET /jobs`/la pantalla Jobs).
+separadas que el único consumidor real, `JobsScreen`, encadenaba
+manualmente — cualquier llamador nuevo (esta Task, la API) tendría que
+acordarse de hacer las dos llamadas por su cuenta o el histórico quedaría
+desincronizado en silencio (un Job creado pero invisible en
+`GET /jobs`).
 
-Esta función no es la extracción de una pieza acoplada a la TUI —
+Esta función no es la extracción de una pieza acoplada a una pantalla —
 `list_jobs_for_session`/`record_job` ya viven en `brain.dispatcher` desde
-T-FB002-US03-03, no en `brain.tui` — es cerrar el hueco de que crear un Job
-y registrarlo en el histórico eran dos pasos manuales en vez de una sola
-operación reutilizable por cualquier consumidor (API y, tras
-T-FB016-US01-06, también la TUI migrada)."""
+T-FB002-US03-03 — es cerrar el hueco de que crear un Job y registrarlo
+en el histórico eran dos pasos manuales en vez de una sola operación
+reutilizable por cualquier consumidor (la API)."""
 
 from brain.dispatcher.job_creation import create_job
 from brain.dispatcher.job_history_registry import record_job

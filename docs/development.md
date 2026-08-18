@@ -35,7 +35,7 @@ pytest tests/test_scribe.py -k index   # filter by name
 
 ## Architecture for development
 
-- **Domain** (`brain/`): no interface dependency. Clients (web, TUI, Android) consume only the API (`brain/api/routes.py`).
+- **Domain** (`brain/`): no interface dependency. Clients (the web) consume only the API (`brain/api/routes.py`).
 - **Boundary test**: `tests/test_module_boundaries.py` verifies that clients do not import the domain directly except for bounded exceptions (static agent catalog, disk configuration). **Add your change without breaking this test.**
 - **Registries**: all in-process, with a `_reset_registry_for_tests()` method.
 

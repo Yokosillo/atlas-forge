@@ -1,24 +1,14 @@
 """App FastAPI de Factory Brain (T-FB016-US01-01, US-FB016-01): esqueleto
-del backend HTTP/WebSocket que expone el dominio ya existente a clientes
-distintos de la TUI (empezando por la app Android de FB-017).
+del backend HTTP/WebSocket que expone el dominio ya existente a clientes.
 
-## Proceso independiente de la TUI
+## Proceso único de larga duración
 
-`brain-api` (este paquete) y `brain` (`brain.cli.main`, la TUI) son dos
-procesos Python completamente independientes, cada uno con su propio
-`_SessionRegistry`/`_AgentRuntimeRegistry` en memoria (mismos registros que
-ya usa la TUI, ver `brain.core.session_registry` /
-`brain.runtime.agent_runtime_registry`) — no se unifican en esta Task (ver
-"Fuera de alcance" de FB-016: "unificar el estado del backend con el de la
-TUI... queda como dos procesos independientes en v1"). Lo que sí resuelve
-esta Task es el problema real detectado con `textual-serve` (ver
-`02-backlog/roadmap.md`, Fase 2.0): con `textual-serve`, cada cliente que
-se conectaba lanzaba un subproceso `brain` nuevo, cada uno con su propio
-estado en memoria — un agente lanzado desde un cliente no aparecía en la
-lista consultada desde otro. Aquí, en cambio, `create_app()` construye una
-única instancia de `FastAPI` que un único proceso `uvicorn` sirve a todos
-los clientes que se conecten — todos comparten el mismo
-`_SessionRegistry` de ese proceso (verificado en
+`create_app()` construye una única instancia de `FastAPI` que un único
+proceso `uvicorn` sirve a todos los clientes que se conecten — todos
+comparten el mismo `_SessionRegistry`/`_AgentRuntimeRegistry` en memoria
+(ver `brain.core.session_registry` / `brain.runtime.agent_runtime_registry`),
+de modo que un agente lanzado desde un cliente aparece en la lista
+consultada desde otro (verificado en
 `test_two_clients_see_the_same_session_state`).
 
 ## Dependencia `websockets` (T-FB016-US01-05)
@@ -40,7 +30,6 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
-from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
@@ -63,17 +52,7 @@ from brain.runtime.generic import is_runtime_alive
 from brain.tmux import capture_pane_lines, list_sessions
 from brain.workspace.active_project import get_active_project
 
-# T-FB017-US01-01: ruta del APK más reciente servido por `GET /apk` (ver
-# docstring del endpoint más abajo para la justificación completa del
-# mecanismo de distribución). No vive dentro del repo de código — es un
-# artefacto binario generado por `./gradlew assembleDebug`/`assembleRelease`,
-# no algo que deba versionarse en git. Vive en /opt (no en el home del
-# usuario) por ser un artefacto de sistema del servicio, no un dato de
-# usuario — movido desde ~/factory-brain-releases/ el 2026-08-01.
-DEFAULT_APK_PATH = Path("/opt/factory-brain/releases/factory-brain-latest.apk")
-
-# T-FB021-US01-01: directorio raíz de la interfaz web estática (`10-web/`,
-# mismo nivel que `10-android/` — coherente con la nomenclatura de clientes).
+# T-FB021-US01-01: directorio raíz de la interfaz web estática (`10-web/`).
 # Se ancla al propio `app.py` (`parents[4]` = raíz del repo) y NO al cwd, de
 # modo que `create_app()` sirva la web igual se lance uvicorn desde la raíz
 # del repo o desde dentro de `04-src/`.
@@ -340,34 +319,6 @@ def create_app() -> FastAPI:
             "status": "ok",
             "session_id": session.id if session is not None else None,
         }
-
-    @app.get("/apk")
-    def download_apk() -> FileResponse:
-        """Sirve el APK compilado más reciente de la app Android
-        (T-FB017-US01-01, mecanismo de distribución ya decidido: sin Play
-        Store, sin `adb` — el móvil abre esta URL sobre la red Tailscale
-        en su navegador y descarga el APK, ver
-        `02-backlog/epics/FB-017-app-android.md` para el flujo completo
-        paso a paso). Reutiliza este mismo backend en vez de un servidor
-        HTTP aparte: ya es un proceso siempre vivo (T-FB016-US01-09)
-        alcanzable sobre Tailscale, y servir un fichero estático no es
-        lógica de negocio nueva (no decide nada, no valida nada de
-        dominio) — no contradice el principio de la Epic FB-016 de "no
-        añade lógica de negocio nueva salvo la indicada explícitamente".
-
-        404 explícito si todavía no se ha compilado/copiado ningún APK a
-        `DEFAULT_APK_PATH` — nunca un 500 genérico por un fichero
-        ausente."""
-        if not DEFAULT_APK_PATH.exists():
-            raise HTTPException(
-                status_code=404,
-                detail=f"No hay ningún APK publicado en '{DEFAULT_APK_PATH}' todavía.",
-            )
-        return FileResponse(
-            path=DEFAULT_APK_PATH,
-            media_type="application/vnd.android.package-archive",
-            filename="factory-brain.apk",
-        )
 
     @app.websocket("/ws/jobs")
     async def ws_jobs(websocket: WebSocket) -> None:

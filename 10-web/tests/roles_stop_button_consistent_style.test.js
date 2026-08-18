@@ -42,13 +42,24 @@ async function test_stop_button_has_the_same_visual_style_for_arquitecto_and_dev
       await rolesTab.click();
 
       // Esperar a que ambos agentes reales (no sintéticos) aparezcan con
-      // su botón de detener/eliminar visible.
+      // su botón de detener/eliminar visible. La fila sintética "stopped"
+      // de Developer-1 también cumple el nombre (T-FB005-US01-08), así que
+      // se espera además al botón real "Detener"/"Eliminar" para no
+      // comparar estilos contra una fila todavía no lanzada.
       await page.waitForFunction(
         () => {
-          const names = Array.from(document.querySelectorAll(".agent-name")).map(
-            (el) => el.textContent
-          );
-          return names.includes("Arquitecto") && names.includes("Developer-1");
+          function hasStopButton(rowName) {
+            const cards = Array.from(document.querySelectorAll(".agent-card"));
+            const card = cards.find((c) => {
+              const nameEl = c.querySelector(".agent-name");
+              return nameEl && nameEl.textContent === rowName;
+            });
+            if (!card) return false;
+            return Array.from(card.querySelectorAll("button")).some(
+              (b) => b.textContent.trim() === "Detener" || b.textContent.trim() === "Eliminar"
+            );
+          }
+          return hasStopButton("Arquitecto") && hasStopButton("Developer-1");
         },
         { timeout: 15000 }
       );

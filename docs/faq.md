@@ -22,10 +22,6 @@ When launching an agent you choose role + model from the catalog (`GET /agents/o
 
 Active project and model preferences in `~/.local/share/brain/`. Session, agents and Jobs **in the memory of the `brain-api` process** — lost when the backend restarts. See [Configuration](configuration.md).
 
-### How is the Android app installed?
-
-By downloading the APK from the backend (`GET /apk`). There is no Play Store. The app is **paused for development** (2026-08-04) but the existing code works.
-
 ### Is there a plugin system or MCP?
 
 **No.** The Plugin System (FB-011) is planned but not implemented. Any new integration is done by code in `04-src/`.

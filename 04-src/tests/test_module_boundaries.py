@@ -30,57 +30,16 @@ _BRAIN_ROOT = Path(__file__).resolve().parents[1] / "src" / "brain"
 # se registre aquí explícitamente (módulo + símbolos permite confirmar que es
 # una dependencia deliberada y acotada, no un catch-all).
 #
-# TUI: las reglas de `01-arquitectura.md` se cumplen por disciplina; estas son
-# las excepciones que el código actual necesita (NUNCA una lista abierta):
-#   - tui/screens/agents.py  -> brain.agents.agent_options  (catálogo estático).
-#   - tui/screens/jobs.py    -> brain.agents  (solo las dos constantes de rol).
-#   - tui/screens/backlog.py -> brain.agents  (solo DEVELOPER_ROLE, para filtrar
-#                               el selector de "Lanzar desarrollo", T-FB020-US02-02
-#                               — mismo criterio ya aceptado en jobs.py).
-#   - tui/app.py, tui/screens/dashboard.py, tui/screens/workspace.py
-#                            -> brain.workspace.* (config de disco local /
-#                               selección de proyecto; la pantalla Workspace es
-#                               por definición la que descubre/selecciona proyecto).
-_TUI_ALLOWED = {
-    "tui/screens/agents.py": {
-        "brain.agents.agent_options": {
-            "list_available_agent_options",
-        },
-        # T-FB022-US01-01: CRITIC_ROLE ya no vive en agent_options sino en
-        # brain.agents (rol generalizado con registry).
-        "brain.agents": {"CRITIC_ROLE"},
-    },
-    "tui/screens/jobs.py": {
-        "brain.agents": {"CRITIC_ROLE", "DEVELOPER_ROLE"}
-    },
-    "tui/screens/backlog.py": {
-        "brain.agents": {"DEVELOPER_ROLE"}
-    },
-    "tui/app.py": {
-        "brain.workspace.startup": {"ProjectRecovered", "resolve_startup_project"}
-    },
-    "tui/screens/dashboard.py": {
-        "brain.workspace.active_project": {"get_active_project"}
-    },
-    "tui/screens/workspace.py": {
-        "brain.workspace.active_project": {"select_active_project"},
-        "brain.workspace.discovery": {"discover_projects"},
-    },
-}
-
-# CLI: la regla "cli solo arranca la TUI (no importa dominio directamente)" se
-# amplía deliberadamente y de forma acotada para los subcomandos de solo
-# lectura del entrypoint `brain`:
-# - `backlog-status` (T-FB018-US02-02, US-FB018-02): reusa el informe del
+# CLI: la TUI y su entrypoint `brain` fueron archivados (tag
+# `archive/tui-android-2026-08-18`); lo que queda del paquete `brain.cli` son
+# los subcomandos de solo lectura que antes usaba ese entrypoint:
+# - `backlog_status` (T-FB018-US02-02, US-FB018-02): reusa el informe del
 #   parser de dominio (`brain.backlog.report`) para ahorrar tokens de agente
 #   cognitivo, sin orquestar ningún servicio ni mutar estado.
-# - `scribe resumir-backlog` (T-FB018-US02-03, US-FB018-02): capa OPTIONAL de
+# - `scribe_resumir_backlog` (T-FB018-US02-03, US-FB018-02): capa OPTIONAL de
 #   síntesis en prosa que solo invoca la operación del catálogo cerrado de
 #   Scribe (`brain.local_tools`) con el JSON ya calculado — degrada
-#   explícitamente si Scribe/Ollama no está disponible, nunca es dependencia
-#   dura de `backlog-status`.
-# `cli/main.py` solo delega en los subcomandos (mismo paquete), no importa
-# dominio directamente.
+#   explícitamente si Scribe/Ollama no está disponible.
 _CLI_ALLOWED = {
     "cli/backlog_status.py": {
         "brain.backlog": {
@@ -95,14 +54,9 @@ _CLI_ALLOWED = {
             "resumir_estado_backlog",
         }
     },
-    "cli/main.py": {
-        "brain.cli.backlog_status": {"run_backlog_status"},
-        "brain.cli.scribe_resumir_backlog": {"run_resumir_backlog"},
-    },
 }
 
 # Direcciones de dependencia NO permitidas por paquete (top-level de `brain`).
-_TUI_FORBIDDEN = {"agents", "core", "dispatcher", "workspace", "runtime", "tmux", "storage"}
 _API_FORBIDDEN = {"tui"}
 _MODELS_FORBIDDEN = {"storage", "tmux", "runtime"}
 
@@ -115,34 +69,30 @@ def _module_top(module: str) -> str | None:
 
 
 def _rule_is_forbidden(top_level: str, imported_top: str) -> bool:
-    if top_level == "tui":
-        return imported_top in _TUI_FORBIDDEN
     if top_level == "api":
         return imported_top in _API_FORBIDDEN
     if top_level == "models":
         return imported_top in _MODELS_FORBIDDEN
     if top_level == "cli":
-        # cli solo arranca la TUI: no puede orquestar dominio directamente.
+        # cli son subcomandos de solo lectura: no pueden orquestar dominio.
         return imported_top != "tui"
     return False
 
 
 def _rule_name(top_level: str) -> str:
-    if top_level == "tui":
-        return "tui no debe importar brain.agents/core/dispatcher/workspace/runtime/tmux/storage"
     if top_level == "api":
         return "api no debe importar brain.tui"
     if top_level == "models":
         return "models no debe importar brain.storage/brain.tmux/brain.runtime"
     if top_level == "cli":
-        return "cli solo arranca la TUI (no importa dominio directamente)"
+        return "cli no debe orquestar el dominio directamente"
     return ""
 
 
 def _allowed_symbols_for(file_rel: str, module: str) -> set[str] | None:
     """Símbolos permitidos de `module` para `file_rel`; None si el módulo no
     tiene excepción registrada para ese fichero."""
-    file_allowed = _TUI_ALLOWED.get(file_rel) or _CLI_ALLOWED.get(file_rel)
+    file_allowed = _CLI_ALLOWED.get(file_rel)
     if file_allowed is None:
         return None
     return file_allowed.get(module)

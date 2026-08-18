@@ -54,7 +54,7 @@ The core concept is not the backlog and it is not the agents themselves — it i
 | **Persistent context** | The session keeps the project, agents, runtimes, history and context. Agents are not destroyed when a Job finishes. |
 | **Backlog-centric pipeline** | The backlog is the central control panel: all work is deployed from it, not from scattered manual commands. |
 | **Capability-based architecture** *(in backlog)* | The Dispatcher asks for capabilities, not specific models. The Capability Engine (FB-010) is planned, not implemented. |
-| **One process, three clients** | Web, TUI and Android consume the same API; the domain does not belong to any client. |
+| **One process, one client** | Web consumes the API; the domain does not belong to any client. |
 
 ## Project status
 
@@ -75,8 +75,6 @@ See the [roadmap](roadmap.md) for full detail.
 | Section | Content |
 |---|---|
 | [Web interface](interfaces-web.md) | The main interface: Backlog, Agentes, Arquitecto, Scripts, Acciones, Configuración. |
-| [TUI](interfaces-tui.md) | Terminal client (Textual). |
-| [Android app](interfaces-android.md) | Remote client. |
 | [API](api.md) | Complete REST + WebSocket reference. |
 | [Agents](agents.md) | Roles, launching, lifecycle, governance. |
 | [Runtime and Scribe](runtime.md) | Claude Code, OpenCode, Codex, tmux, Scribe/Ollama. |
@@ -84,7 +82,6 @@ See the [roadmap](roadmap.md) for full detail.
 | [Scripts](scripts.md) | Generic and project-specific scripts. |
 | [Backlog and pipeline](backlog.md) | Backlog management, validator, Epic→US→Task generators. |
 | [Configuration](configuration.md) | `models.yml`, `scripts.yml`, model preferences. |
-| [CLI](cli.md) | The `brain` CLI commands. |
 | [Roadmap](roadmap.md) | Phases, status by Epic, backlog hold. |
 | [FAQ and troubleshooting](faq.md) | Frequently asked questions and problem solving. |
 | [Development](development.md) | Guide for new developers. |

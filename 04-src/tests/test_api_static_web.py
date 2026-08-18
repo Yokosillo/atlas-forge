@@ -5,14 +5,13 @@ endpoint de dominio existente, y que el esqueleto (index.html + CSS base de
 
 Se verifica explícitamente (no solo asumido) que ningún path de dominio
 existe bajo el prefijo `/ui` y que el montaje estático no altera ninguna de
-las 25 rutas de dominio: rutas del router (`brain.api.routes`) + `/health`,
-`/apk` y los dos WebSockets (`/ws/jobs`, `/ws/plans`) definidos en `app.py`."""
+las rutas de dominio: rutas del router (`brain.api.routes`) + `/health`
+y los dos WebSockets (`/ws/jobs`, `/ws/plans`) definidos en `app.py`."""
 
 from pathlib import Path
 
 from fastapi.testclient import TestClient
 
-import brain.api.app as app_module
 from brain.api import create_app
 from brain.api.routes import router as domain_router
 from brain.workspace import discover_projects, select_active_project
@@ -21,7 +20,7 @@ from brain.workspace import discover_projects, select_active_project
 def _path_in_domain_routes(path: str) -> bool:
     """Comprueba si `path` colisiona con algún endpoint de dominio actual:
     cualquier ruta definida en `routes.py` o las rutas de dominio de
-    `app.py` (`/health`, `/apk`, los WebSockets `/ws/*`). Se excluye
+    `app.py` (`/health`, los WebSockets `/ws/*`). Se excluye
     explícitamente el montaje estático `/ui` (que es el que añade este
     cambio) para no autocolisionarse."""
     domain_paths = {r.path for r in domain_router.routes}
@@ -99,4 +98,3 @@ def test_domain_endpoints_unchanged_after_static_mount() -> None:
     # (su respuesta exacta ya la validan el resto de suites; aquí solo se
     # confirma que no se enmascaran con un 404 de la web estática).
     assert client.get("/health").status_code in (200, 404)  # health nunca es 404
-    assert client.get("/apk").status_code in (200, 404)

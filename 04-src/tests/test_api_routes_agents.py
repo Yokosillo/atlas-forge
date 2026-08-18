@@ -203,6 +203,87 @@ def test_post_agents_launches_a_real_agent_and_get_agents_reflects_it(
     stop_runtime(runtime_instance, socket_name=isolated_socket)
 
 
+def test_post_agents_with_developer_number_creates_that_numbered_instance(
+    tmp_path: Path, isolated_socket: str, monkeypatch
+) -> None:
+    """T-FB005-US01-08 (2026-08-18): POST /agents con `developer_number`
+    crea la instancia con ESE nombre (slot fijo e independiente de
+    Developer), aunque no sea el siguiente por orden de lanzamiento."""
+    _project, _session = _active_project_and_session(tmp_path, monkeypatch)
+    client = TestClient(create_app())
+
+    post_response = client.post(
+        "/agents",
+        json={
+            "role": "developer",
+            "runtime_type": "claude-code",
+            "developer_number": 3,
+        },
+    )
+    assert post_response.status_code == 201
+    launched = post_response.json()
+    assert launched["role"] == "developer"
+    assert launched["name"] == "Developer-3"
+
+    runtime_instance = get_runtime_instance_for_agent(launched["id"])
+    assert runtime_instance is not None
+    stop_runtime(runtime_instance, socket_name=isolated_socket)
+
+
+def test_post_agents_rejects_duplicate_developer_number(
+    tmp_path: Path, isolated_socket: str, monkeypatch
+) -> None:
+    """T-FB005-US01-08: relanzar el slot de un Developer aún vivo se
+    traduce a 400 con el motivo del dominio — nunca un segundo
+    "Developer-3" (garantía de nombres únicos)."""
+    _project, _session = _active_project_and_session(tmp_path, monkeypatch)
+    client = TestClient(create_app())
+
+    first = client.post(
+        "/agents",
+        json={
+            "role": "developer",
+            "runtime_type": "claude-code",
+            "developer_number": 3,
+        },
+    )
+    assert first.status_code == 201
+
+    duplicate = client.post(
+        "/agents",
+        json={
+            "role": "developer",
+            "runtime_type": "claude-code",
+            "developer_number": 3,
+        },
+    )
+    assert duplicate.status_code == 400
+    assert "Ya existe un Developer 'Developer-3'" in duplicate.json()["detail"]
+
+    runtime_instance = get_runtime_instance_for_agent(first.json()["id"])
+    assert runtime_instance is not None
+    stop_runtime(runtime_instance, socket_name=isolated_socket)
+
+
+def test_post_agents_rejects_invalid_developer_number(
+    tmp_path: Path, isolated_socket: str, monkeypatch
+) -> None:
+    """T-FB005-US01-08: `developer_number` < 1 se rechaza en el contrato
+    (pydantic, 422) antes de tocar el dominio."""
+    _project, _session = _active_project_and_session(tmp_path, monkeypatch)
+    client = TestClient(create_app())
+
+    response = client.post(
+        "/agents",
+        json={
+            "role": "developer",
+            "runtime_type": "claude-code",
+            "developer_number": 0,
+        },
+    )
+    assert response.status_code == 422
+
+
 def test_post_agents_launches_a_real_ux_agent_and_get_agents_reflects_it(
     tmp_path: Path, isolated_socket: str, monkeypatch
 ) -> None:

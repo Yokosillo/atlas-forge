@@ -28,7 +28,7 @@ Task `state`: `TO_DO | EN_DESARROLLO | IN_PROGRESS | REVIEW | DONE | POSTERGADA`
 - `max_leverage_chain`.
 - `errors`.
 
-Accessible by three equivalent paths: `GET /backlog`, the `backlog_status` generic script, and the `brain backlog-status <path> [--json]` CLI. Deterministic ordering: `(priority, id)`.
+Accessible by two equivalent paths: `GET /backlog` and the `backlog_status` generic script. Deterministic ordering: `(priority, id)`.
 
 ## Item detail (`brain/backlog/detail.py`)
 
@@ -65,8 +65,6 @@ Packages the input of a Tester Job: acceptance criteria of the Task + `git diff 
 ## In the interfaces
 
 - **Web**: Backlog tab — List/By-Phase toggle, heat map per Epic (`unblock_degree`), global pending badge, state visual differentiation, Epic→US→detail breakdown with dependencies (launch blocking), execution history per US and the "Progresar" flow.
-- **TUI**: 3-level Backlog screen with Rich colors and progress bars.
-- **Android app**: Backlog screen with listing/detail and launch development.
 
 ## Parallelizable development thread analysis
 

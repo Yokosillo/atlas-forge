@@ -23,7 +23,6 @@ Source: the `state` frontmatter field of each Epic in `02-backlog/epics/` (canon
 | Epic | What it includes |
 |---|---|
 | **FB-001** Workspace Management | Git repo discovery, persisted active project, project scripts. |
-| **FB-002** Dashboard | Unified TUI (Workspace/Dashboard/Agents), choose agent/runtime/model. |
 | **FB-003** Development Session | Live session during execution, assigned agents. |
 | **FB-004** Runtime Manager | Claude Code and OpenCode in tmux, model switching (OpenCode). |
 | **FB-005** Agent Manager | Developer and Critic roles, two-layer prompts, liveness. |
@@ -33,12 +32,18 @@ Source: the `state` frontmatter field of each Epic in `02-backlog/epics/` (canon
 | **FB-008** Dispatcher | Jobs, chaining, isolated-Job dispatch, cancellation, automatic Scribe. |
 | **FB-014** Local Tools | Scribe: local summarization/indexing (Ollama), including the `index_scripts` operation. |
 | **FB-016** API Backend | FastAPI: agents, Jobs, backlog, scripts, WebSockets, static `/ui/`, systemd. |
-| **FB-017** Android App | Native app (Compose) — **paused** for new functionality (2026-08-04). |
-| **FB-018** Generic Scripts | 7 generic scripts catalog + `backlog-status` CLI + Scribe prose. |
-| **FB-019** TUI | Cancel Job, confirmations, connectivity. |
-| **FB-020** Backlog Management | Listing/detail endpoints, launch development, views in web/app/TUI. |
+| **FB-018** Generic Scripts | 7 generic scripts catalog + Scribe prose. |
+| **FB-020** Backlog Management | Listing/detail endpoints, launch development, views in the web. |
 | **FB-021** Web Interface | Complete web: projects, agents, Jobs, scripts, backlog, models. |
 | **FB-026** Parallelizable thread analysis | `dependency_graph.py` module, `POST /backlog/epic/{epic_id}/analyze-threads` endpoint, "Generar hilos de desarrollo" button in the web Backlog tab. |
+
+### Retired / archived
+
+| Epic | Note |
+|---|---|
+| **FB-002** Dashboard | Terminal client (Textual TUI) — **retired and archived** (2026-08-18, tag `archive/tui-android-2026-08-18`). The unified TUI and its screens were removed from the repo; all functionality lives in the web. |
+| **FB-017** Android App | Native app (Compose) — **retired and archived** (2026-08-18, tag `archive/tui-android-2026-08-18`). Previously **paused** for new functionality (2026-08-04). |
+| **FB-019** TUI | Cancel Job, confirmations, connectivity — **retired and archived** (2026-08-18, tag `archive/tui-android-2026-08-18`). |
 
 ### Phase 1.0 — mostly DONE at Epic level
 
@@ -78,7 +83,7 @@ Source: the `state` frontmatter field of each Epic in `02-backlog/epics/` (canon
 
 ## Technical debt and relevant decisions
 
-- **TUI/Android pause** (2026-08-04): all new functionality is exposed on the web. Active-model Tasks in the TUI (`T-FB019-US02-01`) and Android (`T-FB017-US07-01`) marked `POSTERGADA`.
+- **TUI/Android retired** (2026-08-18): the terminal client and the Android app were archived (tag `archive/tui-android-2026-08-18`) and removed from the repo. Their Epics (FB-002, FB-017, FB-019) and related User Stories/Tasks are marked `FUERA_ROADMAP`; all new functionality is exposed on the web.
 - **In-memory state**: session, agents and Jobs live in the memory of the `brain-api` process. On restart, live tmux sessions are re-recognized by their deterministic name and re-registered as `idle` agents (FB-031) — but Job history and any other in-memory state are still lost; full session recovery (`US-FB003-02`) remains planned, not implemented.
 - **Observability** (structured logging, metrics, tracing): no assigned phase, on backlog hold.
 

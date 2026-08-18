@@ -4,9 +4,9 @@ Factory Brain is a **modular, extensible and maintainable** application, designe
 
 ## Core idea
 
-The domain (projects, sessions, agents, Jobs, backlog) lives **behind a single HTTP/WebSocket API** (`brain/api/`, FastAPI). No client accesses the domain any other way than through that API — including the TUI itself, which is an HTTP client like any other.
+The domain (projects, sessions, agents, Jobs, backlog) lives **behind a single HTTP/WebSocket API** (`brain/api/`, FastAPI). No client accesses the domain any other way than through that API.
 
-> One process of truth (`brain-api`), three clients: **web interface**, **TUI** and **Android app**.
+> One process of truth (`brain-api`), one client: the **web interface**.
 
 ## Layers
 
@@ -14,8 +14,6 @@ The domain (projects, sessions, agents, Jobs, backlog) lives **behind a single H
 graph TD
     subgraph Clients
         WEB[Web interface<br/>10-web/ · JS]
-        TUI[TUI · Textual<br/>brain/tui/]
-        AND[Android app<br/>10-android/ · Kotlin/Compose]
     end
 
     API[HTTP/WebSocket API<br/>brain/api/ · FastAPI]
@@ -34,12 +32,9 @@ graph TD
         TMUX[tmux · libtmux]
         OLLAMA[Ollama · localhost:11434]
         GIT[Git repos]
-        CLIS[CLI · brain<br/>brain/cli/]
     end
 
     WEB --> API
-    TUI --> API
-    AND --> API
     API --> DISP
     API --> AGENTS
     API --> CORE
@@ -51,13 +46,11 @@ graph TD
     RUNTIME --> TMUX
     SCRIBE --> OLLAMA
     DISP --> GIT
-    CLIS --> BACKLOG
-    CLIS --> SCRIBE
 ```
 
 ### Presentation
 
-Web interface (plain JS served by the backend itself at `/ui/`), TUI (Textual) and Android app (Kotlin/Compose). **No business logic**: all interaction goes through the API.
+Web interface (plain JS served by the backend itself at `/ui/`). **No business logic**: all interaction goes through the API.
 
 ### Application
 
@@ -127,7 +120,7 @@ Deterministic parser of `02-backlog/` (Epics, User Stories, Tasks) → a graph o
 
 ### API (`brain/api/`)
 
-FastAPI with REST endpoints + WebSocket `/ws/jobs`, static `/ui/`, `/health` and `/apk`. See [API](api.md).
+FastAPI with REST endpoints + WebSocket `/ws/jobs`, static `/ui/` and `/health`. See [API](api.md).
 
 ## Directory structure
 
@@ -137,7 +130,6 @@ PROD-006-factory-brain/
 ├── 02-backlog/        # canonical backlog: epics/, user-stories/, tasks/, roadmap.md
 ├── 04-src/            # source code (brain package) and tests
 ├── 07-informes/       # closing Job reports and analyses
-├── 10-android/        # Android app (Kotlin/Compose)
 ├── 10-web/            # web interface (served by brain-api at /ui/)
 └── deploy/            # systemd units
 ```

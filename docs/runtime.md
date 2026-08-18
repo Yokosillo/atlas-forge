@@ -53,7 +53,7 @@ Exposed in the API: `GET /agents/{id}/model`, `GET /agents/{id}/available-models
 |---|---|
 | `summarize_document(text)` | Summarizes a long document. |
 | `index_documents(texts)` | Thematic index of several documents (e.g. "Index project" action). |
-| `resumir_estado_backlog(resultado_json)` | Prose summary of the `brain backlog-status` JSON (never re-reads the backlog). |
+| `resumir_estado_backlog(resultado_json)` | Prose summary of the `backlog_status` script JSON (never re-reads the backlog). |
 | `index_scripts(scripts)` | One-line description per script of the catalog. |
 
 ### Explicit degradation
@@ -62,7 +62,7 @@ Scribe is **always optional, never a hard dependency**:
 
 - If Ollama does not respond (connection refused, timeout, HTTP error), a `ScribeUnavailableError` is raised with the concrete reason.
 - **Job dispatch**: if Scribe triggers but is unavailable, a degradation note is prepended to the instruction and the Job continues.
-- **CLI `scribe resumir-backlog`**: exit code 1 with a clear message; never blocks `backlog-status`.
+- **`backlog_status` generic script with Scribe prose**: the script exits with code 1 and a clear message; Scribe never blocks the report itself.
 - **`indexar` action**: raises `RuntimeError` if Scribe is unavailable.
 
 ### Automatic triggering by the Dispatcher

@@ -3,7 +3,6 @@ from pathlib import Path
 import pytest
 from fastapi.testclient import TestClient
 
-import brain.api.app as app_module
 from brain.api import create_app
 from brain.core import resolve_startup_session
 from brain.core.session_registry import _reset_registry_for_tests
@@ -89,30 +88,3 @@ def test_two_clients_see_the_same_session_state(tmp_path: Path) -> None:
     assert response_one["session_id"] == session.id
     assert response_two["session_id"] == session.id
     assert response_one == response_two
-
-
-def test_get_apk_returns_404_when_no_apk_has_been_published(
-    tmp_path: Path, monkeypatch
-) -> None:
-    monkeypatch.setattr(app_module, "DEFAULT_APK_PATH", tmp_path / "does-not-exist.apk")
-    client = TestClient(create_app())
-
-    response = client.get("/apk")
-
-    assert response.status_code == 404
-
-
-def test_get_apk_serves_the_real_file_when_published(
-    tmp_path: Path, monkeypatch
-) -> None:
-    apk_path = tmp_path / "factory-brain-latest.apk"
-    apk_bytes = b"fake-apk-bytes-for-test"
-    apk_path.write_bytes(apk_bytes)
-    monkeypatch.setattr(app_module, "DEFAULT_APK_PATH", apk_path)
-    client = TestClient(create_app())
-
-    response = client.get("/apk")
-
-    assert response.status_code == 200
-    assert response.content == apk_bytes
-    assert response.headers["content-type"] == "application/vnd.android.package-archive"
