@@ -74,7 +74,7 @@ For a **generic script**:
 1. Add the entry to `GENERIC_SCRIPTS` in `brain/workspace/generic_scripts.py`.
 2. Implement its execution (deterministic, with `ScriptRunResult`).
 3. Update the count in `tests/test_generic_scripts.py`.
-4. It automatically appears in `GET /scripts` and in the three interfaces.
+4. It automatically appears in `GET /scripts` and in the web interface.
 
 ## How to add an endpoint
 
@@ -86,7 +86,7 @@ For a **generic script**:
 ## Backlog conventions
 
 - All development starts from an **existing Task** in `02-backlog/`; do not implement functionality without backlog representation.
-- Closed states: `TO_DO | EN_DESARROLLO | IN_PROGRESS | REVIEW | DONE | POSTERGADA` (Task), plus `NO_TASKS`/`EN_DISEÑO` for User Stories. A Task/US is only `DONE` when it meets all its acceptance criteria.
+- Closed states: `READY | TO_DEVELOP | IN_PROGRESS | IN_REVIEW | DONE` (Task; never `OUT_OF_SCOPE`), plus `NO_TASKS`/`TO_PLAN` and `OUT_OF_SCOPE` (exclusive) for User Stories. A Task is only `DONE` when it meets all its acceptance criteria; a US only reaches `DONE` after Architect validation.
 - Closing reports go to `07-informes/<story_id>/` (see `write_job_report`).
 
 ## Contribution
@@ -96,4 +96,4 @@ For a **generic script**:
 - **Add tests** with every change and run the full suite (`pytest`) before asking for review.
 - **Keep the documentation up to date**: this documentation (`docs/`) reflects the real state; do not document planned functionality as if it existed.
 - **Style**: Python 3.10+, immutable dataclasses where appropriate, domain errors with an explicit message, `_reset_registry_for_tests()` on any new in-process registry.
-- **Review model**: the Architect reviews the Developer's work and issues a structured verdict (`APROBADO` / `APROBADO_CON_OBSERVACIONES` / `RECHAZADO`) before the Tasks are marked `DONE`.
+- **Review model**: the Tester verifies each Task in `IN_REVIEW` (`EXITO`/`FALLO`) and the Architect validates the full Story (all its Tasks `DONE`) before it moves to `DONE`, issuing a structured verdict (`APROBADO` / `APROBADO_CON_OBSERVACIONES` / `RECHAZADO`).

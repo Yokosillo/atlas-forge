@@ -74,7 +74,7 @@ Para un **script genérico**:
 1. Añade la entrada a `GENERIC_SCRIPTS` en `brain/workspace/generic_scripts.py`.
 2. Implementa su ejecución (determinista, con `ScriptRunResult`).
 3. Actualiza el conteo en `tests/test_generic_scripts.py`.
-4. Aparece automáticamente en `GET /scripts` y en las tres interfaces.
+4. Aparece automáticamente en `GET /scripts` y en la interfaz web.
 
 ## Cómo añadir un endpoint
 
@@ -86,7 +86,7 @@ Para un **script genérico**:
 ## Convenciones de backlog
 
 - Todo el desarrollo arranca de una **Task existente** en `02-backlog/`; no implementes funcionalidad sin representación en el backlog.
-- Estados cerrados: `TO_DO | EN_DESARROLLO | IN_PROGRESS | REVIEW | DONE | POSTERGADA` (Task), más `NO_TASKS`/`EN_DISEÑO` para User Stories. Una Task/US solo es `DONE` cuando cumple todos sus criterios de aceptación.
+- Estados cerrados: `READY | TO_DEVELOP | IN_PROGRESS | IN_REVIEW | DONE` (Task; nunca `OUT_OF_SCOPE`), más `NO_TASKS`/`TO_PLAN` y `OUT_OF_SCOPE` (exclusivo) para User Stories. Una Task solo es `DONE` cuando cumple todos sus criterios de aceptación; una US solo llega a `DONE` tras la validación del Arquitecto.
 - Los informes de cierre van a `07-informes/<story_id>/` (ver `write_job_report`).
 
 ## Contribución
@@ -96,4 +96,4 @@ Para un **script genérico**:
 - **Añade tests** con cada cambio y ejecuta la suite completa (`pytest`) antes de pedir revisión.
 - **Mantén la documentación actualizada**: esta documentación (`docs/`) refleja el estado real; no documentes funcionalidad planificada como si existiera.
 - **Estilo**: Python 3.10+, dataclasses inmutables cuando proceda, errores de dominio con mensaje explícito, `_reset_registry_for_tests()` en cualquier registry en proceso nuevo.
-- **Modelo de revisión**: el Arquitecto revisa el trabajo del Developer y emite un veredicto estructurado (`APROBADO` / `APROBADO_CON_OBSERVACIONES` / `RECHAZADO`) antes de que las Tasks se marquen `DONE`.
+- **Modelo de revisión**: el Tester verifica cada Task en `IN_REVIEW` (`EXITO`/`FALLO`) y el Arquitecto valida la US completa (todas sus Tasks `DONE`) antes de que pase a `DONE`, emitiendo un veredicto estructurado (`APROBADO` / `APROBADO_CON_OBSERVACIONES` / `RECHAZADO`).

@@ -42,7 +42,7 @@ A unit of work sent to an agent: a text description. States: `created → runnin
 
 ## The Dispatcher
 
-A single background process that polls every 5 seconds and moves work forward at four levels, purely driven by each item's `state`: assigns a `TO_DO`/`EN_DESARROLLO` Task to a free Developer, a Task in `REVIEW` to a free Tester, a User Story in `REVIEW` to a free Architect for a verdict, and a User Story in `EN_DISEÑO` to a free Architect to land it into Tasks. See [Jobs and the work pipeline](jobs.md#the-backlog-pipeline).
+A single background process that polls every 5 seconds and moves work forward, driven purely by each item's `state`: queues Tasks `READY` as `TO_DEVELOP`, assigns Tasks `TO_DEVELOP` to a free Developer (`IN_PROGRESS`), hands a Task in `IN_REVIEW` to a free Tester, and a User Story with all its Tasks `DONE` to a free Architect for final validation (and a US in `TO_PLAN` to a free Architect to land it into Tasks). See [Jobs and the work pipeline](jobs.md#the-backlog-pipeline).
 
 ## Scribe
 
@@ -70,15 +70,14 @@ sequenceDiagram
     U->>B: Select project (POST /project)
     B->>B: Start development session
     U->>B: Click "Progresar" on a new User Story
-    B->>A: Land the Story into Tasks
-    A-->>B: Tasks written, Story → TO_DO
-    U->>B: Click "Progresar" again
-    B->>D: Dispatch each Task
-    D-->>B: Task closed → REVIEW
+    B->>A: Land the Story into Tasks (TO_PLAN)
+    A-->>B: Tasks written, US reflects the least advanced Task
+    B->>D: Dispatch each Task (TO_DEVELOP → IN_PROGRESS)
+    D-->>B: Task closed → IN_REVIEW
     B->>T: Verify the Task
     T-->>B: PASS → Task DONE
-    B->>A: All Tasks DONE → Story verdict
-    A-->>B: APROBADO → Story DONE
+    B->>A: All Tasks DONE → US IN_REVIEW (final validation)
+    A-->>B: APROBADO → US DONE
 ```
 
 ## Quick glossary

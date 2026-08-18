@@ -19,10 +19,9 @@ The control panel of the whole product — every piece of work is deployed from 
 - **"List" / "By Phase"** toggle (grouping by roadmap phase).
 - Epic listing with state summary (US/Tasks per state), **heat bar** of unblock degree per Epic and a global **badge** of pending work.
 - Expandable Epic → User Story → detail breakdown (via `GET /backlog/{item_id}`).
-- A User Story's detail shows its dependencies with their state, its Tasks, and a single **"Progresar"** button whose action depends on the Story's current state:
-  - `NO_TASKS` → marks `EN_DISEÑO` (the Dispatcher assigns a free Architect to land the Story into Tasks).
-  - `EN_DISEÑO` → disabled, "Esperando al Arquitecto".
-  - `TO_DO` (with Tasks already generated) → marks `EN_DESARROLLO` (queues its pending Tasks for the Dispatcher).
+- A User Story's detail shows its dependencies with their state, its Tasks, and a **"Progresar"** button whose action depends on the Story's current state:
+  - `NO_TASKS` → marks `TO_PLAN` (the Dispatcher assigns a free Architect to land the Story into Tasks).
+  - With Tasks created → the Story's state is **derived** (the least advanced Task); the button shows the current state and progress is governed by the Dispatcher and the validations (Tester per Task, Architect at the end).
 - "Opciones avanzadas" (collapsed by default) exposes the isolated-Job path: "Lanzar desarrollo" (context pre-filled from the Story) and "Crear Job manual" (free-form description) — see [Jobs and the work pipeline](jobs.md).
 - Forms to create an Epic, a User Story or a Task directly from the screen, and buttons to have the Architect propose User Stories for an Epic or land a User Story into Tasks.
 

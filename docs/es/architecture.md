@@ -110,9 +110,9 @@ Roles registrados: `developer`, `arquitecto`, `tester`, `documentador`, `ux`, `a
 
 - **Job**: `create → running → {completed | failed | cancelled}`. El reporte de resultados es **cooperativo**: el agente escribe su resultado en un fichero temporal más un marcador final; el dispatcher espera ese fichero.
 - **Encadenamiento**: `previous_job` inyecta literalmente el resultado del Job anterior en la descripción del Job siguiente. Developer→Developer está bloqueado (debe pasar por el Arquitecto).
-- **Pipeline de backlog**: un único worker en segundo plano sondea cada 5 segundos e impulsa cada ítem puramente por su `state` — asigna una Task elegible a un Developer, entrega una Task cerrada a un Tester libre, una User Story completamente `DONE` a un Arquitecto libre para su veredicto, y una User Story `EN_DISEÑO` a un Arquitecto libre para su aterrizaje US→Tasks. Ver [Jobs y el pipeline de trabajo](jobs.md#el-pipeline-de-backlog).
+- **Pipeline de backlog**: un único worker en segundo plano sondea cada 5 segundos e impulsa cada ítem puramente por su `state` — encola Tasks `READY` como `TO_DEVELOP`, asigna una Task `TO_DEVELOP` a un Developer (`IN_PROGRESS`), entrega una Task en `IN_REVIEW` a un Tester libre, una User Story con todas sus Tasks `DONE` a un Arquitecto libre para su validación final, y una US `TO_PLAN` a un Arquitecto libre para su aterrizaje US→Tasks. Ver [Jobs y el pipeline de trabajo](jobs.md#el-pipeline-de-backlog).
 - **Scribe automático**: el dispatcher decide invocar Scribe (por tamaño de descripción > 4000 caracteres o ≥ 10 Jobs consecutivos) para pre-procesar contexto, ahorrando tokens de runtimes remotos.
-- **Veredicto**: en una User Story en `REVIEW`, el Arquitecto asignado emite `APROBADO` / `APROBADO_CON_OBSERVACIONES` / `RECHAZADO`; aprobada mueve la Story a `DONE`, rechazada añade una nueva Task a la misma Story en lugar de promoverla.
+- **Veredicto**: en una User Story en `IN_REVIEW` (todas sus Tasks `DONE`), el Arquitecto asignado emite `APROBADO` / `APROBADO_CON_OBSERVACIONES` / `RECHAZADO`; aprobada mueve la Story a `DONE`, rechazada añade una nueva Task a la misma Story en lugar de promoverla.
 
 ### Backlog (`brain/backlog/`)
 

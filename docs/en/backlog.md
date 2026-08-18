@@ -8,13 +8,13 @@ Canonical structure (see `02-backlog/README.md`): Roadmap → Epic (`FB-NNN`) �
 
 Common frontmatter fields: `id`, `type` (`epic | user_story | task`), `title`, `state`, `dependencies` (a YAML list of IDs — no bold markup, no free text). Optional: `priority` (User Story/Task), `fase`. User Stories and Tasks also carry `epic` (and Tasks additionally `user_story`) pointing to their parent.
 
-Task `state`: `TO_DO | EN_DESARROLLO | IN_PROGRESS | REVIEW | DONE | POSTERGADA`. User Story `state` adds two states exclusive to that type at the front of the cycle: `NO_TASKS | EN_DISEÑO | TO_DO | EN_DESARROLLO | IN_PROGRESS | REVIEW | DONE | POSTERGADA` — see [Jobs and the work pipeline](jobs.md#the-backlog-pipeline) for what each state means and how the Dispatcher moves items through them.
+Task `state`: `READY | TO_DEVELOP | IN_PROGRESS | IN_REVIEW | DONE` (a Task can **never** be `OUT_OF_SCOPE`). User Story `state`: initial own states `NO_TASKS | TO_PLAN`; once its Tasks are created, the state is **derived** (the least advanced Task, `READY` < `TO_DEVELOP` < `IN_PROGRESS` < `IN_REVIEW` < `DONE`), and with all its Tasks `DONE` the US moves to `IN_REVIEW` pending Architect validation before `DONE`. `OUT_OF_SCOPE` is exclusive to User Stories — see [Jobs and the work pipeline](jobs.md#the-backlog-pipeline) for what each state means and how the Dispatcher moves items through them.
 
 ## Deterministic parser (`brain/backlog/parser.py`)
 
 - Extracts per file: id, type, `state`, `dependencies` (parsed directly from the YAML list), priority, phase, parent references — all read from the frontmatter, no regex over free-form Markdown.
 - `load_backlog(backlog_path) → BacklogGraph`: parses the three subdirectories; malformed files are collected in `graph.errors` without aborting the rest.
-- `classify_todo_items(graph)`: splits TO_DO items into **LISTA** (all dependencies DONE) and **BLOQUEADA** (some pending/missing dependency).
+- `classify_todo_items(graph)`: splits ready (READY) items into **LISTA** (all dependencies DONE) and **BLOQUEADA** (some pending/missing dependency).
 - `calculate_unblock_degree(graph, epic)`: ratio of a Epic's US/Tasks whose dependencies are all resolved (basis of the heat map).
 - `find_max_leverage_chain(graph)`: the chain [root + cascade] that unlocks the most items.
 
@@ -24,7 +24,7 @@ Task `state`: `TO_DO | EN_DESARROLLO | IN_PROGRESS | REVIEW | DONE | POSTERGADA`
 
 - `empty` / `total` (counts per type and state + errors).
 - `by_epic` (per Epic: US/Task counts + `unblock_degree` + `fase`).
-- `items_lista` (TO_DO LISTA ordered by priority) and `items_bloqueada` (with `blocking_dependencies`).
+- `items_lista` (READY LISTA ordered by priority) and `items_bloqueada` (with `blocking_dependencies`).
 - `max_leverage_chain`.
 - `errors`.
 
@@ -49,14 +49,14 @@ Architect flow with **mandatory deterministic validator + self-audit**:
 1. **Propose User Stories** (`propose_user_stories.py`): loads an Epic's context (objective, v1 scope, deferred to v2, dependencies).
 2. **US pipeline** (`us_pipeline.py`): validates format → self-audit with external view → human approval → writing `US-*.md` files, born in `NO_TASKS`. Verdicts `APROBADO | APROBADO_CON_OBSERVACIONES | RECHAZADO`.
 3. **Gap review** (`review_user_story.py`): detects missing sections, empty stories, absent criteria; `ready_for_tasks` if there are no gaps.
-4. **Propose Tasks** (`propose_tasks.py`): only for a User Story in `EN_DISEÑO`; generates `T-*.md` and moves the Story to `TO_DO`.
+4. **Propose Tasks** (`propose_tasks.py`): only for a User Story in `TO_PLAN`; generates `T-*.md` and from then on the US reflects the derived state of its Tasks (the least advanced one).
 5. **Tasks pipeline** (`task_pipeline.py`): validation + self-audit + writing.
 
 Human comments on a US are processed as targeted adjustments (`architect/comments.py`).
 
 ### Driving a User Story through the Dispatcher
 
-Once a User Story has Tasks, the single **"Progresar"** button (web) moves it to `EN_DESARROLLO`, queueing its pending Tasks for the Dispatcher — see [Jobs and the work pipeline](jobs.md#the-backlog-pipeline) for the full state machine (implementation → Task review by the Tester → Story verdict by the Architect). `POST /backlog/{story_id}/launch-development` remains available as a direct, isolated-Job alternative that builds a Job from the Story's objective and pending Task titles and dispatches it to a chosen Developer (400 if there are no pending Tasks).
+Once a User Story has Tasks, the single **"Progresar"** button is no longer needed: the Story automatically reflects the state of its Tasks, and the Dispatcher queues them as `TO_DEVELOP`, hands them to Developers (`IN_PROGRESS`), verifies them with the Tester (`IN_REVIEW`) and, once all are `DONE`, the US moves to `IN_REVIEW` pending the Architect's final validation — see [Jobs and the work pipeline](jobs.md#the-backlog-pipeline) for the full state machine (implementation → Task review by the Tester → final Story validation by the Architect). `POST /backlog/{story_id}/launch-development` remains available as a direct, isolated-Job alternative that builds a Job from the Story's objective and pending Task titles and dispatches it to a chosen Developer (400 if there are no pending Tasks).
 
 ### Tester contract (`dispatcher/tester_input.py`)
 

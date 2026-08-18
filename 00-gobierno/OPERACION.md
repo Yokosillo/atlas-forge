@@ -115,32 +115,6 @@ sudo systemctl daemon-reload
 
 No editar directamente la copia activa sin propagar después el cambio al repositorio.
 
-## TUI
-
-La TUI está bloqueada por defecto en el estado documentado actual.
-
-Habilitar:
-
-```bash
-curl -X PUT http://<host-tailscale>:8000/system/preferences \
-  -H "Content-Type: application/json" \
-  -d '{"tui_enabled": true}'
-```
-
-Comprobar:
-
-```bash
-curl -s http://<host-tailscale>:8000/system/preferences | python3 -m json.tool | grep tui_enabled
-```
-
-Deshabilitar:
-
-```bash
-curl -X PUT http://<host-tailscale>:8000/system/preferences \
-  -H "Content-Type: application/json" \
-  -d '{"tui_enabled": false}'
-```
-
 ## Nota de mantenimiento
 
-Las rutas, puertos, nombres de unit y comportamiento de la TUI son estado de despliegue. Si cambian, actualizar este documento; no convertir esos valores en invariantes de metodología.
+Las rutas, puertos y nombres de unit son estado de despliegue. Si cambian, actualizar este documento; no convertir esos valores en invariantes de metodología.

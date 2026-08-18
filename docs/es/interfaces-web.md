@@ -19,10 +19,9 @@ El panel de control de todo el producto — cada pieza de trabajo se despliega d
 - Toggle **"Lista" / "Por fase"** (agrupación por fase del roadmap).
 - Listado de Epics con resumen de estados (US/Tasks por estado), **barra de calor** del grado de desbloqueo por Epic y un **badge** global de trabajo pendiente.
 - Desglose expandible Epic → User Story → detalle (vía `GET /backlog/{item_id}`).
-- El detalle de una User Story muestra sus dependencias con su estado, sus Tasks y un único botón **"Progresar"** cuya acción depende del estado actual de la Story:
-  - `NO_TASKS` → marca `EN_DISEÑO` (el Dispatcher asigna un Arquitecto libre para aterrizar la Story en Tasks).
-  - `EN_DISEÑO` → deshabilitado, "Esperando al Arquitecto".
-  - `TO_DO` (con Tasks ya generadas) → marca `EN_DESARROLLO` (encola sus Tasks pendientes para el Dispatcher).
+- El detalle de una User Story muestra sus dependencias con su estado, sus Tasks, y un botón **"Progresar"** cuya acción depende del estado actual de la Story:
+  - `NO_TASKS` → marca `TO_PLAN` (el Dispatcher asigna un Arquitecto libre para aterrizar la Story en Tasks).
+  - Con Tasks creadas → el estado de la US es **derivado** (la Task menos avanzada); el botón muestra el estado actual y el avance lo gobiernan el Dispatcher y las validaciones (Tester por Task, Arquitecto al final).
 - "Opciones avanzadas" (colapsadas por defecto) expone la ruta de Job aislado: "Lanzar desarrollo" (contexto pre-rellenado desde la Story) y "Crear Job manual" (descripción libre) — ver [Jobs y el pipeline de trabajo](jobs.md).
 - Formularios para crear una Epic, una User Story o una Task directamente desde la pantalla, y botones para que el Arquitecto proponga User Stories para una Epic o aterrice una User Story en Tasks.
 

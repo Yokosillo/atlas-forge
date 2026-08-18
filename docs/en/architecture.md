@@ -110,9 +110,9 @@ Registered roles: `developer`, `arquitecto`, `tester`, `documentador`, `ux`, `au
 
 - **Job**: `create → running → {completed | failed | cancelled}`. Result reporting is **cooperative**: the agent writes its result to a temp file plus a final marker; the dispatcher waits for that file.
 - **Chaining**: `previous_job` injects the previous Job's result literally into the next Job's description. Developer→Developer is blocked (must go through the Architect).
-- **Backlog pipeline**: a single background worker polls every 5 seconds and drives each item forward purely by its `state` — assigns a Developer-eligible Task, hands a closed Task to a free Tester, a fully-`DONE` User Story to a free Architect for a verdict, and a `EN_DISEÑO` User Story to a free Architect for its US→Tasks landing. See [Jobs and the work pipeline](jobs.md#the-backlog-pipeline).
+- **Backlog pipeline**: a single background worker polls every 5 seconds and drives each item forward purely by its `state` — queues Tasks `READY` as `TO_DEVELOP`, assigns a Task `TO_DEVELOP` to a Developer (`IN_PROGRESS`), hands a Task in `IN_REVIEW` to a free Tester, a User Story with all its Tasks `DONE` to a free Architect for final validation, and a US `TO_PLAN` to a free Architect for its US→Tasks landing. See [Jobs and the work pipeline](jobs.md#the-backlog-pipeline).
 - **Automatic Scribe**: the dispatcher decides to invoke Scribe (by description size > 4000 chars or ≥ 10 consecutive Jobs) to pre-process context, saving remote runtime tokens.
-- **Verdict**: on a User Story in `REVIEW`, the assigned Architect emits `APROBADO` / `APROBADO_CON_OBSERVACIONES` / `RECHAZADO`; approved moves the Story to `DONE`, rejected adds a new Task to the same Story instead of promoting it.
+- **Verdict**: on a User Story in `IN_REVIEW` (all its Tasks `DONE`), the assigned Architect emits `APROBADO` / `APROBADO_CON_OBSERVACIONES` / `RECHAZADO`; approved moves the Story to `DONE`, rejected adds a new Task to the same Story instead of promoting it.
 
 ### Backlog (`brain/backlog/`)
 

@@ -56,7 +56,7 @@ El liveness es perezoso: si la sesión de tmux del runtime murió sin que lo pid
 
 ### Una Task nunca se recoge
 
-Confirma que su `state` es `EN_DESARROLLO` (no `TO_DO`) — el Dispatcher solo recoge estados elegibles, y una Task `TO_DO` simple espera a que un humano la progrese. Confirma también que un Developer está `idle` y que sus dependencias están todas `DONE`.
+Confirma que su `state` es `TO_DEVELOP` (no `READY`) — el Dispatcher solo recoge estados elegibles, y una Task `READY` espera a que se encole como `TO_DEVELOP`. Confirma también que un Developer está `idle` y que sus dependencias están todas `DONE`.
 
 ### Scribe no está disponible
 

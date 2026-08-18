@@ -42,7 +42,7 @@ Una unidad de trabajo enviada a un agente: una descripción de texto. Estados: `
 
 ## El Dispatcher
 
-Un único proceso en segundo plano que sondea cada 5 segundos y mueve el trabajo hacia adelante en cuatro niveles, guiado puramente por el `state` de cada ítem: asigna una Task `TO_DO`/`EN_DESARROLLO` a un Developer libre, una Task en `REVIEW` a un Tester libre, una User Story en `REVIEW` a un Arquitecto libre para su veredicto, y una User Story en `EN_DISEÑO` a un Arquitecto libre para aterrizarla en Tasks. Ver [Jobs y el pipeline de trabajo](jobs.md#el-pipeline-de-backlog).
+Un único proceso en segundo plano que sondea cada 5 segundos y mueve el trabajo hacia adelante, guiado por el `state` de cada ítem: encola Tasks `READY` como `TO_DEVELOP`, asigna Tasks `TO_DEVELOP` a un Developer libre (`IN_PROGRESS`), entrega una Task en `IN_REVIEW` a un Tester libre, y una User Story con todas sus Tasks `DONE` a un Arquitecto libre para su validación final (y una US en `TO_PLAN` a un Arquitecto libre para aterrizarla en Tasks). Ver [Jobs y el pipeline de trabajo](jobs.md#el-pipeline-de-backlog).
 
 ## Scribe
 
@@ -70,15 +70,14 @@ sequenceDiagram
     U->>B: Seleccionar proyecto (POST /project)
     B->>B: Iniciar sesión de desarrollo
     U->>B: Clic en "Progresar" en una User Story nueva
-    B->>A: Aterrizar la Story en Tasks
-    A-->>B: Tasks escritas, Story → TO_DO
-    U->>B: Clic en "Progresar" otra vez
-    B->>D: Despachar cada Task
-    D-->>B: Task cerrada → REVIEW
+    B->>A: Aterrizar la Story en Tasks (TO_PLAN)
+    A-->>B: Tasks escritas, US refleja la Task menos avanzada
+    B->>D: Despachar cada Task (TO_DEVELOP → IN_PROGRESS)
+    D-->>B: Task cerrada → IN_REVIEW
     B->>T: Verificar la Task
     T-->>B: PASS → Task DONE
-    B->>A: Todas las Tasks DONE → veredicto de Story
-    A-->>B: APROBADO → Story DONE
+    B->>A: Todas las Tasks DONE → US IN_REVIEW (validación final)
+    A-->>B: APROBADO → US DONE
 ```
 
 ## Glosario rápido

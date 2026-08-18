@@ -7,8 +7,8 @@ Real state of Factory Brain contrasted against `02-backlog/` (canonical states) 
 | Phase | Content | State |
 |---|---|---|
 | **0.1** | First functional product: Workspace, Session, Runtime, Agents, manual Dispatcher (Jobs + chaining) | ✅ Complete |
-| **0.2** | Multi-runtime/multi-model and token saving: unified TUI, Scribe, automatic Scribe triggering | ✅ Complete |
-| **0.3** | Critical-dispatcher and remote access: backend API, Android app, Job cancellation, confirmations | ✅ Complete |
+| **0.2** | Multi-runtime/multi-model and token saving: Scribe, automatic Scribe triggering | ✅ Complete |
+| **0.3** | Critical-dispatcher and remote access: backend API, Job cancellation, confirmations | ✅ Complete |
 | **0.4** | Generic and project scripts: 7-script catalog, Scribe indexing | ✅ Complete |
 | **1.0** | Backlog-centric pipeline: Architect role, Epic→US→Task generators, validator, verdicts, structured backlog format, web UX improvements, cross-cutting actions, multi-project sessions, agent reconciliation on startup, live agent log | 🔶 In progress |
 | **0.5–0.9** | Dispatcher v2, Capabilities, Context, Knowledge, Automation, Plugins, remaining Dashboard | ⬜ Planned |
@@ -41,9 +41,9 @@ Source: the `state` frontmatter field of each Epic in `02-backlog/epics/` (canon
 
 | Epic | Note |
 |---|---|
-| **FB-002** Dashboard | Terminal client (Textual TUI) — **retired and archived** (2026-08-18, tag `archive/tui-android-2026-08-18`). The unified TUI and its screens were removed from the repo; all functionality lives in the web. |
-| **FB-017** Android App | Native app (Compose) — **retired and archived** (2026-08-18, tag `archive/tui-android-2026-08-18`). Previously **paused** for new functionality (2026-08-04). |
-| **FB-019** TUI | Cancel Job, confirmations, connectivity — **retired and archived** (2026-08-18, tag `archive/tui-android-2026-08-18`). |
+| **FB-002** Dashboard | Terminal interface — **retired and archived** (2026-08-18). All functionality lives in the web. |
+| **FB-017** Mobile app | Native mobile app — **retired and archived** (2026-08-18). Previously **paused** for new functionality (2026-08-04). |
+| **FB-019** Terminal interface | Cancel Job, confirmations, connectivity — **retired and archived** (2026-08-18). |
 
 ### Phase 1.0 — mostly DONE at Epic level
 
@@ -83,7 +83,7 @@ Source: the `state` frontmatter field of each Epic in `02-backlog/epics/` (canon
 
 ## Technical debt and relevant decisions
 
-- **TUI/Android retired** (2026-08-18): the terminal client and the Android app were archived (tag `archive/tui-android-2026-08-18`) and removed from the repo. Their Epics (FB-002, FB-017, FB-019) and related User Stories/Tasks are marked `FUERA_ROADMAP`; all new functionality is exposed on the web.
+- **Non-web interfaces retired** (2026-08-18): the terminal interface and the mobile app were archived and removed from the repo. Their Epics (FB-002, FB-017, FB-019) and related User Stories/Tasks are marked `FUERA_ROADMAP`; all new functionality is exposed on the web.
 - **In-memory state**: session, agents and Jobs live in the memory of the `brain-api` process. On restart, live tmux sessions are re-recognized by their deterministic name and re-registered as `idle` agents (FB-031) — but Job history and any other in-memory state are still lost; full session recovery (`US-FB003-02`) remains planned, not implemented.
 - **Observability** (structured logging, metrics, tracing): no assigned phase, on backlog hold.
 

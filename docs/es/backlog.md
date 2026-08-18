@@ -8,13 +8,13 @@ Estructura canónica (ver `02-backlog/README.md`): Roadmap → Epic (`FB-NNN`) �
 
 Campos comunes del frontmatter: `id`, `type` (`epic | user_story | task`), `title`, `state`, `dependencies` (una lista YAML de IDs — sin markup en negrita, sin texto libre). Opcionales: `priority` (User Story/Task), `fase`. Las User Stories y Tasks también llevan `epic` (y las Tasks además `user_story`) apuntando a su padre.
 
-`state` de Task: `TO_DO | EN_DESARROLLO | IN_PROGRESS | REVIEW | DONE | POSTERGADA`. `state` de User Story añade dos estados exclusivos de ese tipo al principio del ciclo: `NO_TASKS | EN_DISEÑO | TO_DO | EN_DESARROLLO | IN_PROGRESS | REVIEW | DONE | POSTERGADA` — ver [Jobs y el pipeline de trabajo](jobs.md#el-pipeline-de-backlog) para qué significa cada estado y cómo mueve el Dispatcher los ítems por ellos.
+`state` de Task: `READY | TO_DEVELOP | IN_PROGRESS | IN_REVIEW | DONE` (una Task **nunca** puede tener `OUT_OF_SCOPE`). `state` de User Story: estados propios iniciales `NO_TASKS | TO_PLAN`; una vez creadas sus Tasks, el estado es **derivado** (la Task menos avanzada, `READY` < `TO_DEVELOP` < `IN_PROGRESS` < `IN_REVIEW` < `DONE`), y con todas sus Tasks `DONE` la US pasa a `IN_REVIEW` pendiente de la validación del Arquitecto antes de `DONE`. `OUT_OF_SCOPE` es exclusivo de User Story — ver [Jobs y el pipeline de trabajo](jobs.md#el-pipeline-de-backlog) para qué significa cada estado y cómo mueve el Dispatcher los ítems por ellos.
 
 ## Parser determinista (`brain/backlog/parser.py`)
 
 - Extrae por fichero: id, type, `state`, `dependencies` (parseadas directamente de la lista YAML), prioridad, fase, referencias al padre — todo leído del frontmatter, sin regex sobre Markdown de forma libre.
 - `load_backlog(backlog_path) → BacklogGraph`: parsea los tres subdirectorios; los ficheros malformados se recogen en `graph.errors` sin abortar el resto.
-- `classify_todo_items(graph)`: divide los ítems TO_DO en **LISTA** (todas las dependencias DONE) y **BLOQUEADA** (alguna dependencia pendiente/ausente).
+- `classify_todo_items(graph)`: divide los ítems listos (READY) en **LISTA** (todas las dependencias DONE) y **BLOQUEADA** (alguna dependencia pendiente/ausente).
 - `calculate_unblock_degree(graph, epic)`: ratio de US/Tasks de un Epic cuyas dependencias están todas resueltas (base del mapa de calor).
 - `find_max_leverage_chain(graph)`: la cadena [raíz + cascada] que desbloquea más ítems.
 
@@ -24,7 +24,7 @@ Campos comunes del frontmatter: `id`, `type` (`epic | user_story | task`), `titl
 
 - `empty` / `total` (conteos por tipo y estado + errores).
 - `by_epic` (por Epic: conteos de US/Task + `unblock_degree` + `fase`).
-- `items_lista` (TO_DO LISTA ordenados por prioridad) y `items_bloqueada` (con `blocking_dependencies`).
+- `items_lista` (READY LISTA ordenados por prioridad) y `items_bloqueada` (con `blocking_dependencies`).
 - `max_leverage_chain`.
 - `errors`.
 
@@ -49,14 +49,14 @@ Flujo del Arquitecto con **validador determinista obligatorio + auto-auditoría*
 1. **Proponer User Stories** (`propose_user_stories.py`): carga el contexto de un Epic (objetivo, alcance v1, diferido a v2, dependencias).
 2. **Pipeline de US** (`us_pipeline.py`): valida formato → auto-auditoría con vista externa → aprobación humana → escritura de los ficheros `US-*.md`, nacidos en `NO_TASKS`. Veredictos `APROBADO | APROBADO_CON_OBSERVACIONES | RECHAZADO`.
 3. **Revisión de brechas** (`review_user_story.py`): detecta secciones faltantes, historias vacías, criterios ausentes; `ready_for_tasks` si no hay brechas.
-4. **Proponer Tasks** (`propose_tasks.py`): solo para una User Story en `EN_DISEÑO`; genera `T-*.md` y mueve la Story a `TO_DO`.
+4. **Proponer Tasks** (`propose_tasks.py`): solo para una User Story en `TO_PLAN`; genera `T-*.md` y a partir de ahí la US pasa a reflejar el estado derivado de sus Tasks (la menos avanzada).
 5. **Pipeline de Tasks** (`task_pipeline.py`): validación + auto-auditoría + escritura.
 
 Los comentarios humanos sobre una US se procesan como ajustes dirigidos (`architect/comments.py`).
 
 ### Conducir una User Story a través del Dispatcher
 
-Una vez que una User Story tiene Tasks, el único botón **"Progresar"** (web) la mueve a `EN_DESARROLLO`, encolando sus Tasks pendientes para el Dispatcher — ver [Jobs y el pipeline de trabajo](jobs.md#el-pipeline-de-backlog) para la máquina de estados completa (implementación → revisión de Task por el Tester → veredicto de Story por el Arquitecto). `POST /backlog/{story_id}/launch-development` sigue disponible como alternativa directa de Job aislado que construye un Job a partir del objetivo de la Story y los títulos de las Tasks pendientes y lo despacha a un Developer elegido (400 si no hay Tasks pendientes).
+Una vez que una User Story tiene Tasks, el único botón **"Progresar"** ya no es necesario: la Story refleja automáticamente el estado de sus Tasks, y el Dispatcher las encola en `TO_DEVELOP`, las entrega a Developers en `IN_PROGRESS`, las verifica con el Tester en `IN_REVIEW` y, cuando todas están `DONE`, la US pasa a `IN_REVIEW` pendiente de la validación final del Arquitecto — ver [Jobs y el pipeline de trabajo](jobs.md#el-pipeline-de-backlog) para la máquina de estados completa (implementación → revisión de Task por el Tester → validación final de Story por el Arquitecto). `POST /backlog/{story_id}/launch-development` sigue disponible como alternativa directa de Job aislado que construye un Job a partir del objetivo de la Story y los títulos de las Tasks pendientes y lo despacha a un Developer elegido (400 si no hay Tasks pendientes).
 
 ### Contrato del Tester (`dispatcher/tester_input.py`)
 

@@ -60,35 +60,34 @@ El trabajo por encima del nivel de un Job individual se impulsa enteramente por 
 ### Estados de User Story
 
 ```
-NO_TASKS → (el usuario hace clic en "Progresar") → EN_DISEÑO
-    → (el Dispatcher asigna un Arquitecto libre, aterrizaje US→Tasks) → TO_DO
-    → (el usuario hace clic en "Progresar") → EN_DESARROLLO
-    → (todas sus Tasks llegan a DONE) → REVIEW
-    → (el Arquitecto emite un veredicto) → DONE
+NO_TASKS → (el usuario hace clic en "Progresar") → TO_PLAN
+    → (el Dispatcher asigna un Arquitecto libre, aterrizaje US→Tasks)
+    → (derivado de sus Tasks: READY | TO_DEVELOP | IN_PROGRESS | IN_REVIEW)
+    → (todas sus Tasks llegan a DONE) → IN_REVIEW
+    → (el Arquitecto valida la US completa) → DONE
 ```
 
 - **`NO_TASKS`**: cada User Story nueva nace en este estado — sin Tasks todavía.
-- **`EN_DISEÑO`**: el usuario hizo clic en el único botón **"Progresar"**; la Story ahora es una señal para el Dispatcher, que la asigna a un Arquitecto libre para ejecutar el aterrizaje US→Tasks (un pipeline determinista, sin gastar un Job de agente). Una vez escrita al menos una Task, la Story pasa a `TO_DO`.
-- **`TO_DO`**: existen Tasks, esperando que el usuario progrese la Story hacia el desarrollo.
-- **`EN_DESARROLLO`**: el usuario hizo clic de nuevo en "Progresar" — todas las Tasks pendientes quedan encoladas para el Dispatcher.
-- **`REVIEW`**: se dispara automáticamente una vez que **todas** las Tasks de la Story están `DONE`.
+- **`TO_PLAN`**: el usuario hizo clic en el único botón **"Progresar"**; la Story ahora es una señal para el Dispatcher, que la asigna a un Arquitecto libre para ejecutar el aterrizaje US→Tasks (un pipeline determinista, sin gastar un Job de agente). Una vez escrita al menos una Task, la Story deja de tener estado de planificación propio y pasa a reflejar el estado de sus Tasks.
+- **Estado derivado**: con Tasks creadas, la US refleja siempre la **Task menos avanzada** (`READY` < `TO_DEVELOP` < `IN_PROGRESS` < `IN_REVIEW` < `DONE`) — no es un estado operativo independiente.
+- **`IN_REVIEW` (US)**: se dispara automáticamente una vez que **todas** las Tasks de la Story están `DONE`. Aquí significa que la US completa está pendiente de **validación por el Arquitecto**; no pasa automáticamente a `DONE`.
 
-El mismo botón **"Progresar"** cambia su acción según el estado actual de la Story (`NO_TASKS`→`EN_DISEÑO`, `TO_DO`→`EN_DESARROLLO`) — un único verbo que el usuario lee como "sigue avanzando".
+El mismo botón **"Progresar"** solo actúa en `NO_TASKS` (→ `TO_PLAN`); a partir de ahí, el avance lo gobiernan el Dispatcher y los estados derivados — un único verbo que el usuario lee como "sigue avanzando".
 
-### Revisión de Tasks — dos niveles
+### Revisión — dos niveles
 
-`REVIEW` significa algo distinto para una Task que para una User Story:
+`IN_REVIEW` significa algo distinto para una Task que para una User Story:
 
-1. **Task en `REVIEW`**: el Developer cerró la implementación — el Dispatcher la asigna a un **Tester** libre, que verifica funcionalmente los criterios de aceptación de la Task.
+1. **Task en `IN_REVIEW`**: el Developer cerró la implementación — el Dispatcher la asigna a un **Tester** libre, que verifica funcionalmente los criterios de aceptación de la Task.
    - PASS → la Task pasa a `DONE`.
-   - FAIL → la Task vuelve **directamente al mismo Developer** vía el Dispatcher, con los hallazgos del Tester adjuntos — no se crea una Task nueva. Re-entra en `REVIEW` cuando el Developer la cierra de nuevo.
-   - Mientras la Task de un Developer está en `REVIEW`, ese Developer no se considera libre para una Task `EN_DESARROLLO` nueva (configurable vía la preferencia de sistema `developer_waits_for_tester_review`) — así ningún Developer puede tener dos Tasks auto-certificándose en paralelo.
+   - FAIL → la Task vuelve **directamente al mismo Developer** vía el Dispatcher (pasa de nuevo a `IN_PROGRESS`), con los hallazgos del Tester adjuntos — no se crea una Task nueva. Re-entra en `IN_REVIEW` cuando el Developer la cierra de nuevo.
+   - Mientras la Task de un Developer está en `IN_REVIEW`, ese Developer no se considera libre para una Task nueva (configurable vía la preferencia de sistema `developer_waits_for_tester_review`) — así ningún Developer puede tener dos Tasks auto-certificándose en paralelo.
 
-2. **User Story en `REVIEW`**: el Dispatcher la asigna a un **Arquitecto** libre, que evalúa si las Tasks de la Story cubren completamente la necesidad declarada.
+2. **User Story en `IN_REVIEW`**: solo cuando **todas** sus Tasks están `DONE`, el Dispatcher asigna la US a un **Arquitecto** libre, que evalúa si las Tasks de la Story cubren completamente la necesidad declarada.
    - Aprobada (con o sin notas) → la Story pasa a `DONE`.
-   - Rechazada por cobertura insuficiente → el Arquitecto añade una Task nueva a la **misma** Story, entrando directamente en `EN_DESARROLLO` (saltándose `TO_DO`) — la Story no se promueve a `DONE` en este caso.
+   - Rechazada por cobertura insuficiente → el Arquitecto añade una Task nueva a la **misma** Story — la Story no se promueve a `DONE` en este caso.
 
-El Dispatcher repite este ciclo de polling para los cuatro niveles (aterrizaje de US, implementación, revisión de Tasks, veredicto de Story) con la misma regla de "un agente libre a la vez" en cada nivel.
+El Dispatcher repite este ciclo de polling para los cuatro niveles (aterrizaje de US, implementación, revisión de Tasks, validación final de Story) con la misma regla de "un agente libre a la vez" en cada nivel.
 
 ## Job aislado
 

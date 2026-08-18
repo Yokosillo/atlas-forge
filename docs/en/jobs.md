@@ -60,35 +60,34 @@ Work above the level of a single Job is driven entirely by the `state` field of 
 ### User Story states
 
 ```
-NO_TASKS → (user clicks "Progresar") → EN_DISEÑO
-    → (Dispatcher assigns a free Architect, US→Tasks landing) → TO_DO
-    → (user clicks "Progresar") → EN_DESARROLLO
-    → (all its Tasks reach DONE) → REVIEW
-    → (Architect issues a verdict) → DONE
+NO_TASKS → (user clicks "Progresar") → TO_PLAN
+    → (Dispatcher assigns a free Architect, US→Tasks landing)
+    → (derived from its Tasks: READY | TO_DEVELOP | IN_PROGRESS | IN_REVIEW)
+    → (all its Tasks reach DONE) → IN_REVIEW
+    → (Architect validates the full Story) → DONE
 ```
 
 - **`NO_TASKS`**: every new User Story is born in this state — no Tasks yet.
-- **`EN_DISEÑO`**: the user clicked the single **"Progresar"** button; the Story is now a signal for the Dispatcher, which assigns it to a free Architect to run the US→Tasks landing (a deterministic pipeline, no agent Job spent). Once at least one Task is written, the Story moves to `TO_DO`.
-- **`TO_DO`**: Tasks exist, waiting for the user to progress the Story into development.
-- **`EN_DESARROLLO`**: the user clicked "Progresar" again — all pending Tasks are queued for the Dispatcher.
-- **`REVIEW`**: triggered automatically once **all** of the Story's Tasks are `DONE`.
+- **`TO_PLAN`**: the user clicked the single **"Progresar"** button; the Story is now a signal for the Dispatcher, which assigns it to a free Architect to run the US→Tasks landing (a deterministic pipeline, no agent Job spent). Once at least one Task is written, the Story stops having its own planning state and reflects the state of its Tasks.
+- **Derived state**: with Tasks created, the Story always reflects its **least advanced Task** (`READY` < `TO_DEVELOP` < `IN_PROGRESS` < `IN_REVIEW` < `DONE`) — not an independent operational state.
+- **`IN_REVIEW` (User Story)**: triggered automatically once **all** of the Story's Tasks are `DONE`. Here it means the full Story is pending **Architect validation**; it does not move to `DONE` automatically.
 
-The same **"Progresar"** button changes its action depending on the Story's current state (`NO_TASKS`→`EN_DISEÑO`, `TO_DO`→`EN_DESARROLLO`) — a single verb the user reads as "keep moving forward".
+The same **"Progresar"** button only acts in `NO_TASKS` (→ `TO_PLAN`); from then on, progress is governed by the Dispatcher and the derived states — a single verb the user reads as "keep moving forward".
 
-### Task review — two levels
+### Review — two levels
 
-`REVIEW` means something different for a Task than for a User Story:
+`IN_REVIEW` means something different for a Task than for a User Story:
 
-1. **Task in `REVIEW`**: the Developer closed the implementation — the Dispatcher assigns it to a free **Tester**, who verifies the Task's acceptance criteria functionally.
+1. **Task in `IN_REVIEW`**: the Developer closed the implementation — the Dispatcher assigns it to a free **Tester**, who verifies the Task's acceptance criteria functionally.
    - Pass → the Task moves to `DONE`.
-   - Fail → the Task goes **directly back to the same Developer** via the Dispatcher, with the Tester's findings attached — no new Task is created. It re-enters `REVIEW` once the Developer closes it again.
-   - While a Developer's Task is in `REVIEW`, that Developer is not considered free for a new `EN_DESARROLLO` Task (configurable via the `developer_waits_for_tester_review` system preference) — so no Developer can have two Tasks self-certifying in parallel.
+   - Fail → the Task goes **directly back to the same Developer** via the Dispatcher (back to `IN_PROGRESS`), with the Tester's findings attached — no new Task is created. It re-enters `IN_REVIEW` once the Developer closes it again.
+   - While a Developer's Task is in `IN_REVIEW`, that Developer is not considered free for a new Task (configurable via the `developer_waits_for_tester_review` system preference) — so no Developer can have two Tasks self-certifying in parallel.
 
-2. **User Story in `REVIEW`**: the Dispatcher assigns it to a free **Architect**, who evaluates whether the Story's Tasks fully cover the declared need.
+2. **User Story in `IN_REVIEW`**: only once **all** of its Tasks are `DONE`, the Dispatcher assigns the Story to a free **Architect**, who evaluates whether the Story's Tasks fully cover the declared need.
    - Approved (with or without notes) → the Story moves to `DONE`.
-   - Rejected for missing coverage → the Architect adds a new Task to the **same** Story, entering directly in `EN_DESARROLLO` (skipping `TO_DO`) — the Story is not promoted to `DONE` in this case.
+   - Rejected for missing coverage → the Architect adds a new Task to the **same** Story — the Story is not promoted to `DONE` in this case.
 
-The Dispatcher repeats this polling cycle for all four levels (US landing, implementation, Task review, Story verdict) with the same "one free agent at a time" rule at each level.
+The Dispatcher repeats this polling cycle for all four levels (US landing, implementation, Task review, final Story validation) with the same "one free agent at a time" rule at each level.
 
 ## Job aislado (isolated Job)
 

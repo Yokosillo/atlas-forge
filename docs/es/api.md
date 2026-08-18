@@ -192,23 +192,23 @@ Informe estructurado del backlog del proyecto activo (`02-backlog/`): conteos po
 Detalle de un ítem. Los IDs del tipo `FB-xxx` se resuelven como Epic; cualquier otra cosa como Task/User Story. Incluye objetivo/historia, criterios de aceptación, dependencias (con su estado) y, para User Stories, sus Tasks y (FB-024-US09) historial de ejecución. 404 con un motivo de parseo si el fichero existe pero no pudo parsearse.
 
 ### `POST /backlog/{story_id}/launch-development` → 201
-Ruta de Job aislado (sin cambio de `state` a `EN_DESARROLLO`): construye el Job a partir de la story real + Tasks pendientes (`TO_DO`) y lo despacha al agente indicado. 400 si la Story no tiene Tasks pendientes. Publica `job_status`.
+Ruta de Job aislado (sin encolar las Tasks en `TO_DEVELOP`): construye el Job a partir de la story real + Tasks pendientes (`READY`) y lo despacha al agente indicado. 400 si la Story no tiene Tasks pendientes. Publica `job_status`.
 
 ```json
 {"agent_id": "..."}
 ```
 
 ### `PUT /backlog/{item_id}/state`
-Cambia el `state` de una Task/User Story directamente. Para una User Story, poner `EN_DESARROLLO` también encola todas sus Tasks `TO_DO` pendientes (mismo efecto que `enqueue-all` más abajo); poner `DONE` dispara la promoción automática del Epic si todas sus User Stories ahora están `DONE`.
+Cambia el `state` de una Task/User Story directamente. Para una User Story, los estados operativos (`READY`/`TO_DEVELOP`/`IN_PROGRESS`/`IN_REVIEW`) no se fijan a mano: son derivados de sus Tasks; poner `DONE` dispara la promoción automática del Epic si todas sus User Stories ahora están `DONE`.
 
 ### `POST /backlog/{task_id}/enqueue` → 201
-Marca una Task `TO_DO` como `EN_DESARROLLO`, haciéndola elegible para el Dispatcher. 400 si la Task no está `TO_DO`.
+Marca una Task `READY` como `TO_DEVELOP`, haciéndola elegible para el Dispatcher. 400 si la Task no está `READY`.
 
 ### `POST /backlog/{us_id}/enqueue-all` → 201
 Igual que lo anterior para todas las Tasks pendientes de una User Story en una sola llamada.
 
 ### `DELETE /backlog/{task_id}/enqueue`
-Revierte una Task `EN_DESARROLLO` de vuelta a `TO_DO`, solo si el Dispatcher todavía no la ha recogido.
+Revierte una Task `TO_DEVELOP` de vuelta a `READY`, solo si el Dispatcher todavía no la ha recogido.
 
 ### `GET /backlog/queue`
 Entradas actuales de la cola de despacho (datos auxiliares de ordenación FIFO/auditoría — el `state` en los ficheros reales es la fuente de verdad para la elegibilidad).
@@ -217,7 +217,7 @@ Entradas actuales de la cola de despacho (datos auxiliares de ordenación FIFO/a
 Ejecuta el pipeline determinista Epic→User-Story (validador de formato + auto-auditoría) y escribe las User Stories aprobadas, nacidas en `NO_TASKS`.
 
 ### `POST /backlog/us/{us_id}/propose-tasks`
-Ejecuta el pipeline determinista User-Story→Task. Requiere que la Story esté en `EN_DISEÑO` (400 en caso contrario); en caso de éxito escribe las Tasks y mueve la Story a `TO_DO`.
+Ejecuta el pipeline determinista User-Story→Task. Requiere que la Story esté en `TO_PLAN` (400 en caso contrario); en caso de éxito escribe las Tasks y a partir de ahí la US refleja el estado derivado de sus Tasks.
 
 ## Scripts
 
@@ -260,6 +260,6 @@ Ver también `WS /ws/agents/{agent_id}/pane` más arriba (contenido vivo del pan
 |---|---|
 | Agente | `idle`, `working`, `unavailable`, `stopped` (Developer nunca llega a `stopped` — detener un Developer lo borra) |
 | Job | `created`, `running`, `completed`, `failed`, `cancelled` |
-| Task | `TO_DO`, `EN_DESARROLLO`, `IN_PROGRESS`, `REVIEW`, `DONE`, `POSTERGADA` |
-| User Story | `NO_TASKS`, `EN_DISEÑO`, más todos los estados de Task anteriores |
+| Task | `READY`, `TO_DEVELOP`, `IN_PROGRESS`, `IN_REVIEW`, `DONE` (nunca `OUT_OF_SCOPE`) |
+| User Story | `NO_TASKS`, `TO_PLAN`, más estados derivados de sus Tasks (`READY`/`TO_DEVELOP`/`IN_PROGRESS`/`IN_REVIEW`/`DONE`) y `OUT_OF_SCOPE` (exclusivo de US) |
 | Sesión | `created`, `active`, `closed` |

@@ -56,7 +56,7 @@ Liveness is lazy: if the runtime's tmux session died without you asking, the age
 
 ### A Task never gets picked up
 
-Confirm its `state` is `EN_DESARROLLO` (not `TO_DO`) — the Dispatcher only picks up eligible states, and a plain `TO_DO` Task waits for a human to progress it. Also confirm a Developer is `idle` and its dependencies are all `DONE`.
+Confirm its `state` is `TO_DEVELOP` (not `READY`) — the Dispatcher only picks up eligible states, and a `READY` Task waits to be queued as `TO_DEVELOP`. Also confirm a Developer is `idle` and its dependencies are all `DONE`.
 
 ### Scribe is not available
 

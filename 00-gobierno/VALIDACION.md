@@ -34,18 +34,20 @@ El estado de un padre es una **función determinista** del estado de sus hijos. 
 **User Story**
 
 1. Con **0 Tasks** → `NO_TASKS`.
-2. Con **≥1 Task** → el estado de su Task **más retrasada**, según el orden de progreso `TO_DO` < `EN_DESARROLLO` < `REVIEW` < `DONE`. `IN_PROGRESS` equivale a `EN_DESARROLLO` (compatibilidad pendiente de convergencia) y `FUERA_ROADMAP` equivale a `TO_DO`.
+2. En **`TO_PLAN`** (pendiente de que el Arquitecto la descomponga en Tasks) → `TO_PLAN`.
+3. Con **≥1 Task** → el estado de su Task **menos avanzada**, según el orden de progreso `READY` < `TO_DEVELOP` < `IN_PROGRESS` < `IN_REVIEW` < `DONE`.
+4. Con **todas sus Tasks `DONE`** → `IN_REVIEW` (pendiente de la validación final del Arquitecto; no se deriva a `DONE` automáticamente).
 
 **Epic**
 
 1. Con **0 User Stories** → `TO_DO`.
-2. Con **≥1 User Story** → `DONE` si todas están `DONE`; si no, al estado de su User Story **más retrasada**, con `NO_TASKS`/`EN_DISEÑO`/`FUERA_ROADMAP`/`TO_DO` → `TO_DO`.
+2. Con **≥1 User Story** → `DONE` si todas están `DONE`; si no, al estado de su User Story **menos avanzada**, con `NO_TASKS`/`TO_PLAN`/`OUT_OF_SCOPE` → `TO_DO`.
 
 `--check` detecta drift (estado en disco que no coincide con la derivación).
 
-`--apply` consolida en **ambos sentidos** en una sola pasada idempotente: promueve (padre con todos los hijos `DONE` → `DONE`) y reabre (padre `DONE` o adelantado con un hijo que deja de estarlo → estado más retrasado). La regla es simétrica: nunca puede quedar desactualizada por ningún sentido.
+`--apply` consolida en **ambos sentidos** en una sola pasada idempotente: promueve (padre con todos los hijos `DONE` → `DONE`) y reabre (padre `DONE` o adelantado con un hijo que deja de estarlo → estado menos avanzado). La regla es simétrica: nunca puede quedar desactualizada por ningún sentido.
 
-**Estados transitorios propiedad del pipeline** (no derivables de los hijos; los fija el pipeline explícitamente y la consolidación los respeta): `EN_DISEÑO` de User Story (solo válido con 0 Tasks, mientras el Arquitecto aterriza las Tasks) y `REVIEW` de User Story (solo válido con todas sus Tasks `DONE`, durante el veredicto del Arquitecto).
+**Estados transitorios propiedad del pipeline** (no derivables de los hijos; los fija el pipeline explícitamente y la consolidación los respeta): `TO_PLAN` de User Story (solo válido con 0 Tasks, mientras el Arquitecto aterriza las Tasks) e `IN_REVIEW` de User Story (solo válido con todas sus Tasks `DONE`, durante la validación final del Arquitecto).
 
 La detección se reutiliza en las lecturas del backlog para evitar presentar al usuario una jerarquía falsamente cerrada.
 
