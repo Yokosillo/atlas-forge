@@ -20,7 +20,19 @@ from pathlib import Path
 from brain.backlog.validator_v2 import validate_backlog_content_v2
 
 VALID_PRIORITIES = ("Crítica", "Alta", "Media", "Baja")
-VALID_STATES = ("TODO", "IN_PROGRESS", "REVIEW", "DONE")
+# T-FB008-US14-01: alineado con `validator_v2._VALID_STATES` — antes de
+# esta Task, este conjunto ya estaba desactualizado respecto a ese (le
+# faltaba `POSTERGADA`, ya soportado por el validador). `EN_DESARROLLO` es el
+# valor nuevo de esta Task: "lista para desarrollo" vive en el propio
+# `state`, no solo en `dispatch_queue.json`.
+#
+# 2026-08-17, "PIPELINE OPERATIVO Y RECONCILIACIÓN": `SIN_TAREAS`/`EN_DISEÑO`
+# añadidos — solo válidos para User Story (`validator_v2._validate_state`
+# los rechaza para Task/Epic, que es el chequeo preciso por `type`; este
+# guardarraíl previo es un superset deliberado, no distingue tipo porque
+# `set_item_state` no lo recibe como parámetro — la precisión real la da
+# el validador que se ejecuta después, antes de escribir a disco).
+VALID_STATES = ("TODO", "SIN_TAREAS", "EN_DISEÑO", "EN_DESARROLLO", "IN_PROGRESS", "REVIEW", "DONE", "POSTERGADA")
 
 _FIELD_LINE_PATTERN = "{field}: {value}"
 

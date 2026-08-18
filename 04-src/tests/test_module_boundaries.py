@@ -1,5 +1,5 @@
 """Tests de fronteras entre módulos (T-FB019-US01-07): enforcement de las
-direcciones de dependencia declaradas en `01-documentacion/01-arquitectura.md`
+direcciones de dependencia declaradas en `docs/architecture.md`
 (capas Presentación/Aplicación/Dominio/Infraestructura, "cada módulo expondrá
 una interfaz clara").
 

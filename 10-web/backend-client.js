@@ -543,11 +543,14 @@
 
   /** `PUT /backlog/{item_id}/state` — cambia el estado de una User
    * Story/Task ya existente directamente en su fichero real.
-   * `newState` es una de `'TODO'|'IN_PROGRESS'|'REVIEW'|'DONE'`. Si el
-   * item es una User Story y `newState` es `'DONE'`, el backend dispara
-   * la promoción automática de su Epic si corresponde (`promoted_epics`
-   * en la respuesta). 400 (valor inválido, o Epic) propaga el `detail`
-   * real del backend. */
+   * `newState` es una de `'TODO'|'EN_DESARROLLO'|'IN_PROGRESS'|'REVIEW'|'DONE'`.
+   * Si el item es una User Story y `newState` es `'DONE'`, el backend
+   * dispara la promoción automática de su Epic si corresponde
+   * (`promoted_epics` en la respuesta). Si es una User Story y
+   * `newState` es `'EN_DESARROLLO'` (T-FB008-US14-04), el backend encola
+   * automáticamente sus Tasks `TODO` (`enqueued`/`skipped_already_queued`
+   * en la respuesta, mismo formato que `enqueueAllTasks`). 400 (valor
+   * inválido, o Epic) propaga el `detail` real del backend. */
   async function setBacklogItemState(itemId, newState) {
     return request("PUT", "/backlog/" + encodeURIComponent(itemId) + "/state", {
       post: true, body: { state: newState }

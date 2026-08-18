@@ -12,7 +12,7 @@ from brain.models import Workspace
 # Decision explícita, siguiendo el criterio ya que aplicamos en
 # T-FB001-US01-01 (ficha simple JSON en lugar de SQLite):
 #
-# 01-documentacion/08-data-model.md sitúa `Workspace` por encima de `Project`
+# docs/concepts.md sitúa `Workspace` por encima de `Project`
 # y `Development Session`, pero en este Task (T-FB001-US02-01) el Workspace
 # todavía se gestiona como entidad aislada: crear/consultar/modificar/eliminar
 # sobre su propio catálogo. La asociación del proyecto activo a un Workspace

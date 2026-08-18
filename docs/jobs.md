@@ -1,4 +1,4 @@
-# Jobs and plans
+# Jobs and the work pipeline
 
 ## Job lifecycle
 
@@ -22,7 +22,7 @@ Preconditions (each rejection raises `JobCreationError` with an explicit message
 1. `mark_running(job)` + `mark_working(agent)`.
 2. An instruction is added to the description: the agent must write its full result to a unique temp file (`factory-brain-job-<uuid>.txt`) plus a **final marker** (`___FACTORY_BRAIN_JOB_DONE___`) on its own line.
 3. The instruction is sent to the agent's tmux pane (`run_command`).
-4. The dispatcher polls the file (timeout 30s by default), with read retries for transient `OSError`s.
+4. The dispatcher polls the file (timeout 30s by default for short/deterministic Jobs; work dispatched through the backlog pipeline uses a much longer timeout suited to real implementation work), with read retries for transient `OSError`s.
 5. `completed` (result read) | `failed` (timeout `JobReportTimeoutError`) | `cancelled` (`JobCancelledError` if the user requested cancellation).
 6. In `finally`: deletes the temp file and clears the cancellation request. The agent returns to `idle`.
 
@@ -35,7 +35,7 @@ Before sending, `_resolve_job_description` may enrich the description with Scrib
 
 ## Job chaining
 
-Chaining is **manual and explicit** (v1; there is no declarative pipeline):
+Chaining is **manual and explicit**:
 
 - When creating a Job with `previous_job_id`, the previous Job's result (must be `completed` and with a non-empty result) is injected **literally** into the new Job's description.
 - **Role guard**: Developer→Developer is blocked — a Developer result must be chained to the Architect for review. All other combinations are allowed.
@@ -44,7 +44,7 @@ Chaining is **manual and explicit** (v1; there is no declarative pipeline):
 ## History and reports
 
 - `GET /jobs` returns the full session history (never purged).
-- `write_job_report(job)` persists a **closing report** per `job_id` in `07-informes/<story_id>/<job_id>.md` (mechanism of the backlog-centric pipeline). If the Job has no `story_id`, it goes to `07-informes/_sin-story/`.
+- `write_job_report(job)` persists a **closing report** per `job_id` in `07-informes/<story_id>/<job_id>.md`. If the Job has no `story_id`, it goes to `07-informes/_sin-story/`.
 
 ## Job cancellation
 
@@ -53,91 +53,48 @@ Chaining is **manual and explicit** (v1; there is no declarative pipeline):
 - **Does not kill the tmux process**: the runtime may keep thinking (documented limitation).
 - The endpoint waits (up to 5s) for the real transition and returns the confirmed state.
 
-## Architect plans
+## The backlog pipeline
 
-### Proposal (`job_plan_builder.py`)
+Work above the level of a single Job is driven entirely by the `state` field of a User Story, and orchestrated by a single background Dispatcher (`dispatcher/dispatch_queue_worker.py`) that polls every 5 seconds and reassigns work to whichever agent is free.
 
-`build_job_plan_for_story(story_id)` scans `02-backlog/tasks/T-<US>-*.md`, keeps `TODO` Tasks, orders them by correlative and creates one step per Task. Each step's mechanism is inferred from the Task text:
+### User Story states
 
-| If the Task contains… | mechanism |
-|---|---|
-| `script`, `automatización` | `script` (degraded no-op; there is no script catalog in the plan) |
-| `scribe` | `scribe` (Scribe runs it) |
-| anything else | `agent` with `agent_role: developer` |
-
-The plan is born `proposed`. **Nothing is dispatched until human approval.**
-
-### Approval (`job_plan_approval.py`)
-
-A single whole-plan decision: `approve` → `approved`, `reject` → `rejected`. There is no per-step approval.
-
-### Dispatch (`job_plan_dispatch.py`)
-
-`dispatch_plan(plan, session)` (requires `approved`):
-
-- Iterates the steps in order. Each step: `pending → running → completed | failed | cancelled`.
-- **agent step**: finds the agent by role (and optional `agent_id`, to disambiguate among several Developers), creates the Job with `story_id = plan.goal`, registers it as active for the plan, dispatches it and writes the closing report.
-- **scribe step**: `summarize_document`; `ScribeUnavailableError` is a hard step failure.
-- **script step**: degraded to no-op (stays `pending`, does not block).
-- If a step fails with `JobCreationError`/`ScribeUnavailableError` → step `failed`, plan → `blocked`, stops.
-- If the user cancels (event) → step `cancelled`, plan → `cancelled`.
-- A fully dispatched plan stays `approved` (there is no terminal "completed" state).
-
-### Automatic pipeline verdict (FB-022)
-
-After dispatching a plan (if not cancelled), `trigger_architect_verdict` queues a **verdict Job** to the Architect in a **FIFO queue** (a single daemon worker — the Architect never reviews two things at once):
-
-1. The worker collects the closing reports from `07-informes/<story_id>/`.
-2. Dispatches the verdict to the Architect with the structured format:
-   ```
-   ESTADO: APROBADO | APROBADO_CON_OBSERVACIONES | RECHAZADO
-   JUSTIFICACIÓN: <2-4 lines>
-   SIGUIENTE_PROMPT_PARA_WORKER: <prompt>
-   ```
-3. The verdict is parsed:
-   - `APROBADO` / `APROBADO_CON_OBSERVACIONES` → marks the Story's Tasks as `DONE`.
-   - `RECHAZADO` → persists `07-informes/<story_id>/_rechazo.md` with the justification and the next prompt.
-
-`get_verdict_queue_status()` exposes `{active, waiting}`.
-
-## Plan state diagram
-
-```mermaid
-stateDiagram-v2
-    [*] --> proposed
-    proposed --> approved: human approval
-    proposed --> rejected: human rejection
-    approved --> blocked: step fails (JobCreation/Scribe)
-    approved --> cancelled: cancellation
-    blocked --> [*]
-    cancelled --> [*]
-    rejected --> [*]
+```
+SIN_TAREAS → (user clicks "Progresar") → EN_DISEÑO
+    → (Dispatcher assigns a free Architect, US→Tasks landing) → TODO
+    → (user clicks "Progresar") → EN_DESARROLLO
+    → (all its Tasks reach DONE) → REVIEW
+    → (Architect issues a verdict) → DONE
 ```
 
-## Recommended full flow
+- **`SIN_TAREAS`**: every new User Story is born in this state — no Tasks yet.
+- **`EN_DISEÑO`**: the user clicked the single **"Progresar"** button; the Story is now a signal for the Dispatcher, which assigns it to a free Architect to run the US→Tasks landing (a deterministic pipeline, no agent Job spent). Once at least one Task is written, the Story moves to `TODO`.
+- **`TODO`**: Tasks exist, waiting for the user to progress the Story into development.
+- **`EN_DESARROLLO`**: the user clicked "Progresar" again — all pending Tasks are queued for the Dispatcher.
+- **`REVIEW`**: triggered automatically once **all** of the Story's Tasks are `DONE`.
 
-```mermaid
-sequenceDiagram
-    participant U as User
-    participant B as brain-api
-    participant D as Developer
-    participant A as Architect
+The same **"Progresar"** button changes its action depending on the Story's current state (`SIN_TAREAS`→`EN_DISEÑO`, `TODO`→`EN_DESARROLLO`) — a single verb the user reads as "keep moving forward".
 
-    U->>B: POST /plans {"goal": "US-FB020-01"}
-    B->>A: Propose a plan of steps
-    A-->>B: Plan proposed
-    B-->>U: plan_id + steps
-    U->>B: POST /plans/{id}/approve
-    loop Each step
-        B->>D: Job (task) → result
-    end
-    B->>A: Verdict (FIFO queue)
-    A-->>B: APROBADO
-    B->>B: Tasks DONE
-    B-->>U: final progress
-```
+### Task review — two levels
+
+`REVIEW` means something different for a Task than for a User Story:
+
+1. **Task in `REVIEW`**: the Developer closed the implementation — the Dispatcher assigns it to a free **Tester**, who verifies the Task's acceptance criteria functionally.
+   - Pass → the Task moves to `DONE`.
+   - Fail → the Task goes **directly back to the same Developer** via the Dispatcher, with the Tester's findings attached — no new Task is created. It re-enters `REVIEW` once the Developer closes it again.
+   - While a Developer's Task is in `REVIEW`, that Developer is not considered free for a new `EN_DESARROLLO` Task (configurable via the `developer_waits_for_tester_review` system preference) — so no Developer can have two Tasks self-certifying in parallel.
+
+2. **User Story in `REVIEW`**: the Dispatcher assigns it to a free **Architect**, who evaluates whether the Story's Tasks fully cover the declared need.
+   - Approved (with or without notes) → the Story moves to `DONE`.
+   - Rejected for missing coverage → the Architect adds a new Task to the **same** Story, entering directly in `EN_DESARROLLO` (skipping `TODO`) — the Story is not promoted to `DONE` in this case.
+
+The Dispatcher repeats this polling cycle for all four levels (US landing, implementation, Task review, Story verdict) with the same "one free agent at a time" rule at each level.
+
+## Job aislado (isolated Job)
+
+Outside the Story-state pipeline, a direct path exists for dispatching one-off work to a specific agent without going through any Story cycle: `POST /jobs` — the human picks the agent and writes (or the UI pre-fills) the description. "Lanzar desarrollo" (context already resolved: a Story's objective plus its pending Tasks) and "Crear Job manual" (free-form description) both use this same mechanism, available from a User Story's detail view in the Backlog screen.
 
 ## Planned (not implemented)
 
-- **Full Dispatcher v2** (FB-008): pipeline with declarative dependencies, Job queue, retries, automatic multi-agent coordination and capability resolution (via FB-010 Capability Engine).
+- **Full Dispatcher v2** (FB-008): pipeline with declarative dependencies, retries, automatic multi-agent coordination and capability resolution (via FB-010 Capability Engine).
 - **Scheduler / global Job queue**: does not exist as a separate entity today.

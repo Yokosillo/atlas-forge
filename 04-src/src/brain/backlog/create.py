@@ -224,12 +224,17 @@ def _build_user_story_content(
     # Mismo criterio que `_build_epic_content`: `yaml.safe_dump`, nunca
     # concatenación manual — evita el mismo bug de `title`/`epic`/etc. con
     # `:` rompiendo el YAML generado (T-FB036-US02-01).
+    #
+    # `state: SIN_TAREAS` (T-FB008-US15-01, 2026-08-17): toda User Story
+    # nueva nace sin Tasks — `TODO` queda reservado para cuando ya tiene
+    # al menos una Task real (transición automática al completar
+    # "Progresar"/el aterrizaje del Arquitecto, T-FB008-US15-02).
     frontmatter = yaml.safe_dump(
         {
             "id": us_id,
             "type": "user_story",
             "title": title,
-            "state": "TODO",
+            "state": "SIN_TAREAS",
             "dependencies": [],
             "epic": epic_id,
             "priority": priority,

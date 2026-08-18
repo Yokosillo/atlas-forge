@@ -23,7 +23,6 @@ The bottom navigation (`NavigationBar`) is shown **only when the session context
 
 - **Agents** — listing with state (3s polling), launch (role+runtime+model, with optional `initial_job_description`), stop, view pane.
 - **Jobs** — create/dispatch, cancel, consume `WS /ws/jobs`, history.
-- **Plan Critic** — ask for a plan, approve/reject, consume `WS /ws/plans`.
 - **Scripts** — catalog + execution, formats `backlog_status`.
 - **Backlog** — listing/detail, launch development (only Developer agents).
 
@@ -31,7 +30,7 @@ Also:
 
 - **SessionContextChip** — persistent top bar with backend state + active project, opens a `ModalBottomSheet` to configure host and change project.
 - **OnboardingFlow** — guided 3 steps (Nielsen Norman style) when the context is not resolved.
-- **Confirmations** on critical actions (stop agent, approve plan) and **single-flight** on blocking buttons.
+- **Confirmations** on critical actions (stop agent) and **single-flight** on blocking buttons.
 - Material 3 theme with a color palette verified by WCAG contrast.
 
 ## Limitations

@@ -37,10 +37,17 @@ class ValidationResultV2:
     errors: list[ValidationErrorV2] = field(default_factory=list)
 
 
-_VALID_STATES = {"TODO", "IN_PROGRESS", "REVIEW", "DONE", "POSTERGADA"}
+_VALID_STATES = {"TODO", "EN_DESARROLLO", "IN_PROGRESS", "REVIEW", "DONE", "POSTERGADA"}
+# 2026-08-17, "PIPELINE OPERATIVO Y RECONCILIACIÓN": SIN_TAREAS/EN_DISEÑO son
+# los dos primeros pasos del ciclo de una User Story (antes de que el
+# Arquitecto la desgrane en Tasks) — no tienen sentido para una Task, que
+# nace directamente con Tasks generadas (nunca "sin tareas"). Conjunto
+# adicional, no sustituye a `_VALID_STATES`, solo para type == "user_story".
+_VALID_USER_STORY_ONLY_STATES = {"SIN_TAREAS", "EN_DISEÑO"}
 _VALID_TYPES = {"epic", "user_story", "task"}
 _VALID_PRIORITIES = {"Crítica", "Alta", "Media", "Baja"}
-_VALID_DIFFICULTIES = {"Crítica", "Alta", "Media", "Baja"}
+_VALID_DIFFICULTY_MIN = 0
+_VALID_DIFFICULTY_MAX = 10
 
 _ID_PATTERN = re.compile(
     r"^(FB-\d{3,}|US-FB\d{3,}-\d{2}[A-Z]?|T-FB\d{3,}(?:-US\d{2}[A-Z]?)?-\d{2}[A-Z]?)$"
@@ -135,14 +142,15 @@ def _validate_type(data: dict) -> list[ValidationErrorV2]:
 def _validate_state(data: dict) -> list[ValidationErrorV2]:
     errors: list[ValidationErrorV2] = []
     state = data.get("state")
+    allowed = _VALID_STATES | _VALID_USER_STORY_ONLY_STATES if data.get("type") == "user_story" else _VALID_STATES
     if state is None or (isinstance(state, str) and not state.strip()):
         errors.append(ValidationErrorV2(0, "campo 'state' ausente o vacio"))
     elif not isinstance(state, str):
         errors.append(ValidationErrorV2(0, f"campo 'state' debe ser string, no {type(state).__name__}"))
-    elif state not in _VALID_STATES:
+    elif state not in allowed:
         errors.append(ValidationErrorV2(
             0,
-            f"campo 'state' '{state}' no valido — debe ser: {', '.join(sorted(_VALID_STATES))}"
+            f"campo 'state' '{state}' no valido — debe ser: {', '.join(sorted(allowed))}"
         ))
     return errors
 
@@ -202,15 +210,15 @@ def _validate_difficulty(data: dict, file_type: str) -> list[ValidationErrorV2]:
     difficulty = data.get("difficulty")
     if difficulty is None:
         return errors
-    if not isinstance(difficulty, str):
+    if isinstance(difficulty, bool) or not isinstance(difficulty, int):
         errors.append(ValidationErrorV2(
             0,
-            f"campo 'difficulty' debe ser string o null, no {type(difficulty).__name__}"
+            f"campo 'difficulty' debe ser entero 0-10 o null, no {type(difficulty).__name__}"
         ))
-    elif difficulty not in _VALID_DIFFICULTIES:
+    elif not (_VALID_DIFFICULTY_MIN <= difficulty <= _VALID_DIFFICULTY_MAX):
         errors.append(ValidationErrorV2(
             0,
-            f"campo 'difficulty' '{difficulty}' no valido — debe ser: {', '.join(sorted(_VALID_DIFFICULTIES))}"
+            f"campo 'difficulty' '{difficulty}' fuera de rango — debe estar entre {_VALID_DIFFICULTY_MIN} y {_VALID_DIFFICULTY_MAX}"
         ))
     return errors
 

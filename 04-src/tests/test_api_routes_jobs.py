@@ -426,14 +426,41 @@ def test_post_job_cancel_returns_404_when_no_session_is_active() -> None:
     assert response.status_code == 404
 
 
-def test_post_jobs_with_story_id_writes_report_and_enqueues_verdict(
+def test_post_jobs_with_story_id_writes_report_and_marks_story_review(
     tmp_path: Path, isolated_socket: str, monkeypatch
 ) -> None:
     """T-FB024-US15-01, criterio de aceptación central: `POST /jobs` con
     `story_id` informado, al completarse el Job, genera el informe de
-    cierre en `07-informes` y encola un veredicto — de punta a punta, con
-    tmux real (doble cooperativo), no mockeando la lógica de negocio."""
+    cierre en `07-informes` — de punta a punta, con tmux real (doble
+    cooperativo), no mockeando la lógica de negocio.
+
+    T-FB008-US14-02: `trigger_architect_verdict` ya no encola un
+    veredicto directamente (la cola FIFO ciega de `architect_verdict_queue`
+    se sustituyó por reparto vía el Dispatcher, que comprueba
+    disponibilidad real del Arquitecto) — ahora, cuando TODAS las Tasks
+    de la Story están `DONE` en el backlog real del proyecto activo,
+    marca la propia User Story en `state: REVIEW`. Se crea una US y una
+    Task sintéticas ya `DONE` en `project-a/02-backlog/` para verificar
+    el disparo real (antes de esta Task, disparaba sin comprobar nada,
+    bug de diseño corregido)."""
     _project, session = _active_project_and_session(tmp_path, monkeypatch)
+    backlog_dir = tmp_path / "workspace" / "project-a" / "02-backlog"
+    stories_dir = backlog_dir / "user-stories"
+    stories_dir.mkdir(parents=True, exist_ok=True)
+    story_path = stories_dir / "US-FB024-15-titulo.md"
+    story_path.write_text(
+        "---\nid: US-FB024-15\ntype: user-story\ntitle: Titulo\nstate: TODO\n"
+        "dependencies: []\nepic: FB-024\n---\n\n# US-FB024-15\n\n## Contexto\n\nC.\n",
+        encoding="utf-8",
+    )
+    tasks_dir = backlog_dir / "tasks"
+    tasks_dir.mkdir(parents=True, exist_ok=True)
+    (tasks_dir / "T-FB024-US15-01.md").write_text(
+        "---\nid: T-FB024-US15-01\ntype: task\ntitle: Task\nstate: DONE\n"
+        "dependencies: []\nepic: FB-024\nuser_story: US-FB024-15\npriority: Alta\n---\n\n"
+        "# T-FB024-US15-01\n\n## Objetivo\n\nObjetivo.\n\n## Criterios de aceptación\n\n1. Y.\n",
+        encoding="utf-8",
+    )
     agent, runtime_instance = _launch_cooperative_agent(
         "developer", tmp_path, session, isolated_socket, monkeypatch
     )
@@ -446,24 +473,6 @@ def test_post_jobs_with_story_id_writes_report_and_enqueues_verdict(
         return _real_write_job_report(job, reports_root=reports_root)
 
     monkeypatch.setattr(routes_module, "write_job_report", _write_to_tmp)
-
-    # El worker daemon de la cola de veredictos procesa items en un hilo
-    # de fondo casi de inmediato (mismo patrón que `test_verdict_queue.py`
-    # usa para observar `active` de forma determinista): bloqueamos
-    # `_do_dispatch_verdict` con un Event hasta confirmar que el veredicto
-    # quedó realmente encolado/en curso, luego lo liberamos para no dejar
-    # el worker atascado entre tests.
-    dispatch_started = threading.Event()
-    release_dispatch = threading.Event()
-
-    def _blocking_dispatch(story_id, session_arg, socket_name_arg, reports_root_arg=None):
-        dispatch_started.set()
-        release_dispatch.wait(timeout=5.0)
-
-    monkeypatch.setattr(
-        "brain.dispatcher.architect_verdict_queue._do_dispatch_verdict",
-        _blocking_dispatch,
-    )
 
     client = TestClient(create_app())
     response = client.post(
@@ -479,19 +488,8 @@ def test_post_jobs_with_story_id_writes_report_and_enqueues_verdict(
     body = response.json()
     assert body["status"] == "completed"
 
-    assert dispatch_started.wait(timeout=5.0), (
-        "El veredicto nunca llegó a encolarse/despacharse."
-    )
-    status = get_verdict_queue_status()
-    assert status["active"] == "US-FB024-15", (
-        f"Esperado active='US-FB024-15', obtenido {status}"
-    )
-
-    release_dispatch.set()
-    for _ in range(50):
-        if get_verdict_queue_status()["active"] is None:
-            break
-        time.sleep(0.05)
+    story_text = story_path.read_text(encoding="utf-8")
+    assert "state: REVIEW" in story_text
 
     report = read_job_report("US-FB024-15", body["id"], reports_root=reports_root)
     assert report is not None

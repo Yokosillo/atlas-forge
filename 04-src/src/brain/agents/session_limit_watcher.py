@@ -99,15 +99,32 @@ def run_session_limit_cycle(
         if pane_text is None:
             continue
 
-        reset_at = detect_session_limit_block(pane_text, now=now)
-
         if agent.status in _STATUSES_ELIGIBLE_FOR_LIMIT_CHECK:
+            reset_at = detect_session_limit_block(pane_text, now=now)
             if reset_at is not None:
                 mark_limited(agent, reset_at.isoformat())
             continue
 
         if agent.status == "limited":
+            # Fuente de verdad: `agent.limited_until`, ya calculado y
+            # fijado en el ciclo que detectó el bloqueo — NUNCA se
+            # re-parsea la hora del pane contra el `now` de este ciclo.
+            # `detect_session_limit_block`/`parse_reset_time` asumen que
+            # una hora ya pasada respecto a `now` es la ocurrencia de
+            # MAÑANA (para el primer aviso, que siempre anuncia un reset
+            # futuro) — reaplicar esa heurística aquí, con `now` ya
+            # avanzado más allá del reset real, reinterpretaría el
+            # mismísimo reset ya ocurrido como si fuera el de mañana,
+            # dejando al agente "limited" para siempre (bug real
+            # detectado por `test_watcher_pings_and_clears_status_once_reset_time_plus_margin_has_passed`
+            # durante el desarrollo de esta Task).
+            reset_at = datetime.fromisoformat(agent.limited_until) if agent.limited_until else None
             if reset_at is None:
+                clear_session_limit(agent)
+                continue
+
+            still_blocked = detect_session_limit_block(pane_text, now=now) is not None
+            if not still_blocked:
                 # Ya no muestra el patrón — recuperó actividad normal por
                 # su cuenta (criterio 7), sin necesitar el ping.
                 clear_session_limit(agent)

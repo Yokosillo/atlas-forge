@@ -8,6 +8,7 @@ fina... no se duplica lógica de validación"). Las excepciones de dominio
 un texto reinventado en esta capa."""
 
 import json
+import re
 import time
 from pathlib import Path
 
@@ -110,6 +111,7 @@ from brain.agent_model import (
     get_available_model_entries as agent_model_get_available_model_entries,
     get_available_models as agent_model_get_available_models,
     set_active_model as agent_model_set_active_model,
+    set_active_model_claude_code as agent_model_set_active_model_claude_code,
 )
 from brain.model_preferences import (
     load_model_preferences,
@@ -119,7 +121,7 @@ from brain.system_preferences import (
     load_system_preferences,
     save_system_preferences,
 )
-from brain.tmux.manager import DEFAULT_SOCKET_NAME, send_keys_literal
+from brain.tmux.manager import DEFAULT_SOCKET_NAME, run_command
 from brain.tmux import capture_pane_lines
 from brain.workspace.active_project import (
     ProjectNotDiscoveredError,
@@ -553,23 +555,19 @@ def get_agents_options() -> list[dict]:
 
 
 def _reject_incompatible_launch_model(runtime_type: str, model: str) -> None:
-    """Criterio 3 de T-FB005-US07-02: rechaza (400) un modelo que la
-    capacidad del runtime elegido no permite — un modelo enviado a Claude
-    Code (no admite selección de modelo en el lanzamiento, ver
-    `brain/runtime_model_contract.py`) o un modelo catalogado que pertenece
-    a OTRO runtime. Se rechaza ANTES de lanzar nada, sin efectos parciales.
+    """Criterio 3 de T-FB005-US07-02: rechaza (400) un modelo catalogado
+    que pertenece a OTRO runtime. Se rechaza ANTES de lanzar nada, sin
+    efectos parciales.
+
+    Corrección T-FB024-US11-13 (2026-08-17): Claude Code SÍ admite
+    indicar modelo al lanzar (`--model`, verificado directamente contra
+    `claude --help`) — ya no se rechaza aquí, mismo criterio que OpenCode.
 
     Un modelo no catalogado (p. ej. un modelo libre de OpenCode) no se
     puede contrastar contra el catálogo — se deja pasar: `launch_agent`
-    es el que decide si el runtime lo acepta (OpenCode acepta modelos
-    libres; Claude Code ya lo rechazó arriba)."""
+    es el que decide si el runtime lo acepta."""
     from brain.agent_model import resolve_runtime_for_model
 
-    if runtime_type == "claude-code":
-        raise HTTPException(
-            status_code=400,
-            detail="Claude Code no admite indicar un modelo.",
-        )
     model_runtime = resolve_runtime_for_model(model)
     if model_runtime is not None and model_runtime != runtime_type:
         raise HTTPException(
@@ -826,13 +824,22 @@ def get_agent_status_model(agent_id: str) -> dict:
 
 @router.put("/agents/{agent_id}/model")
 def put_agent_model(agent_id: str, body: dict) -> dict:
-    """Cambia el modelo activo del agente `agent_id` via
-    `set_active_model` (T-FB004-US05-01). Recibe `{"model": "<id>"}` en el
-    cuerpo. Solo para agentes OpenCode en ejecucion — si el runtime no lo
-    soporta o la sesion tmux no esta viva, devuelve 400 con el motivo
-    (nunca 500). No modifica el estado del agente (sigue `idle`/`working`).
+    """Cambia el modelo activo del agente `agent_id` en caliente. Recibe
+    `{"model": "<id>"}` en el cuerpo. Solo para agentes en ejecucion cuyo
+    runtime admite cambio de modelo — si el runtime no lo soporta o la
+    sesion tmux no esta viva, devuelve 400 con el motivo (nunca 500). No
+    modifica el estado del agente (sigue `idle`/`working`).
 
-    Devuelve `{agent_id, model, changed: true|false}`."""
+    Dos mecanismos segun runtime:
+    - OpenCode: `set_active_model` (T-FB004-US05-01, atajos de teclado).
+    - Claude Code (T-FB024-US11-13, decision de producto 2026-08-17):
+      `set_active_model_claude_code` (comando interno '/model <id>' +
+      confirmacion del dialogo "Switch model?" si aparece).
+
+    Devuelve `{agent_id, model, changed: true|false}` — para Claude Code
+    `changed` es siempre `true` si no hubo excepcion (no hay forma de
+    verificar el resultado real sin lectura pasiva del modelo, a
+    diferencia de OpenCode)."""
     session = get_current_session()
     if session is None:
         raise HTTPException(
@@ -851,33 +858,67 @@ def put_agent_model(agent_id: str, body: dict) -> dict:
             detail="El campo 'model' es obligatorio (cadena no vacía).",
         )
 
-    # Verificar que el runtime es OpenCode antes de intentar el cambio
-    # (get_active_model ya lo comprueba internamente, pero aquí damos un
-    # 400 explicito con el motivo de dominio en vez de un false silencioso).
     rt = get_runtime_instance_for_agent(agent.id)
     if rt is None:
         raise HTTPException(
             status_code=400,
             detail=f"El agente '{agent_id}' no tiene un runtime registrado.",
         )
+
+    if rt.runtime.type == "claude-code":
+        if not is_runtime_alive(rt, socket_name=_SOCKET_NAME):
+            raise HTTPException(
+                status_code=400,
+                detail=f"El agente '{agent_id}' no tiene una sesión tmux viva.",
+            )
+        agent_model_set_active_model_claude_code(
+            rt.session_name, model_name.strip(), socket_name=_SOCKET_NAME
+        )
+        return {"agent_id": agent_id, "model": model_name.strip(), "changed": True}
+
     if rt.runtime.type != "opencode":
         raise HTTPException(
             status_code=400,
-            detail=f"El agente '{agent_id}' no usa OpenCode — no admite cambio de modelo.",
+            detail=f"El agente '{agent_id}' no usa OpenCode ni Claude Code — no admite cambio de modelo.",
         )
 
+    # `set_active_model` busca el modelo por su NOMBRE VISIBLE en el pane
+    # (p. ej. "DeepSeek V4 Flash"), no por el id del catálogo (p. ej.
+    # "opencode-go/deepseek-v4-flash", con guiones/minúsculas que nunca
+    # coinciden literal con el texto real del selector de OpenCode) —
+    # bug real corregido (2026-08-17, T-FB024-US11-13): el frontend
+    # siempre envía el id, así que aquí se resuelve al nombre real del
+    # catálogo antes de buscarlo en el pane. Si el id no está en el
+    # catálogo, se usa tal cual (compatibilidad con el caso "modelo libre
+    # de OpenCode" ya documentado en `resolve_runtime_for_model`).
+    catalog_entry = next(
+        (m for m in agent_model_get_available_model_entries() if m["id"] == model_name.strip()),
+        None,
+    )
+    model_to_send = catalog_entry["name"] if catalog_entry else model_name.strip()
+
     changed = agent_model_set_active_model(
-        agent_id, model_name.strip(), socket_name=_SOCKET_NAME
+        agent_id, model_to_send, socket_name=_SOCKET_NAME
     )
     return {"agent_id": agent_id, "model": model_name.strip(), "changed": changed}
+
+
+_CATALOG_RUNTIME_BY_REAL_TYPE = {
+    "opencode": "opencode",
+    "claude-code": "claude_code",
+}
 
 
 @router.get("/agents/{agent_id}/available-models")
 def get_agent_available_models(agent_id: str) -> dict:
     """Modelos disponibles para el agente `agent_id`, con indicador de si
-    el agente admite cambio de modelo (runtime OpenCode). La lista se lee
-    del catalogo de configuracion (`models.yml`, T-FB022-US09) — no es un
-    array fijo de codigo ni se interroga al binario de OpenCode.
+    el agente admite cambio de modelo (runtime OpenCode o Claude Code,
+    T-FB024-US11-13: Claude Code cambia de modelo enviando '/model <id>'
+    por tmux via POST /agents/{id}/send-keys, no PUT /agents/{id}/model
+    — ese endpoint sigue siendo exclusivo de OpenCode). La lista se lee
+    del catalogo de configuracion (`models.yml`, T-FB022-US09), filtrada
+    al runtime real del agente — no es un array fijo de codigo ni se
+    interroga al binario del runtime.
 
     Devuelve `{agent_id, supports_model: bool, models: [{id, name, runtime}]}`.
     404 solo si no hay sesion activa o el agente no existe."""
@@ -893,23 +934,40 @@ def get_agent_available_models(agent_id: str) -> dict:
         )
 
     rt = get_runtime_instance_for_agent(agent.id)
-    supports = rt is not None and rt.runtime.type == "opencode"
+    real_type = rt.runtime.type if rt is not None else None
+    catalog_runtime = _CATALOG_RUNTIME_BY_REAL_TYPE.get(real_type)
+    supports = catalog_runtime is not None
+    models = (
+        [m for m in agent_model_get_available_model_entries() if m["runtime"] == catalog_runtime]
+        if supports
+        else []
+    )
     return {
         "agent_id": agent_id,
         "supports_model": supports,
-        "models": agent_model_get_available_model_entries() if supports else [],
+        "models": models,
     }
 
 
 @router.post("/agents/{agent_id}/send-keys")
 def send_agent_keys(agent_id: str, body: dict) -> dict:
-    """Envía teclas literales al pane del agente `agent_id` (T-FB024-US11-13).
-    Se usa para enviar empujones sin crear un Job formal — p. ej. el botón
-    "Despertar" cuando el agente está `working`.
+    """Envía texto real + Enter al pane del agente `agent_id`
+    (T-FB024-US11-13). Se usa para enviar empujones sin crear un Job
+    formal — el botón "Despertar", y el cambio de modelo en caliente de
+    Claude Code ('/model <id>').
 
-    Recibe `{"keys": "<notación tmux>"}` (p. ej. "continua", "Enter").
-    404 si no hay sesión activa, si el agente no existe, o si el runtime
-    no está vivo. Devuelve `{agent_id, keys_sent}` en éxito."""
+    Usa `run_command` (no `send_keys_literal`), verificado
+    experimentalmente en `T-FB024-US21-01`
+    (`brain/agents/session_limit_watcher.py`): un `Enter` vacío por sí
+    solo NO confirma el texto en Claude Code — `run_command` emite DOS
+    invocaciones reales de tmux send-keys (texto, luego Enter vía
+    `pane.enter()`), no una combinada.
+
+    Recibe `{"keys": "<texto>"}` (p. ej. "continua", "/model sonnet"). El
+    texto se envía tal cual, seguido de Enter — nunca notación de teclas
+    especiales de tmux (`C-p`, `Down`...), solo texto real. 404 si no hay
+    sesión activa, si el agente no existe, o si el runtime no está vivo.
+    Devuelve `{agent_id, keys_sent}` en éxito."""
     session = get_current_session()
     if session is None:
         raise HTTPException(
@@ -942,7 +1000,7 @@ def send_agent_keys(agent_id: str, body: dict) -> dict:
             detail=f"El agente '{agent_id}' no tiene una sesión tmux viva.",
         )
 
-    send_keys_literal(runtime_instance.session_name, keys.strip(), socket_name=_SOCKET_NAME)
+    run_command(runtime_instance.session_name, keys.strip(), socket_name=_SOCKET_NAME)
     return {"agent_id": agent_id, "keys_sent": keys.strip()}
 
 
@@ -1008,6 +1066,7 @@ def get_system_preferences() -> dict:
 class UpdateSystemPreferencesRequest(BaseModel):
     max_simultaneous_developers: int | None = None
     tui_enabled: bool | None = None
+    developer_waits_for_tester_review: bool | None = None
 
 
 @router.put("/system/preferences")
@@ -1034,6 +1093,9 @@ def put_system_preferences(body: UpdateSystemPreferencesRequest) -> dict:
 
     if body.tui_enabled is not None:
         current["tui_enabled"] = body.tui_enabled
+
+    if body.developer_waits_for_tester_review is not None:
+        current["developer_waits_for_tester_review"] = body.developer_waits_for_tester_review
 
     save_system_preferences(current, state_dir=_STATE_DIR)
     return current
@@ -1124,22 +1186,33 @@ def post_jobs(body: CreateJobRequest) -> dict:
 
     dispatch_job(job, agent, runtime_instance, socket_name=_SOCKET_NAME)
 
-    # T-FB024-US15-01: mismo ciclo de informe de cierre + veredicto
-    # automático que ya dispara `dispatch_plan` al completar todos sus
-    # pasos (ver `_dispatch_agent_step`/`trigger_architect_verdict` en
-    # `job_plan_dispatch.py`), ahora también para un Job suelto creado
-    # directamente con `POST /jobs` cuando viene asociado a una Story. Sin
-    # `story_id`, comportamiento idéntico al actual (nada de esto se
-    # ejecuta). Un Job `cancelled` no se reporta — mismo criterio que
-    # `_dispatch_agent_step` ("un paso cancelado no tiene información útil
-    # que persistir").
+    # T-FB024-US15-01 / T-FB008-US14-02: mismo ciclo de informe de cierre
+    # + intento de veredicto que ya dispara `dispatch_plan` al completar
+    # todos sus pasos (ver `_dispatch_agent_step`/`trigger_architect_verdict`
+    # en `job_plan_dispatch.py`), ahora también para un Job suelto creado
+    # directamente con `POST /jobs` cuando viene asociado a una Story.
+    # `trigger_architect_verdict` comprueba internamente que TODA la
+    # Story esté DONE antes de marcarla REVIEW — un Job suelto que
+    # completa su propia Task no dispara el veredicto si aún quedan otras
+    # Tasks de la misma Story sin cerrar (bug de diseño corregido:
+    # antes disparaba tras cualquier Job con `story_id`, sin comprobar
+    # el resto). Sin `story_id`, comportamiento idéntico al actual (nada
+    # de esto se ejecuta). Un Job `cancelled` no se reporta — mismo
+    # criterio que `_dispatch_agent_step` ("un paso cancelado no tiene
+    # información útil que persistir").
     if job.story_id and job.status in ("completed", "failed"):
         try:
             write_job_report(job)
         except Exception:
             pass
         try:
-            trigger_architect_verdict(job.story_id, session, socket_name=_SOCKET_NAME)
+            active_project = get_active_project(state_dir=_STATE_DIR)
+            backlog_dir = (
+                Path(active_project.path) / "02-backlog" if active_project is not None else None
+            )
+            trigger_architect_verdict(
+                job.story_id, session, socket_name=_SOCKET_NAME, backlog_dir=backlog_dir
+            )
         except Exception:
             pass
 
@@ -1591,12 +1664,60 @@ def post_enqueue_task(task_id: str) -> dict:
     except TaskAlreadyQueuedError as error:
         raise HTTPException(status_code=409, detail=str(error)) from error
 
+    # T-FB008-US14-01: `EN_DESARROLLO` en el propio `state` del fichero real es
+    # ahora la fuente de verdad de "lista para desarrollo" — la entrada
+    # en `dispatch_queue.json` (arriba) se conserva como mecanismo
+    # auxiliar de orden FIFO/auditoría (`dispatch_reason`,
+    # `dispatched_at`), pero ya no es el único lugar donde "encolada" se
+    # registra. Se escribe DESPUÉS de la entrada JSON: si esto fallara,
+    # la entrada JSON ya escrita seguiría siendo consistente con el
+    # estado anterior (`TODO`) del fichero, sin dejar un estado a medias
+    # peor que el actual.
+    set_item_state(item.path, "EN_DESARROLLO")
+
     return {
         "task_id": entry.task_id,
         "us_id": entry.us_id,
         "priority": entry.priority,
         "status": entry.status,
         "enqueued_at": entry.enqueued_at,
+    }
+
+
+def _enqueue_all_pending_tasks_of_story(project, graph, us_id: str) -> dict:
+    """Encola todas las Tasks `TODO` de `us_id` — lógica compartida entre
+    `POST /backlog/{us_id}/enqueue-all` y el atajo de `PUT
+    /backlog/{item_id}/state` cuando se marca una User Story como
+    `EN_DESARROLLO` (T-FB008-US14-04): ambos caminos deben producir
+    exactamente el mismo efecto, coordinados para no divergir."""
+    pending_tasks = [
+        item
+        for item in graph.items.values()
+        if item.kind == ITEM_KIND_TASK and item.user_story == us_id and item.state == "TODO"
+    ]
+
+    enqueued = []
+    skipped_already_queued = []
+    for item in pending_tasks:
+        try:
+            entry = enqueue_task(
+                project.path,
+                project.name,
+                task_id=item.id,
+                us_id=item.user_story,
+                priority=item.priority,
+            )
+            enqueued.append(entry.task_id)
+            # T-FB008-US14-01: mismo criterio que el encolado individual
+            # — `EN_DESARROLLO` en el propio `state` es la fuente de verdad.
+            set_item_state(item.path, "EN_DESARROLLO")
+        except TaskAlreadyQueuedError:
+            skipped_already_queued.append(item.id)
+
+    return {
+        "us_id": us_id,
+        "enqueued": enqueued,
+        "skipped_already_queued": skipped_already_queued,
     }
 
 
@@ -1628,32 +1749,7 @@ def post_enqueue_all_tasks(us_id: str) -> dict:
             detail=f"No existe ninguna User Story con id '{us_id}' en el backlog activo.",
         )
 
-    pending_tasks = [
-        item
-        for item in graph.items.values()
-        if item.kind == ITEM_KIND_TASK and item.user_story == us_id and item.state == "TODO"
-    ]
-
-    enqueued = []
-    skipped_already_queued = []
-    for item in pending_tasks:
-        try:
-            entry = enqueue_task(
-                project.path,
-                project.name,
-                task_id=item.id,
-                us_id=item.user_story,
-                priority=item.priority,
-            )
-            enqueued.append(entry.task_id)
-        except TaskAlreadyQueuedError:
-            skipped_already_queued.append(item.id)
-
-    return {
-        "us_id": us_id,
-        "enqueued": enqueued,
-        "skipped_already_queued": skipped_already_queued,
-    }
+    return _enqueue_all_pending_tasks_of_story(project, graph, us_id)
 
 
 @router.delete("/backlog/{task_id}/enqueue")
@@ -1675,6 +1771,18 @@ def delete_dequeue_task(task_id: str) -> dict:
         raise HTTPException(status_code=404, detail=str(error)) from error
     except TaskAlreadyDispatchedError as error:
         raise HTTPException(status_code=409, detail=str(error)) from error
+
+    # T-FB008-US14-01: desencolar revierte `state: EN_DESARROLLO` a `TODO` en
+    # el fichero real — mismo criterio de reversibilidad ya documentado
+    # arriba ("sin ningún efecto secundario"), ahora que EN_DESARROLLO vive en
+    # el propio estado. Mejor esfuerzo: si el item ya no aparece en el
+    # grafo (caso borde improbable), no se bloquea la respuesta 200 del
+    # desencolado real (ya confirmado arriba) por un fallo de esta
+    # segunda escritura.
+    graph = _load_active_backlog_graph(project)
+    item = graph.items.get(task_id)
+    if item is not None and item.state == "EN_DESARROLLO":
+        set_item_state(item.path, "TODO")
 
     return {"task_id": task_id, "dequeued": True}
 
@@ -1739,8 +1847,14 @@ def put_backlog_item_state(item_id: str, body: dict) -> dict:
     hijos `DONE` — criterio de aceptación 2 de `US-FB036-08` y de la
     propia Task, reutilizando el mecanismo sin duplicarlo.
 
-    Body: `{"state": "TODO" | "IN_PROGRESS" | "REVIEW" | "DONE"}`. 400 si
-    el valor no pertenece al conjunto cerrado, o si el contenido
+    Si el nuevo estado es `EN_DESARROLLO` y el item es una User Story
+    (T-FB008-US14-04): atajo funcional equivalente a pulsar "Marcar toda
+    la Story para desarrollo" — encola automáticamente todas sus Tasks
+    `TODO` (mismo criterio idempotente que `enqueue-all`), coordinado
+    para no divergir entre los dos caminos.
+
+    Body: `{"state": "TODO" | "EN_DESARROLLO" | "IN_PROGRESS" | "REVIEW" | "DONE"}`.
+    400 si el valor no pertenece al conjunto cerrado, o si el contenido
     resultante no pasa el validador — `detail` verbatim en este caso."""
     project = _active_project_or_404()
     backlog_path = Path(project.path) / "02-backlog"
@@ -1760,7 +1874,16 @@ def put_backlog_item_state(item_id: str, body: dict) -> dict:
         promotion = promote_backlog(backlog_path)
         promoted_epics = promotion.promoted_epics
 
-    return {"item_id": item_id, "state": new_state, "promoted_epics": promoted_epics}
+    enqueue_result: dict | None = None
+    if new_state == "EN_DESARROLLO" and item.kind == ITEM_KIND_USER_STORY:
+        graph_after = load_backlog(backlog_path)
+        enqueue_result = _enqueue_all_pending_tasks_of_story(project, graph_after, item_id)
+
+    response = {"item_id": item_id, "state": new_state, "promoted_epics": promoted_epics}
+    if enqueue_result is not None:
+        response["enqueued"] = enqueue_result["enqueued"]
+        response["skipped_already_queued"] = enqueue_result["skipped_already_queued"]
+    return response
 
 
 @router.post("/backlog/epic", status_code=201)
@@ -1904,6 +2027,18 @@ def post_backlog_us_task(us_id: str, body: CreateTaskRequest) -> dict:
         raise HTTPException(status_code=409, detail=str(error)) from error
     except CreateBacklogValidationError as error:
         raise HTTPException(status_code=400, detail=str(error)) from error
+
+    # T-FB008-US15-01/-02, criterio 5: crear una Task manual sobre una US
+    # todavía en `SIN_TAREAS` la transiciona a `TODO` — mismo criterio que
+    # el aterrizaje automático del Arquitecto, "ya tiene al menos una
+    # Task real" es la señal de salida de `SIN_TAREAS`, sea cual sea el
+    # camino que la creó. Si la US está en otro estado (p. ej.
+    # `EN_DISEÑO`, esperando al Arquitecto — criterio 9 de la US: "+
+    # Nueva Task" sigue disponible ahí), no se toca.
+    graph_after_create = _load_active_backlog_graph(project)
+    us_item_after_create = graph_after_create.items.get(us_id)
+    if us_item_after_create is not None and us_item_after_create.state == "SIN_TAREAS":
+        set_item_state(us_item_after_create.path, "TODO")
 
     return {
         "id": body.id,
@@ -2261,9 +2396,39 @@ def post_propose_tasks(us_id: str) -> dict:
         )
 
     us_file_path = str(candidates[0])
+
+    # T-FB008-US15-02 (2026-08-17): solo se puede proponer Tasks sobre
+    # una User Story en `EN_DISEÑO` — evita generar Tasks duplicadas o
+    # incoherentes sobre una Story ya desgranada (antes, este endpoint
+    # no comprobaba en absoluto el estado real de la US).
+    graph_for_state_check = _load_active_backlog_graph(project)
+    us_item_for_state_check = graph_for_state_check.items.get(us_id)
+    us_state = us_item_for_state_check.state if us_item_for_state_check is not None else None
+    if us_state != "EN_DISEÑO":
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"La User Story '{us_id}' no está en estado 'EN_DISEÑO' "
+                f"(estado real: '{us_state}') — no se pueden proponer Tasks."
+            ),
+        )
+
     review = review_user_story_for_gaps(us_file_path)
 
-    epic_id = us_id.split("-US")[0] if "-US" in us_id else us_id.split("-")[0]
+    # Bug corregido (2026-08-17, encontrado end-to-end vía este mismo
+    # endpoint): el regex extraía `FB\d+` de `us_id` (p. ej. "US-FB999-03"
+    # -> "FB999", SIN el guion que exige el formato real `FB-NNN`) — el
+    # campo `epic` de cada Task generada nunca pasaba el validador
+    # determinista, `approved_tasks` quedaba siempre vacío, y la
+    # transición EN_DISEÑO -> TODO (criterio 4) nunca llegaba a
+    # ejecutarse pese a que el endpoint devolvía 200 con Tasks "propuestas".
+    # `us_id` real: "US-FB999-03" -> partes ["US", "FB999", "03"] -> epic
+    # "FB-999".
+    us_id_parts = us_id.split("-")
+    if len(us_id_parts) >= 2 and us_id_parts[1].startswith("FB"):
+        epic_id = "FB-" + us_id_parts[1][len("FB"):]
+    else:
+        epic_id = us_id
 
     proposal = propose_tasks_from_user_story(review, epic_id, us_file_path)
 
@@ -2273,6 +2438,14 @@ def post_propose_tasks(us_id: str) -> dict:
         output_dir=output_dir,
         auto_approve=False,
     )
+
+    # T-FB008-US15-02, criterio 4/5: en cuanto `propose-tasks` completa
+    # con éxito (al menos una Task real escrita a disco), la User Story
+    # transiciona automáticamente de `EN_DISEÑO` a `TODO` — mismo
+    # fichero que ya se verificó arriba en `EN_DISEÑO` antes de llegar
+    # aquí, así que la transición siempre parte de ese estado real.
+    if pipeline_result.approved_tasks:
+        set_item_state(us_file_path, "TODO")
 
     tasks_data = []
     for task in proposal.tasks:

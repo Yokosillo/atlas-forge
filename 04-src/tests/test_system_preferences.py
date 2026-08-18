@@ -7,7 +7,9 @@ import tempfile
 from pathlib import Path
 
 from brain.system_preferences import (
+    DEFAULT_DEVELOPER_WAITS_FOR_TESTER_REVIEW,
     DEFAULT_MAX_SIMULTANEOUS_DEVELOPERS,
+    get_developer_waits_for_tester_review,
     get_max_simultaneous_developers,
     load_system_preferences,
     save_system_preferences,
@@ -49,3 +51,15 @@ class TestSystemPreferences:
             save_system_preferences({}, state_dir=state_dir)
             loaded = load_system_preferences(state_dir=state_dir)
             assert loaded["max_simultaneous_developers"] == DEFAULT_MAX_SIMULTANEOUS_DEVELOPERS
+
+    def test_get_developer_waits_for_tester_review_shortcut(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            state_dir = Path(tmp)
+            assert (
+                get_developer_waits_for_tester_review(state_dir=state_dir)
+                == DEFAULT_DEVELOPER_WAITS_FOR_TESTER_REVIEW
+            )
+            save_system_preferences(
+                {"developer_waits_for_tester_review": False}, state_dir=state_dir
+            )
+            assert get_developer_waits_for_tester_review(state_dir=state_dir) is False

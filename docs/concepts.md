@@ -23,13 +23,13 @@ The session keeps: the active project, launched agents, the Job history and cont
 
 An instance of a **role** running on a **runtime** in a tmux session. It is not a language model nor a generic process: it is role + prompt + runtime + state.
 
-- Roles: `developer`, `arquitecto`, plus `auditor_oss`/`ux`/`tester` (declared in the role registry, not yet backend-registered — see [Agents](agents.md)).
+- Roles: `developer`, `arquitecto`, `tester`, plus `auditor_oss`/`ux` (declared in the role registry — see [Agents](agents.md)).
 - States: `idle` → `working` / `unavailable` / `stopped`; `unavailable → idle`; `stopped` is terminal (must relaunch) — except Developer, which never reaches `stopped`: stopping it deletes the instance outright instead of pausing it.
-- Reuse: when launching the reusable Architect role, the existing live agent is reused instead of duplicating. Developer always creates a new instance on launch (up to a configurable simultaneous limit), never reused.
+- Reuse: when launching a reusable role (Architect, Tester), the existing live agent is reused instead of duplicating. Developer always creates a new instance on launch (up to a configurable simultaneous limit), never reused.
 
 ## Runtime
 
-An external AI executable launched in tmux: **Claude Code** or **OpenCode**. The concrete model is passed at launch (only OpenCode supports model selection). See [Runtime and Scribe](runtime.md).
+An external AI executable launched in tmux: **Claude Code**, **OpenCode** or **Codex**. Runtime and model are chosen explicitly at launch time — no on-the-fly switch for a live agent. See [Runtime and Scribe](runtime.md).
 
 ## Job
 
@@ -40,12 +40,9 @@ A unit of work sent to an agent: a text description. States: `created → runnin
 - **Chaining**: you can pass `previous_job_id`; the previous Job's result is injected literally into the new Job's description. Developer→Developer is blocked.
 - Full session history via `GET /jobs`.
 
-## Plan (of the Architect)
+## The Dispatcher
 
-A sequence of steps to complete a User Story, proposed by the Architect. States: `proposed → {approved, rejected}`, `approved → {blocked, cancelled}`.
-
-- Each step has a `mechanism`: `agent` (a role runs it), `scribe` (Scribe does it), or `script` (degraded: no-op).
-- After the **single human approval**, the plan is dispatched end to end; the Architect issues a verdict at the end and marks the Tasks `DONE` if approved.
+A single background process that polls every 5 seconds and moves work forward at four levels, purely driven by each item's `state`: assigns a `TODO`/`EN_DESARROLLO` Task to a free Developer, a Task in `REVIEW` to a free Tester, a User Story in `REVIEW` to a free Architect for a verdict, and a User Story in `EN_DISEÑO` to a free Architect to land it into Tasks. See [Jobs and the work pipeline](jobs.md#the-backlog-pipeline).
 
 ## Scribe
 
@@ -66,18 +63,22 @@ The set of Epics, User Stories and Tasks of the active project (`02-backlog/`), 
 sequenceDiagram
     participant U as User
     participant B as brain-api
-    participant D as Developer
     participant A as Architect
+    participant D as Developer
+    participant T as Tester
 
     U->>B: Select project (POST /project)
     B->>B: Start development session
-    U->>B: Ask the Architect for a plan for a User Story (POST /plans)
-    B->>A: Propose steps
-    A-->>B: Plan (proposed)
-    U->>B: Approve plan (POST /plans/{id}/approve)
-    B->>D: Dispatch each step (chained Jobs)
-    B->>A: Final verdict (FIFO queue)
-    A-->>B: APROBADO → Tasks DONE
+    U->>B: Click "Progresar" on a new User Story
+    B->>A: Land the Story into Tasks
+    A-->>B: Tasks written, Story → TODO
+    U->>B: Click "Progresar" again
+    B->>D: Dispatch each Task
+    D-->>B: Task closed → REVIEW
+    B->>T: Verify the Task
+    T-->>B: PASS → Task DONE
+    B->>A: All Tasks DONE → Story verdict
+    A-->>B: APROBADO → Story DONE
 ```
 
 ## Quick glossary
@@ -87,9 +88,10 @@ sequenceDiagram
 | **Project** | Git repository, unit of work |
 | **Session** | Live environment over a project |
 | **Agent** | Role + runtime + prompt in tmux |
-| **Runtime** | Claude Code / OpenCode |
+| **Runtime** | Claude Code / OpenCode / Codex |
 | **Job** | Text task to an agent |
-| **Plan** | Sequence of steps from the Architect |
+| **Dispatcher** | Background process that drives the backlog pipeline |
 | **Scribe** | Local summarization/indexing via Ollama |
-| **Developer** | Implements User Stories |
-| **Architect** | Lands the backlog (Epic→US→Task), reviews/validates Developer work and issues verdicts, and converses about existing Epics (read-only) |
+| **Developer** | Implements Tasks |
+| **Tester** | Functionally verifies a closed Task |
+| **Architect** | Lands the backlog (Epic→US→Task), issues verdicts on Tasks/Stories, and converses about existing Epics (read-only) |

@@ -4,7 +4,7 @@ Factory Brain is a **modular, extensible and maintainable** application, designe
 
 ## Core idea
 
-The domain (projects, sessions, agents, Jobs, plans, backlog) lives **behind a single HTTP/WebSocket API** (`brain/api/`, FastAPI). No client accesses the domain any other way than through that API — including the TUI itself, which is an HTTP client like any other.
+The domain (projects, sessions, agents, Jobs, backlog) lives **behind a single HTTP/WebSocket API** (`brain/api/`, FastAPI). No client accesses the domain any other way than through that API — including the TUI itself, which is an HTTP client like any other.
 
 > One process of truth (`brain-api`), three clients: **web interface**, **TUI** and **Android app**.
 
@@ -61,7 +61,7 @@ Web interface (plain JS served by the backend itself at `/ui/`), TUI (Textual) a
 
 ### Application
 
-The API (`brain/api/routes.py`) orchestrates operations: it launches agents, creates/dispatches Jobs, manages plans, runs scripts and exposes the backlog state. It is a thin layer over the domain — it does not reimplement logic, it exposes it.
+The API (`brain/api/routes.py`) orchestrates operations: it launches agents, creates/dispatches Jobs, runs scripts and exposes the backlog state. It is a thin layer over the domain — it does not reimplement logic, it exposes it.
 
 ### Domain
 
@@ -69,13 +69,13 @@ Interface-independent business rules:
 
 - **`brain/core/`** — development session lifecycle.
 - **`brain/agents/`** — role registry, launching, lifecycle, liveness, stop, governance.
-- **`brain/runtime/`** — runtime instances in tmux (Claude Code, OpenCode).
-- **`brain/dispatcher/`** — Job creation, dispatch, reporting, cancellation; Architect plans; verdicts; automatic Scribe triggering; FIFO verdict queue.
+- **`brain/runtime/`** — runtime instances in tmux (Claude Code, OpenCode, Codex).
+- **`brain/dispatcher/`** — Job creation, dispatch, reporting, cancellation; the background Dispatcher that drives the state-based backlog pipeline (implementation, Task review, Story verdict, US→Tasks landing); automatic Scribe triggering.
 - **`brain/backlog/`** — backlog parser, status report, detail, validator, dependency graph.
 - **`brain/architect/`** — Epic→US→Task generators, gap review, self-auditing pipelines.
 - **`brain/local_tools/`** — Scribe (local summarization/indexing via Ollama).
 - **`brain/workspace/`** — project discovery, active project, generic and project scripts, startup.
-- **`brain/models/`** — domain dataclasses (Agent, Job, JobPlan, DevelopmentSession, Project, backlog, scripts).
+- **`brain/models/`** — domain dataclasses (Agent, Job, DevelopmentSession, Project, backlog, scripts).
 
 ### Infrastructure
 
@@ -90,7 +90,7 @@ Interface-independent business rules:
 |---|---|---|
 | Active project | `~/.local/share/brain/active_project.json` | Yes |
 | Model preferences | `~/.local/share/brain/model_preferences.json` | Yes |
-| Session, agents, Jobs, plans | In the memory of `brain-api` | No |
+| Session, agents, Jobs | In the memory of `brain-api` | No |
 | Closing reports | `07-informes/<US>/<job_id>.md` | Yes (files) |
 | Backlog | `02-backlog/` of the active project | Yes (Markdown files) |
 
@@ -103,22 +103,23 @@ A session is a persistent working environment over a project. States: `created` 
 ### Runtimes (`brain/runtime/`)
 
 Each launched agent is a **runtime instance** in its own tmux session (`runtime/agent_model.py`):
-- **Claude Code**: `claude --dangerously-skip-permissions` + prompt as positional argument.
+- **Claude Code**: `claude --dangerously-skip-permissions [--model <model>]` + prompt as positional argument.
 - **OpenCode**: `opencode --auto [--model provider/model]` + `--prompt "..."`.
+- **Codex**: `codex -a never -s workspace-write [--model <model>]` + prompt as positional argument.
 
 The `agent_runtime_registry` maps `agent_id → RuntimeInstance`. Liveness is checked lazily when queried (no polling).
 
 ### Agents (`brain/agents/`)
 
-Registered roles (4): `developer`, `critic`, `director`, `arquitecto`. Each role defines a base prompt + governance file + registration function. See [Agents](agents.md).
+Registered roles: `developer`, `arquitecto`, `tester`, `documentador`, `ux`, `auditor_oss`. Each role defines a base prompt + governance file + registration function. See [Agents](agents.md).
 
 ### Dispatcher (`brain/dispatcher/`)
 
 - **Job**: `create → running → {completed | failed | cancelled}`. Result reporting is **cooperative**: the agent writes its result to a temp file plus a final marker; the dispatcher waits for that file.
 - **Chaining**: `previous_job` injects the previous Job's result literally into the next Job's description. Developer→Developer is blocked (must go through the Architect).
-- **Plan**: the Architect proposes a sequence of steps (`proposed`), the human approves once (`approved`) and it is dispatched end to end. States: `proposed → {approved, rejected}`, `approved → {blocked, cancelled}`.
+- **Backlog pipeline**: a single background worker polls every 5 seconds and drives each item forward purely by its `state` — assigns a Developer-eligible Task, hands a closed Task to a free Tester, a fully-`DONE` User Story to a free Architect for a verdict, and a `EN_DISEÑO` User Story to a free Architect for its US→Tasks landing. See [Jobs and the work pipeline](jobs.md#the-backlog-pipeline).
 - **Automatic Scribe**: the dispatcher decides to invoke Scribe (by description size > 4000 chars or ≥ 10 consecutive Jobs) to pre-process context, saving remote runtime tokens.
-- **Verdict**: after dispatching a plan, a verdict Job is queued to the Architect (FIFO queue, one worker) that emits `APROBADO` / `APROBADO_CON_OBSERVACIONES` / `RECHAZADO` and, if approved, marks the Tasks as `DONE`.
+- **Verdict**: on a User Story in `REVIEW`, the assigned Architect emits `APROBADO` / `APROBADO_CON_OBSERVACIONES` / `RECHAZADO`; approved moves the Story to `DONE`, rejected adds a new Task to the same Story instead of promoting it.
 
 ### Backlog (`brain/backlog/`)
 
@@ -126,14 +127,13 @@ Deterministic parser of `02-backlog/` (Epics, User Stories, Tasks) → a graph o
 
 ### API (`brain/api/`)
 
-FastAPI with ~30 REST endpoints + 2 WebSockets (`/ws/jobs`, `/ws/plans`), static `/ui/`, `/health` and `/apk`. See [API](api.md).
+FastAPI with REST endpoints + WebSocket `/ws/jobs`, static `/ui/`, `/health` and `/apk`. See [API](api.md).
 
 ## Directory structure
 
 ```text
 PROD-006-factory-brain/
 ├── 00-gobierno/       # project governance (METODOLOGIA, roles)
-├── 01-documentacion/  # internal documentation (may be outdated)
 ├── 02-backlog/        # canonical backlog: epics/, user-stories/, tasks/, roadmap.md
 ├── 04-src/            # source code (brain package) and tests
 ├── 07-informes/       # closing Job reports and analyses

@@ -69,7 +69,7 @@ def _write_task_yaml(
 
 
 def _write_us_yaml(
-    us_dir: Path, us_id: str, *, epic: str, state: str = "TODO"
+    us_dir: Path, us_id: str, *, epic: str, state: str = "TODO", priority: str = "Alta"
 ) -> None:
     us_dir.mkdir(parents=True, exist_ok=True)
     (us_dir / f"{us_id}.md").write_text(
@@ -80,6 +80,7 @@ def _write_us_yaml(
         f"state: {state}\n"
         "dependencies: []\n"
         f"epic: {epic}\n"
+        f"priority: {priority}\n"
         "---\n\n"
         f"# {us_id} · título de prueba\n\n"
         "## Historia\n\nComo usuario quiero X para lograr Y.\n\n"
@@ -146,7 +147,13 @@ def test_post_enqueue_task_reflects_in_queue(tmp_path, monkeypatch) -> None:
     assert [e["task_id"] for e in queue["queued"]] == ["T-FB999-US01-01"]
 
 
-def test_post_enqueue_task_twice_returns_409(tmp_path, monkeypatch) -> None:
+def test_post_enqueue_task_twice_is_rejected(tmp_path, monkeypatch) -> None:
+    """T-FB008-US14-01: el primer POST /enqueue escribe `state: EN_DESARROLLO`
+    en el fichero real — el segundo intento ahora se rechaza con 400
+    ("no está en estado TODO", motivo real más claro que antes) en vez
+    de 409 (`TaskAlreadyQueuedError`, que solo se alcanzaba comparando
+    contra `dispatch_queue.json`, ya inalcanzable porque el guard de
+    `state` lo intercepta antes)."""
     project_path = _active_project(tmp_path, monkeypatch)
     _seed_backlog(project_path)
     client = TestClient(create_app())
@@ -154,7 +161,8 @@ def test_post_enqueue_task_twice_returns_409(tmp_path, monkeypatch) -> None:
     client.post("/backlog/T-FB999-US01-01/enqueue")
     response = client.post("/backlog/T-FB999-US01-01/enqueue")
 
-    assert response.status_code == 409
+    assert response.status_code == 400
+    assert "EN_DESARROLLO" in response.json()["detail"]
 
 
 def test_post_enqueue_all_adds_every_todo_task_of_the_story(tmp_path, monkeypatch) -> None:
@@ -189,7 +197,14 @@ def test_post_enqueue_all_returns_404_for_unknown_story(tmp_path, monkeypatch) -
     assert response.status_code == 404
 
 
-def test_post_enqueue_all_skips_tasks_already_queued(tmp_path, monkeypatch) -> None:
+def test_post_enqueue_all_skips_tasks_already_en_cola(tmp_path, monkeypatch) -> None:
+    """T-FB008-US14-01: una Task ya encolada individualmente ya tiene
+    `state: EN_DESARROLLO` en el fichero real — `enqueue-all` la filtra de
+    `pending_tasks` (solo mira `state == "TODO"`) antes de intentar
+    encolarla, así que ya no llega ni a `enqueued` ni a
+    `skipped_already_queued` (ese campo solo capturaba el caso, ahora
+    inalcanzable por esta vía, de una entrada JSON duplicada con el
+    `state` real todavía en `TODO`)."""
     project_path = _active_project(tmp_path, monkeypatch)
     _seed_backlog(project_path)
     client = TestClient(create_app())
@@ -199,7 +214,7 @@ def test_post_enqueue_all_skips_tasks_already_queued(tmp_path, monkeypatch) -> N
 
     assert response.status_code == 201
     body = response.json()
-    assert body["skipped_already_queued"] == ["T-FB999-US01-01"]
+    assert body["skipped_already_queued"] == []
     assert body["enqueued"] == ["T-FB999-US01-02"]
 
 
@@ -222,10 +237,64 @@ def test_delete_dequeue_removes_task_without_side_effects(tmp_path, monkeypatch)
     assert "T-FB999-US01-01" not in task_ids
     assert "T-FB999-US01-02" in task_ids
 
-    # La Task en sí sigue existiendo en el backlog con normalidad (sin
-    # efecto secundario) — el propio backend no la tocó.
-    detail = client.get("/backlog/T-FB999-US01-01").json()
-    assert detail["state"] == "TODO"
+
+def test_put_state_en_desarrollo_on_user_story_enqueues_its_todo_tasks(tmp_path, monkeypatch) -> None:
+    """T-FB008-US14-04: marcar una User Story como EN_DESARROLLO desde
+    `PUT /backlog/{item_id}/state` (selector genérico de US-FB036-08) es
+    un atajo del mismo efecto que `POST /backlog/{us_id}/enqueue-all` —
+    mismas Tasks TODO encoladas, mismo criterio de filtro."""
+    project_path = _active_project(tmp_path, monkeypatch)
+    _seed_backlog(project_path)
+    client = TestClient(create_app())
+
+    response = client.put("/backlog/US-FB999-01/state", json={"state": "EN_DESARROLLO"})
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["state"] == "EN_DESARROLLO"
+    assert sorted(body["enqueued"]) == ["T-FB999-US01-01", "T-FB999-US01-02"]
+    assert body["skipped_already_queued"] == []
+
+    queue = client.get("/backlog/queue").json()
+    assert sorted(e["task_id"] for e in queue["queued"]) == [
+        "T-FB999-US01-01",
+        "T-FB999-US01-02",
+    ]
+
+
+def test_put_state_en_desarrollo_on_user_story_is_idempotent(tmp_path, monkeypatch) -> None:
+    """Repetir el cambio de estado sobre una Story ya parcialmente
+    encolada no falla — salta las Tasks que ya estaban en EN_DESARROLLO,
+    mismo criterio de idempotencia que enqueue-all."""
+    project_path = _active_project(tmp_path, monkeypatch)
+    _seed_backlog(project_path)
+    client = TestClient(create_app())
+
+    client.post("/backlog/T-FB999-US01-01/enqueue")
+    response = client.put("/backlog/US-FB999-01/state", json={"state": "EN_DESARROLLO"})
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["enqueued"] == ["T-FB999-US01-02"]
+    assert body["skipped_already_queued"] == []
+
+
+def test_put_state_en_desarrollo_on_task_does_not_trigger_enqueue_all(tmp_path, monkeypatch) -> None:
+    """El atajo solo aplica a User Story — marcar una Task individual
+    como EN_DESARROLLO sigue siendo el cambio de estado simple ya
+    existente, sin efecto secundario de "encolar toda la Story"."""
+    project_path = _active_project(tmp_path, monkeypatch)
+    _seed_backlog(project_path)
+    client = TestClient(create_app())
+
+    response = client.put("/backlog/T-FB999-US01-01/state", json={"state": "EN_DESARROLLO"})
+
+    assert response.status_code == 200
+    body = response.json()
+    assert "enqueued" not in body
+
+    queue = client.get("/backlog/queue").json()
+    assert queue["queued"] == []
 
 
 def test_delete_dequeue_returns_404_when_never_queued(tmp_path, monkeypatch) -> None:

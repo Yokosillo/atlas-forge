@@ -8,7 +8,7 @@ Real state of Factory Brain contrasted against `02-backlog/` (canonical states) 
 |---|---|---|
 | **0.1** | First functional product: Workspace, Session, Runtime, Agents, manual Dispatcher (Jobs + chaining) | ✅ Complete |
 | **0.2** | Multi-runtime/multi-model and token saving: unified TUI, Scribe, automatic Scribe triggering | ✅ Complete |
-| **0.3** | Critical-dispatcher and remote access: Architect plan with single approval, backend API, Android app, Job/Plan cancellation, confirmations | ✅ Complete |
+| **0.3** | Critical-dispatcher and remote access: backend API, Android app, Job cancellation, confirmations | ✅ Complete |
 | **0.4** | Generic and project scripts: 7-script catalog, Scribe indexing | ✅ Complete |
 | **1.0** | Backlog-centric pipeline: Architect role, Epic→US→Task generators, validator, verdicts, structured backlog format, web UX improvements, cross-cutting actions, multi-project sessions, agent reconciliation on startup, live agent log | 🔶 In progress |
 | **0.5–0.9** | Dispatcher v2, Capabilities, Context, Knowledge, Automation, Plugins, remaining Dashboard | ⬜ Planned |
@@ -27,21 +27,24 @@ Source: the `state` frontmatter field of each Epic in `02-backlog/epics/` (canon
 | **FB-003** Development Session | Live session during execution, assigned agents. |
 | **FB-004** Runtime Manager | Claude Code and OpenCode in tmux, model switching (OpenCode). |
 | **FB-005** Agent Manager | Developer and Critic roles, two-layer prompts, liveness. |
-| **FB-008** Dispatcher | Jobs, chaining, plans with approval, cancellation, automatic Scribe. |
+
+> Historical note: the Critic role was folded into the Architect (see `00-gobierno/old/CRITICO.md`); the current product pipeline drives work from the backlog (`docs/backlog.md`).
+
+| **FB-008** Dispatcher | Jobs, chaining, isolated-Job dispatch, cancellation, automatic Scribe. |
 | **FB-014** Local Tools | Scribe: local summarization/indexing (Ollama), including the `index_scripts` operation. |
-| **FB-016** API Backend | FastAPI: agents, Jobs, plans, backlog, scripts, WebSockets, static `/ui/`, systemd. |
+| **FB-016** API Backend | FastAPI: agents, Jobs, backlog, scripts, WebSockets, static `/ui/`, systemd. |
 | **FB-017** Android App | Native app (Compose) — **paused** for new functionality (2026-08-04). |
 | **FB-018** Generic Scripts | 7 generic scripts catalog + `backlog-status` CLI + Scribe prose. |
-| **FB-019** TUI | Plan screen, cancel Job/Plan, confirmations, connectivity. |
+| **FB-019** TUI | Cancel Job, confirmations, connectivity. |
 | **FB-020** Backlog Management | Listing/detail endpoints, launch development, views in web/app/TUI. |
-| **FB-021** Web Interface | Complete web: projects, agents, Jobs, plan, scripts, backlog, models. |
+| **FB-021** Web Interface | Complete web: projects, agents, Jobs, scripts, backlog, models. |
 | **FB-026** Parallelizable thread analysis | `dependency_graph.py` module, `POST /backlog/epic/{epic_id}/analyze-threads` endpoint, "Generar hilos de desarrollo" button in the web Backlog tab. |
 
 ### Phase 1.0 — mostly DONE at Epic level
 
 | Epic | Tasks | What it provides |
 |---|---|---|
-| **FB-022** Backlog-centric Pipeline | 34/34 DONE (US-FB022-13, 3 Tasks, still TODO) | Architect role, Epic→US→Task generators with validator+self-audit, verdicts, FIFO queue, file model catalog, Tester contract. |
+| **FB-022** Backlog-centric Pipeline | Most User Stories DONE; US-FB022-16 still TODO | Architect and Tester roles, Epic→US→Task generators with validator+self-audit, the state-driven Developer→Tester→Architect verdict cycle, file model catalog. |
 | **FB-024** Web UX improvements | Ongoing (23+ Tasks DONE across multiple User Stories, more added as real usage surfaces gaps) | DONE/TODO visual differentiation, badge, dependency blocking, Phase field, heat map, unified Roles/Agents screen (same fields/buttons per role, Developer "stop" deletes the instance instead of pausing it), configurable simultaneous-Developer limit, US-detail history. |
 | **FB-025** Cross-cutting actions | 10/12 DONE (US01–07) | Web actions: document, analyze-architecture, suggest-ideas, test, audit-ux, index. |
 | **FB-027** Structured backlog format | 3/3 DONE | YAML frontmatter + Markdown body for every Epic/User Story/Task, replacing free-text `**ID**` bold-pattern parsing. Full migration of the existing backlog completed. |
@@ -76,11 +79,11 @@ Source: the `state` frontmatter field of each Epic in `02-backlog/epics/` (canon
 ## Technical debt and relevant decisions
 
 - **TUI/Android pause** (2026-08-04): all new functionality is exposed on the web. Active-model Tasks in the TUI (`T-FB019-US02-01`) and Android (`T-FB017-US07-01`) marked `POSTERGADA`.
-- **In-memory state**: session, agents and Jobs live in the memory of the `brain-api` process. On restart, live tmux sessions are re-recognized by their deterministic name and re-registered as `idle` agents (FB-031) — but Job/plan history and any other in-memory state are still lost; full session recovery (`US-FB003-02`) remains planned, not implemented.
+- **In-memory state**: session, agents and Jobs live in the memory of the `brain-api` process. On restart, live tmux sessions are re-recognized by their deterministic name and re-registered as `idle` agents (FB-031) — but Job history and any other in-memory state are still lost; full session recovery (`US-FB003-02`) remains planned, not implemented.
 - **Observability** (structured logging, metrics, tracing): no assigned phase, on backlog hold.
 
 ## Functionality criterion
 
 Factory Brain is considered functional when it can: manage multiple projects, keep persistent sessions, administer agents on different runtimes, coordinate Jobs through pipelines, run automations, prepare context automatically, reuse knowledge, minimize remote-model usage, incorporate capabilities through plugins and provide operational vision.
 
-**State today**: Job/plan coordination, multi-runtime/multi-model and token saving are real. Context/knowledge management, capabilities, plugins and the full declarative pipeline are future work.
+**State today**: backlog-driven Job coordination, multi-runtime/multi-model and token saving are real. Context/knowledge management, capabilities, plugins and the full declarative pipeline are future work.

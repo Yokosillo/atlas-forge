@@ -12,11 +12,12 @@ from brain.runtime import is_runtime_alive, stop_runtime
 
 @pytest.fixture(autouse=True)
 def _no_real_runtime(monkeypatch):
-    """Sustituye los comandos reales de Claude Code/OpenCode por un
+    """Sustituye los comandos reales de Claude Code/OpenCode/Codex por un
     comando de prueba inocuo (`sleep`), para no invocar los binarios
     reales en ningún test de esta Task — mismo patrón ya usado en
-    T-FB004-US01-02/US02-01."""
+    T-FB004-US01-02/US02-01, extendido a Codex en T-FB024-US11-13."""
     import brain.runtime.claude_code as claude_code_module
+    import brain.runtime.codex as codex_module
     import brain.runtime.opencode as opencode_module
 
     monkeypatch.setattr(claude_code_module, "DEFAULT_CLAUDE_CODE_COMMAND", "sleep")
@@ -24,6 +25,8 @@ def _no_real_runtime(monkeypatch):
     monkeypatch.setattr(opencode_module, "DEFAULT_OPENCODE_COMMAND", "sleep")
     monkeypatch.setattr(opencode_module, "DEFAULT_OPENCODE_AUTONOMY_FLAG", "5")
     monkeypatch.setattr(opencode_module, "DEFAULT_OPENCODE_ARGS", ["5"])
+    monkeypatch.setattr(codex_module, "DEFAULT_CODEX_COMMAND", "sleep")
+    monkeypatch.setattr(codex_module, "DEFAULT_CODEX_ARGS", ["5"])
 
 
 @pytest.fixture
@@ -103,22 +106,55 @@ def test_launching_arquitecto_on_opencode_is_still_supported_directly(
     stop_runtime(arquitecto_instance, socket_name=isolated_socket)
 
 
-def test_indicating_model_for_claude_code_is_rejected_without_launching_anything(
+def test_indicating_model_for_claude_code_launches_with_model_flag(
     isolated_socket: str, tmp_path
 ) -> None:
+    """T-FB024-US11-13 (2026-08-17): Claude Code SÍ admite indicar modelo
+    al lanzar — corrección de la premisa original (T-FB002-US01-01) que
+    asumía lo contrario sin verificarlo contra `claude --help`."""
     session = _active_session()
 
-    with pytest.raises(AgentLaunchError):
-        launch_agent(
-            DEVELOPER_ROLE,
-            "claude-code",
-            "some-model",
-            session,
-            str(tmp_path),
-            socket_name=isolated_socket,
-        )
+    agent, runtime_instance = launch_agent(
+        DEVELOPER_ROLE,
+        "claude-code",
+        "sonnet",
+        session,
+        str(tmp_path),
+        socket_name=isolated_socket,
+    )
 
-    assert list_agents(session) == []
+    assert agent is not None
+    assert "--model" in runtime_instance.runtime.args
+    assert "sonnet" in runtime_instance.runtime.args
+    assert list_agents(session) == [agent]
+
+    stop_runtime(runtime_instance, socket_name=isolated_socket)
+
+
+def test_launch_developer_on_codex_with_model(
+    isolated_socket: str, tmp_path
+) -> None:
+    """T-FB024-US11-13 (2026-08-17, ampliación de alcance explícita del
+    usuario): Codex activado como runtime real, con modelo indicado al
+    lanzar (mismo patrón que OpenCode/Claude Code)."""
+    session = _active_session()
+
+    agent, runtime_instance = launch_agent(
+        DEVELOPER_ROLE,
+        "codex",
+        "gpt-5.6-terra",
+        session,
+        str(tmp_path),
+        socket_name=isolated_socket,
+    )
+
+    assert agent is not None
+    assert runtime_instance.runtime.type == "codex"
+    assert "--model" in runtime_instance.runtime.args
+    assert "gpt-5.6-terra" in runtime_instance.runtime.args
+    assert list_agents(session) == [agent]
+
+    stop_runtime(runtime_instance, socket_name=isolated_socket)
 
 
 def test_launching_on_inactive_session_is_rejected(tmp_path) -> None:
@@ -205,7 +241,9 @@ def test_unrecognized_role_is_rejected(tmp_path) -> None:
 
 
 def test_unrecognized_runtime_is_rejected(tmp_path) -> None:
+    """"codex" ya no sirve como ejemplo de runtime NO reconocido —
+    T-FB024-US11-13 (2026-08-17) lo activó como runtime real."""
     session = _active_session()
 
     with pytest.raises(AgentLaunchError):
-        launch_agent(DEVELOPER_ROLE, "codex", None, session, str(tmp_path))
+        launch_agent(DEVELOPER_ROLE, "unknown-runtime", None, session, str(tmp_path))

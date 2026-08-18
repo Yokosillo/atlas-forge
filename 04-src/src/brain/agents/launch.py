@@ -3,11 +3,17 @@ from brain.agents.roles import get_register_fn_for_role, list_roles
 from brain.dispatcher.job_dispatch import dispatch_job
 from brain.dispatcher.job_orchestration import create_and_record_job
 from brain.models import Agent, DevelopmentSession, Job
-from brain.runtime import RuntimeInstance, register_claude_code_runtime, register_opencode_runtime
+from brain.runtime import (
+    RuntimeInstance,
+    register_claude_code_runtime,
+    register_codex_runtime,
+    register_opencode_runtime,
+)
 from brain.tmux.manager import DEFAULT_SOCKET_NAME
 
 _CLAUDE_CODE_TYPE = register_claude_code_runtime().type
 _OPENCODE_TYPE = register_opencode_runtime().type
+_CODEX_TYPE = register_codex_runtime().type
 
 
 class AgentLaunchError(ValueError):
@@ -26,9 +32,11 @@ def launch_agent(
     indica) en la sesión de desarrollo activa `session`.
 
     Valida la combinación antes de lanzar nada: sesión `active`, `role`
-    reconocido, `runtime_type` reconocido, y `model` solo si el runtime
-    elegido lo soporta (Claude Code no; OpenCode sí — T-FB002-US01-01).
-    Cualquier rechazo se señala con `AgentLaunchError` (motivo explícito).
+    reconocido, `runtime_type` reconocido. `model` es opcional para
+    OpenCode y Claude Code (T-FB024-US11-13, 2026-08-17: Claude Code
+    admite `--model` al arrancar, corrección de la premisa original de
+    T-FB002-US01-01 que asumía lo contrario sin verificarlo). Cualquier
+    rechazo se señala con `AgentLaunchError` (motivo explícito).
 
     Reutiliza `register_developer`/`register_arquitecto` (FB-005). Desde
     T-FB005-US01-04, no se comportan igual: `register_arquitecto` reutiliza
@@ -59,19 +67,16 @@ def launch_agent(
         )
 
     if runtime_type == _CLAUDE_CODE_TYPE:
-        if model is not None:
-            raise AgentLaunchError(
-                "No se puede lanzar el agente: Claude Code no admite "
-                "indicar un modelo."
-            )
-        runtime = register_claude_code_runtime()
+        runtime = register_claude_code_runtime(model=model)
     elif runtime_type == _OPENCODE_TYPE:
         runtime = register_opencode_runtime(model=model)
+    elif runtime_type == _CODEX_TYPE:
+        runtime = register_codex_runtime(model=model)
     else:
         raise AgentLaunchError(
             f"No se puede lanzar el agente: runtime '{runtime_type}' no "
             f"reconocido. Runtimes disponibles: "
-            f"{[_CLAUDE_CODE_TYPE, _OPENCODE_TYPE]}."
+            f"{[_CLAUDE_CODE_TYPE, _OPENCODE_TYPE, _CODEX_TYPE]}."
         )
 
     register_agent_for_role = get_register_fn_for_role(role)

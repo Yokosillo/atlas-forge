@@ -7,11 +7,11 @@ Factory Brain does not run models directly: each launched agent is a **runtime i
 ### Claude Code
 
 ```bash
-claude --dangerously-skip-permissions <prompt>
+claude --dangerously-skip-permissions [--model <model>] <prompt>
 ```
 
-- Command: `claude`; args: `--dangerously-skip-permissions` (maximum autonomy).
-- **No model flag**: Claude Code does not support model selection at launch. The prompt is passed as a **positional argument**.
+- Command: `claude`; args: `--dangerously-skip-permissions` (maximum autonomy), plus `--model <model>` when a model is chosen at launch (short aliases `sonnet`/`opus`/`haiku`, or a full model id).
+- The prompt is passed as a **positional argument**.
 - Runtime type: `claude-code`.
 
 ### OpenCode
@@ -21,24 +21,25 @@ opencode --auto [--model provider/model] --prompt "<prompt>"
 ```
 
 - Command: `opencode`; args: `--auto` (autonomy, respecting explicit "deny" rules).
-- **Supports model**: if `model` is passed (format `provider/model`), `--model <model>` is added.
+- `--model <model>` (format `provider/model`) when a model is chosen at launch.
 - The prompt is passed with `--prompt`.
 - Runtime type: `opencode`.
 
 ### Codex
 
-Planned, **not implemented**. The model catalog considers it as a runtime (`codex`) with a commented-out entry in `models.yml`, but `launch_agent` only accepts `claude-code` and `opencode`.
+```bash
+codex -a never -s workspace-write [--model <model>] <prompt>
+```
 
-## Hot model management (OpenCode)
+- Command: `codex`; args: `-a never` (never ask for approval), `-s workspace-write` (sandbox scoped to the workspace, not a full bypass), plus `--model <model>` when chosen at launch.
+- The prompt is passed as a **positional argument**.
+- Runtime type: `codex`.
 
-`brain/agent_model.py` reads/writes the active model of a running OpenCode agent by interacting with the status bar of the runtime's TUI:
+## Model selection
 
-- `get_active_model(agent_id)`: reads the `"Build · …"` pattern from the pane. Returns `None` (without raising) for non-OpenCode runtimes, dead sessions or an unmatched pattern.
-- `set_active_model(agent_id, model_name)`: interactive flow (Ctrl+P → Ctrl+X → navigate → Enter) verifying each step with pane captures. Returns `False` on any failure, without mutating the agent's state.
-- `get_available_models()` / `get_available_model_entries()`: read the `.factory-brain/models.yml` catalog.
-- `resolve_runtime_for_model(model_id)`: maps catalog runtime → real launch type (`claude_code` → `claude-code`).
+Runtime and model are chosen **at launch time only**, for all three runtimes above — there is no on-the-fly model switch for a live agent. `brain/agent_model.py` exposes `get_active_model(agent_id)` (reads the model currently reported by the runtime's pane, `None` for a dead session or an unrecognized pattern) and `get_available_models()`/`get_available_model_entries()` (reads the `.factory-brain/models.yml` catalog). `resolve_runtime_for_model(model_id)` maps a catalog entry to its real launch type.
 
-Exposed in the API: `GET/PUT /agents/{id}/model`, `GET /agents/{id}/available-models`.
+Exposed in the API: `GET /agents/{id}/model`, `GET /agents/{id}/available-models`.
 
 ## Scribe
 
@@ -62,7 +63,6 @@ Scribe is **always optional, never a hard dependency**:
 - If Ollama does not respond (connection refused, timeout, HTTP error), a `ScribeUnavailableError` is raised with the concrete reason.
 - **Job dispatch**: if Scribe triggers but is unavailable, a degradation note is prepended to the instruction and the Job continues.
 - **CLI `scribe resumir-backlog`**: exit code 1 with a clear message; never blocks `backlog-status`.
-- **`scribe` step of a plan**: unavailability is a hard failure of the step (Scribe is the chosen mechanism, not an accelerator).
 - **`indexar` action**: raises `RuntimeError` if Scribe is unavailable.
 
 ### Automatic triggering by the Dispatcher

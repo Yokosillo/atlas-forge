@@ -173,7 +173,7 @@ private fun EpicListView(
  * Tasks huérfanas de una US ya `DONE` que no vuelve a aparecer en
  * `by_epic` si esa US ya no tiene Tasks TODO) — las User Stories son la
  * unidad de valor que el propio backlog usa para medir avance de producto
- * (`01-documentacion`, convención ya establecida), más estable como
+ * (`docs/`, convención ya establecida), más estable como
  * denominador que el conteo de Tasks (que puede crecer/decrecer según el
  * nivel de descomposición elegido para cada US). Si una Epic no tiene
  * ninguna User Story todavía (`total == 0`), se considera `0f` (ninguna

@@ -186,34 +186,6 @@ State/result of a specific Job.
 ### `POST /jobs/{job_id}/cancel`
 Cancels an **in-flight** (`running`) Job. Waits for the real dispatcher-thread transition (up to 5s). 400 if the Job is not `running`.
 
-## Architect plans
-
-### `POST /plans` → 201
-Asks the Architect for a breakdown plan for a User Story. **Dispatches nothing.**
-
-```json
-{"goal": "US-FB020-01"}
-```
-
-Returns `{plan_id, goal, status: "proposed", steps: [{description, mechanism, status}]}`. Publishes `plan_progress` on `WS /ws/plans`.
-
-### `GET /plans`
-All plans registered in the process (including decided ones), to recover a lost `plan_id`.
-
-### `GET /plans/{plan_id}`
-Progress of a specific plan.
-
-### `POST /plans/{plan_id}/approve`
-Approves and **dispatches the whole plan** end to end (blocking). Idempotent: only the first request transitions `proposed→approved`; concurrent ones return `already_decided: true`. Publishes an event per step on `WS /ws/plans`.
-
-Returns `{plan_id, already_decided, goal, status, steps}`.
-
-### `POST /plans/{plan_id}/reject`
-Rejects a proposed plan (dispatches nothing). Idempotent like approve.
-
-### `POST /plans/{plan_id}/cancel`
-Cancels an **approved and in-flight** plan. Waits for the real transition (up to 5s). 400 if the plan is not `approved` or has no pending/running steps.
-
 ## Backlog
 
 ### `GET /backlog`
@@ -223,11 +195,32 @@ Structured report of the active project's backlog (`02-backlog/`): counts per Ep
 Detail of an item. IDs of the type `FB-xxx` resolve as an Epic; anything else as Task/User Story. Includes objective/story, acceptance criteria, dependencies (with their state) and, for User Stories, its Tasks and (FB-024-US09) execution history. 404 with a parse reason if the file exists but could not be parsed.
 
 ### `POST /backlog/{story_id}/launch-development` → 201
-Launches the development of a User Story: builds the Job from the real story + pending (`TODO`) Tasks and dispatches it to the indicated agent. 400 if the Story has no pending Tasks. Publishes `job_status`.
+Isolated-Job path (no `state` change to `EN_DESARROLLO`): builds the Job from the real story + pending (`TODO`) Tasks and dispatches it to the indicated agent. 400 if the Story has no pending Tasks. Publishes `job_status`.
 
 ```json
 {"agent_id": "..."}
 ```
+
+### `PUT /backlog/{item_id}/state`
+Changes a Task/User Story's `state` directly. For a User Story, setting `EN_DESARROLLO` also queues all of its pending `TODO` Tasks (same effect as `enqueue-all` below); setting `DONE` triggers automatic Epic promotion if all its User Stories are now `DONE`.
+
+### `POST /backlog/{task_id}/enqueue` → 201
+Marks a `TODO` Task as `EN_DESARROLLO`, making it eligible for the Dispatcher. 400 if the Task is not `TODO`.
+
+### `POST /backlog/{us_id}/enqueue-all` → 201
+Same as above for every pending Task of a User Story in one call.
+
+### `DELETE /backlog/{task_id}/enqueue`
+Reverts an `EN_DESARROLLO` Task back to `TODO`, only if the Dispatcher has not picked it up yet.
+
+### `GET /backlog/queue`
+Current dispatch-queue entries (auxiliary FIFO ordering/audit data — `state` on the real files is the source of truth for eligibility).
+
+### `POST /backlog/epic/{epic_id}/propose-stories`
+Runs the deterministic Epic→User-Story pipeline (format validator + self-audit) and writes the approved User Stories, born in `SIN_TAREAS`.
+
+### `POST /backlog/us/{us_id}/propose-tasks`
+Runs the deterministic User-Story→Task pipeline. Requires the Story to be in `EN_DISEÑO` (400 otherwise); on success writes the Tasks and moves the Story to `TODO`.
 
 ## Scripts
 
@@ -262,13 +255,7 @@ Events `{"event": "job_status", id, session_id, agent_id, description, status, r
 - `created` — before dispatch (exposes the real `job_id`, needed to be able to cancel).
 - `completed` / `failed` — on finish.
 
-### `WS /ws/plans`
-Events `{"event": "plan_progress", plan_id, goal, status, steps, already_decided?}`:
-- On plan creation.
-- On approval/rejection/cancellation.
-- During dispatch, after each step state change.
-
-See also `WS /ws/agents/{agent_id}/pane` above (live tmux pane content, not a `job_status`/`plan_progress` event).
+See also `WS /ws/agents/{agent_id}/pane` above (live tmux pane content, not a `job_status` event).
 
 ## States (summary)
 
@@ -276,6 +263,6 @@ See also `WS /ws/agents/{agent_id}/pane` above (live tmux pane content, not a `j
 |---|---|
 | Agent | `idle`, `working`, `unavailable`, `stopped` (Developer never reaches `stopped` — stopping a Developer deletes it instead) |
 | Job | `created`, `running`, `completed`, `failed`, `cancelled` |
-| Plan | `proposed`, `approved`, `rejected`, `blocked`, `cancelled` |
-| Step | `pending`, `running`, `completed`, `failed`, `cancelled` |
+| Task | `TODO`, `EN_DESARROLLO`, `IN_PROGRESS`, `REVIEW`, `DONE`, `POSTERGADA` |
+| User Story | `SIN_TAREAS`, `EN_DISEÑO`, plus all Task states above |
 | Session | `created`, `active`, `closed` |

@@ -92,6 +92,25 @@ def test_pick_developer_for_difficulty_no_developer_available():
     assert result is None
 
 
+def test_pick_developer_for_difficulty_ignores_a_limited_developer():
+    """Criterio de aceptación de T-FB024-US21-01: un Developer `limited`
+    (sin límite de sesión liberado todavía) nunca es elegible — mismo
+    filtro estricto `status == "idle"` que ya excluye `working`/`stopped`/
+    `unavailable`, sin necesitar ningún caso especial nuevo."""
+    from brain.agents.lifecycle import mark_limited
+
+    session = DevelopmentSession(id="s1", project_id="p1")
+    activate(session)
+
+    agent = Agent(id="a-dev", name="dev1", role="developer", prompt="p", runtime_id="r1")
+    assign_agent(session, agent)
+    mark_limited(agent, "2026-08-17T01:30:00+00:00")
+
+    result = _pick_developer_for_difficulty(session, None, Path("/tmp"))
+
+    assert result is None
+
+
 def test_pick_developer_for_difficulty_no_difficulty_requirement():
     """Sin dificultad especificada, devuelve cualquier Developer idle."""
     session = DevelopmentSession(id="s1", project_id="p1")
@@ -259,7 +278,7 @@ def test_run_dispatch_cycle_records_dispatch_reason(tmp_path):
 
     backlog_root = tmp_path / "backlog_root"
     backlog = backlog_root / "02-backlog"
-    _write_backlog_item(backlog, "T-FB999-US01-01", difficulty="Alta")
+    _write_backlog_item(backlog, "T-FB999-US01-01", state="EN_DESARROLLO", difficulty="Alta")
     enqueue_task(backlog_root, "proj", task_id="T-FB999-US01-01", us_id="US-FB999-01", priority="Alta")
 
     session = DevelopmentSession(id="s1", project_id="p1")

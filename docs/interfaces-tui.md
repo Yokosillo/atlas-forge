@@ -27,25 +27,19 @@ Lists the discovered projects (`discover_projects` local). Choosing one selects 
 
 ### Dashboard
 
-Navigation and state center: active project, session (id/state), launched agents with state, and a summary of Jobs by state. Buttons: **View Agents, View Jobs, View Plan, View Scripts, View Backlog, Change project**.
+Navigation and state center: active project, session (id/state), launched agents with state, and a summary of Jobs by state. Buttons: **View Agents, View Jobs, View Scripts, View Backlog, Change project**.
 
 ### Agents
 
 - List of launched agents with state.
-- Role+runtime selector (filters Critic+OpenCode, product decision) + optional model field (OpenCode only) → **Launch**.
+- Role+runtime selector (product decision) + optional model field (OpenCode only) → **Launch**.
 - **Stop** per agent with second-click confirmation ("Are you sure? It has a Job in flight — it will be interrupted. Confirm stop").
 
 ### Jobs
 
 - Description (`TextArea`) + agent (`Select`) → **Send** (blocking `POST /jobs` call in a worker).
 - **Cancel Job** via a locator that finds the Job by description in `GET /jobs`.
-- **Chain to Critic/Architect**: appears after a Developer Job completes if a Critic/Architect is launched.
 - History rebuilt from `GET /jobs`.
-
-### Plan
-
-- Selects the most recent `proposed` plan from `GET /plans`; shows goal/state/steps.
-- **Approve whole plan** (confirmation with the number of steps), **Reject**, **Cancel plan** (available from the start of dispatch, since `plan_id` is known in advance).
 
 ### Scripts
 
@@ -64,7 +58,7 @@ Three-level breakdown (Epic → Epic detail → item detail) with `push_screen`/
 
 ## Backend client
 
-`brain.tui.backend_client` is a synchronous `requests` client with `DEFAULT_BACKEND_URL = http://127.0.0.1:8000`, timeout 10s (60s for blocking dispatch/approval/scripts calls). Methods: `get_session`, `get_agents`, `launch_agent`, `stop_agent`, `get_jobs`, `create_and_dispatch_job`, `cancel_job`, `get_plans`, `get_plan`, `approve_plan`, `reject_plan`, `cancel_plan`, `get_backlog`, `get_backlog_item`, `launch_development`, `get_scripts`, `run_script`.
+`brain.tui.backend_client` is a synchronous `requests` client with `DEFAULT_BACKEND_URL = http://127.0.0.1:8000`, timeout 10s (60s for blocking dispatch/scripts calls). Methods: `get_session`, `get_agents`, `launch_agent`, `stop_agent`, `get_jobs`, `create_and_dispatch_job`, `cancel_job`, `get_backlog`, `get_backlog_item`, `launch_development`, `get_scripts`, `run_script`.
 
 Client exceptions: 404 on agents/jobs/scripts → empty list; 404 on backlog → real error (propagated).
 

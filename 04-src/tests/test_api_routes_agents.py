@@ -171,6 +171,7 @@ def test_get_agents_reflects_an_agent_launched_directly_via_domain(
             "model": None,
             "session_name": runtime_instance.session_name,
             "last_command_at": None,
+            "limited_until": None,
         }
     ]
 
@@ -338,6 +339,7 @@ def test_post_agents_without_initial_job_is_identical_to_previous_response(
         "model",
         "session_name",
         "last_command_at",
+        "limited_until",
     }
     assert body["status"] == "idle"
 
@@ -505,19 +507,136 @@ def test_post_agents_over_developer_limit_returns_400_not_500(
             stop_runtime(instance, socket_name=isolated_socket)
 
 
-def test_post_agents_with_model_on_claude_code_returns_400_with_domain_message(
+def test_post_agents_with_claude_code_model_infers_runtime_and_launches(
+    tmp_path: Path, monkeypatch, isolated_socket,
+) -> None:
+    """T-FB024-US11-13 (2026-08-17): Claude Code SÍ admite indicar modelo
+    al lanzar — corrección de la premisa original (T-FB002-US01-01) que
+    asumía lo contrario sin verificarlo contra `claude --help`. Sin
+    `runtime_type` explícito, el runtime se infiere del modelo del
+    catálogo (`sonnet` → `claude_code` → `claude-code`)."""
+    import brain.runtime.claude_code as claude_code_module
+
+    _project, _session = _active_project_and_session(tmp_path, monkeypatch)
+    monkeypatch.setattr(claude_code_module, "DEFAULT_CLAUDE_CODE_COMMAND", "bash")
+    monkeypatch.setattr(claude_code_module, "DEFAULT_CLAUDE_CODE_ARGS", [])
+    client = TestClient(create_app())
+
+    response = client.post(
+        "/agents",
+        json={"role": "developer", "model": "sonnet"},
+    )
+
+    assert response.status_code in (200, 201)
+    body = response.json()
+    assert body["runtime_id"] == "claude-code"
+
+
+# ---------------------------------------------------------------------
+# T-FB005-US07-02: lanzamiento con runtime explícito y separado del modelo
+# ---------------------------------------------------------------------
+
+
+def test_post_agents_without_runtime_returns_400_with_clear_message_and_no_partial_effects(
     tmp_path: Path, monkeypatch
 ) -> None:
+    """Criterio 1/2 de T-FB005-US07-02: el lanzamiento requiere una elección
+    explícita de runtime. Un request sin `runtime_type` ni modelo resoluble
+    se rechaza con 400 y un motivo claro ANTES de lanzar nada — ningún
+    agente queda registrado (sin efectos parciales)."""
+    _project, session = _active_project_and_session(tmp_path, monkeypatch)
+    client = TestClient(create_app())
+
+    response = client.post("/agents", json={"role": "developer"})
+
+    assert response.status_code == 400
+    detail = response.json()["detail"]
+    assert "runtime" in detail
+    assert "runtime_type" in detail
+    # Sin efectos parciales: no se lanzó ni registró ningún agente.
+    assert list_agents(session) == []
+
+
+def test_post_agents_rejects_model_belonging_to_another_runtime(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """Criterio 3 de T-FB005-US07-02: un modelo se acepta solo cuando la
+    capacidad del runtime elegido lo permite. Enviar un modelo del catálogo
+    que pertenece a otro runtime (aquí `sonnet`, del catálogo, contra
+    un runtime `opencode`) se rechaza con 400 antes de lanzar nada."""
+    _project, session = _active_project_and_session(tmp_path, monkeypatch)
+    client = TestClient(create_app())
+
+    response = client.post(
+        "/agents",
+        json={"role": "developer", "runtime_type": "opencode", "model_id": "sonnet"},
+    )
+
+    assert response.status_code == 400
+    detail = response.json()["detail"]
+    assert "pertenece al runtime" in detail
+    assert "claude-code" in detail
+    assert "opencode" in detail
+    assert list_agents(session) == []
+
+
+def test_post_agents_honors_explicit_runtime_over_model_inference(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """Regresión de la vía que podía ignorar un runtime seleccionado
+    (raíz de T-FB024-US12-03, cerrada en US-FB005-07): si el request trae
+    `runtime_type` explícito (`claude-code`) junto a un modelo del catálogo
+    de OTRO runtime (`opencode-go/deepseek-v4-flash`), el runtime explícito
+    se HONRA — no se reescribe en silencio al runtime del modelo. Se
+    rechaza con 400 porque el modelo pertenece a OpenCode, no porque
+    Claude Code rechace modelo en sí (T-FB024-US11-13, 2026-08-17: Claude
+    Code SÍ admite indicar modelo al lanzar desde esta corrección)."""
+    _project, session = _active_project_and_session(tmp_path, monkeypatch)
+    client = TestClient(create_app())
+
+    response = client.post(
+        "/agents",
+        json={
+            "role": "developer",
+            "runtime_type": "claude-code",
+            "model": "opencode-go/deepseek-v4-flash",
+        },
+    )
+
+    assert response.status_code == 400
+    assert "opencode" in response.json()["detail"]
+    assert "claude-code" in response.json()["detail"]
+    assert list_agents(session) == []
+
+
+def test_post_agents_launches_opencode_with_explicit_runtime_and_keeps_runtime_id(
+    tmp_path: Path, monkeypatch, isolated_socket,
+) -> None:
+    """Criterio 3/4 de T-FB005-US07-02: con runtime explícito (`opencode`)
+    y un modelo del MISMO runtime (catalogado, el runtime lo admite) el
+    lanzamiento procede y la instancia conserva `runtime_id === "opencode"`
+    (runtime fijo, inmutable durante la vida de la instancia)."""
     _project, _session = _active_project_and_session(tmp_path, monkeypatch)
     client = TestClient(create_app())
 
     response = client.post(
         "/agents",
-        json={"role": "developer", "model": "claude-code"},
+        json={
+            "role": "developer",
+            "runtime_type": "opencode",
+            "model_id": "opencode-go/deepseek-v4-flash",
+        },
     )
 
-    assert response.status_code == 400
-    assert "Claude Code" in response.json()["detail"]
+    assert response.status_code == 201
+    launched = response.json()
+    assert launched["role"] == "developer"
+    assert launched["runtime_id"] == "opencode"
+
+    runtime_instance = get_runtime_instance_for_agent(launched["id"])
+    assert runtime_instance is not None
+    assert runtime_instance.runtime.type == "opencode"
+    stop_runtime(runtime_instance, socket_name=isolated_socket)
 
 
 def test_post_agents_passes_state_dir_to_get_active_project(
@@ -585,6 +704,35 @@ def test_get_agents_reports_unavailable_when_runtime_died_externally(
     assert response.status_code == 200
     refreshed = next(a for a in response.json() if a["id"] == launched["id"])
     assert refreshed["status"] == "unavailable"
+
+
+def test_get_agents_reports_limited_status_with_recovery_time(
+    tmp_path: Path, isolated_socket: str, monkeypatch
+) -> None:
+    """Criterio de aceptación de T-FB024-US21-01: un agente con el
+    patrón de límite de sesión aparece en `GET /agents` con estado
+    distinguible (`limited`) y `limited_until` (hora de recuperación)
+    visible — distinto de `idle`/`working`/`stopped`/`unavailable`."""
+    from brain.agents.lifecycle import mark_limited
+
+    _project, session = _active_project_and_session(tmp_path, monkeypatch)
+    client = TestClient(create_app())
+
+    launched = client.post(
+        "/agents", json={"role": "developer", "runtime_type": "claude-code"}
+    ).json()
+    assert launched["status"] == "idle"
+    assert launched["limited_until"] is None
+
+    agent = next(a for a in session.agents if a.id == launched["id"])
+    mark_limited(agent, "2026-08-17T01:30:00+00:00")
+
+    response = client.get("/agents")
+
+    assert response.status_code == 200
+    refreshed = next(a for a in response.json() if a["id"] == launched["id"])
+    assert refreshed["status"] == "limited"
+    assert refreshed["limited_until"] == "2026-08-17T01:30:00+00:00"
 
 
 def test_get_agents_does_not_rewrite_a_stopped_agent_to_unavailable(
@@ -814,12 +962,21 @@ def test_get_agent_model_returns_model_for_opencode_with_sleep_binary(
     assert body["model"] is None  # sleep no tiene barra de estado
 
 
-def test_put_agent_model_returns_400_for_non_opencode(
+def test_put_agent_model_on_claude_code_sends_model_command_to_pane(
     tmp_path: Path, monkeypatch, isolated_socket,
 ) -> None:
-    """PUT /agents/{id}/model sobre agente Claude Code → 400 con motivo
-    explicito (no admite cambio de modelo)."""
+    """T-FB024-US11-13 (decisión de producto 2026-08-17): Claude Code SÍ
+    admite cambio de modelo en caliente — PUT /agents/{id}/model envía
+    '/model <id>' + Enter al pane real vía `set_active_model_claude_code`.
+    Verificado contra una sesión tmux REAL (bash en vez del binario
+    `claude`, mismo patrón que el resto de tests de este fichero) — el
+    texto debe aparecer en el pane capturado, no solo asumirse por un
+    200 OK."""
+    import brain.runtime.claude_code as claude_code_module
+
     _project, _session = _active_project_and_session(tmp_path, monkeypatch)
+    monkeypatch.setattr(claude_code_module, "DEFAULT_CLAUDE_CODE_COMMAND", "bash")
+    monkeypatch.setattr(claude_code_module, "DEFAULT_CLAUDE_CODE_ARGS", [])
     client = TestClient(create_app())
 
     resp = client.post("/agents", json={"role": "developer", "runtime_type": "claude-code"})
@@ -828,10 +985,17 @@ def test_put_agent_model_returns_400_for_non_opencode(
 
     resp = client.put(
         f"/agents/{agent_id}/model",
-        json={"model": "deepseek/deepseek-chat"},
+        json={"model": "haiku"},
     )
-    assert resp.status_code == 400
-    assert "OpenCode" in resp.json()["detail"] or "modelo" in resp.json()["detail"].lower()
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body == {"agent_id": agent_id, "model": "haiku", "changed": True}
+
+    runtime_instance = get_runtime_instance_for_agent(agent_id)
+    server = libtmux.Server(socket_name=isolated_socket)
+    session = server.sessions.get(session_name=runtime_instance.session_name)
+    pane_content = "\n".join(session.active_pane.capture_pane())
+    assert "/model haiku" in pane_content
 
 
 def test_put_agent_model_returns_400_when_model_field_is_missing(
@@ -893,9 +1057,14 @@ def test_get_agent_available_models_returns_list_for_opencode(
     assert "opencode-go/deepseek-v4-flash" in [m["id"] for m in body["models"]]
 
 
-def test_get_agent_available_models_returns_empty_for_non_opencode(
+def test_get_agent_available_models_returns_claude_code_catalog_for_claude_code(
     tmp_path: Path, monkeypatch, isolated_socket,
 ) -> None:
+    """T-FB024-US11-13 (decisión de producto 2026-08-17): un agente Claude
+    Code VIVO sí admite cambio de modelo en caliente (vía '/model <id>'
+    por tmux, POST /agents/{id}/send-keys) — el catálogo devuelto se
+    filtra a los modelos del runtime claude_code (sonnet/opus/haiku), no
+    a los de opencode."""
     _project, _session = _active_project_and_session(tmp_path, monkeypatch)
     client = TestClient(create_app())
 
@@ -907,8 +1076,9 @@ def test_get_agent_available_models_returns_empty_for_non_opencode(
     assert resp.status_code == 200
     body = resp.json()
     assert body["agent_id"] == agent_id
-    assert body["supports_model"] is False
-    assert body["models"] == []
+    assert body["supports_model"] is True
+    assert body["models"]
+    assert all(m["runtime"] == "claude_code" for m in body["models"])
 
 
 def test_get_agent_status_model_returns_404_when_no_session(monkeypatch) -> None:

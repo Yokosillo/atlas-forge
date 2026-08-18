@@ -100,8 +100,8 @@ def _generate_tasks_from_sections(
                 f"La logica principal de {us_id} esta implementada y es invocable programaticamente.",
                 "No tiene dependencias de infraestructura externa.",
             ],
-            "priority": "Critica",
-            "difficulty": "Critica",
+            "priority": "Crítica",
+            "difficulty": "Crítica",
             "deps": [],
         },
         {
@@ -119,7 +119,7 @@ def _generate_tasks_from_sections(
                 f"El modulo de {us_id} es invocable desde su contexto de uso.",
                 "La conexion no introduce logica de negocio duplicada.",
             ],
-            "priority": "Critica",
+            "priority": "Crítica",
             "difficulty": "Alta",
             "deps": [f"T-{us_id}-01"],
         },
@@ -143,16 +143,31 @@ def _generate_tasks_from_sections(
         },
     ]
 
+    # Bug corregido (2026-08-17, encontrado end-to-end vía
+    # run_us_landing_dispatch_cycle, T-FB008-US15-02): las dependencias
+    # de los templates se generan como `T-{us_id}-NN` con `us_id` en
+    # forma canónica (`US-FB999-01`), produciendo `T-US-FB999-01-NN` —
+    # no coincide con ningún fichero real (`T-FB999-US01-NN`). Mismo bug
+    # de prefijo ya corregido en otros 3 sitios por T-FB022-US13-01B
+    # (`task_file_story_prefix`), pero este generador construía el
+    # `task_id` con su propio cálculo local (`epic_num`/`us_num`) sin
+    # pasar por ese normalizador — el parche anterior solo cubría el
+    # caso `T-{us_id}-01` (el template 3 depende de `T-{us_id}-02`, sin
+    # cubrir). Se generaliza: cualquier dependencia con forma
+    # `T-{us_id}-NN` se reescribe al `task_id` real con el mismo NN.
+    task_id_by_index = {i: f"T-{epic_num}-US{us_num}-{i:02d}" for i in range(1, len(templates) + 1)}
+
     tasks: list[ProposedTask] = []
     for i, tmpl in enumerate(templates, start=1):
         # Formato correcto: T-FB999-US01-01 (no US-FB999-01-01)
-        task_id = f"T-{epic_num}-US{us_num}-{i:02d}"
+        task_id = task_id_by_index[i]
         # Dependencies usan el mismo formato
         formatted_deps = []
         for d in tmpl["deps"]:
-            if d == f"T-{us_id}-01":
-                # Convertir viejo formato a nuevo
-                formatted_deps.append(task_id[:-2] + "01")  # T-FB999-US01-01
+            old_prefix = f"T-{us_id}-"
+            if d.startswith(old_prefix):
+                dep_index = int(d[len(old_prefix):])
+                formatted_deps.append(task_id_by_index.get(dep_index, d))
             else:
                 formatted_deps.append(d)
 

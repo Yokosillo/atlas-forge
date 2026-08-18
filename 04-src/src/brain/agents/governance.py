@@ -2,7 +2,7 @@
 
 El rol de cada agente (Arquitecto, Developer) se define en dos capas, AMBAS
 construidas por Factory Brain antes de arrancar el proceso, nunca por
-decisión del propio agente (01-documentacion/04-agentes.md, "Rol base vs.
+decisión del propio agente (docs/agents.md, "Rol base vs.
 gobierno específico de proyecto"):
 
 1. Rol base: `ARQUITECTO_PROMPT`/`DEVELOPER_PROMPT` (`agents/arquitecto.py`,

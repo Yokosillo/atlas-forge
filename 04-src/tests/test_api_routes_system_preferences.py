@@ -10,6 +10,7 @@ from fastapi.testclient import TestClient
 import brain.api.routes as routes_module
 from brain.api import create_app
 from brain.system_preferences import (
+    DEFAULT_DEVELOPER_WAITS_FOR_TESTER_REVIEW,
     DEFAULT_MAX_SIMULTANEOUS_DEVELOPERS,
     DEFAULT_DIFFICULTY_MODEL_MAP,
     DEFAULT_TUI_ENABLED,
@@ -31,6 +32,7 @@ def test_get_system_preferences_returns_default_without_saved_file(isolated_stat
         "max_simultaneous_developers": DEFAULT_MAX_SIMULTANEOUS_DEVELOPERS,
         "difficulty_model_map": DEFAULT_DIFFICULTY_MODEL_MAP,
         "tui_enabled": DEFAULT_TUI_ENABLED,
+        "developer_waits_for_tester_review": DEFAULT_DEVELOPER_WAITS_FOR_TESTER_REVIEW,
     }
 
 

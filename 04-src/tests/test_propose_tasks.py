@@ -142,8 +142,8 @@ class TestProposeTasksFromUserStory:
             assert task.objective, f"Task {task} should have an objective"
             assert task.description, f"Task {task} should have a description"
             assert len(task.criteria) >= 1, f"Task {task} should have criteria"
-            assert task.priority in ("Critica", "Alta", "Media", "Baja")
-            assert task.difficulty in ("Critica", "Alta", "Media", "Baja"), f"Task {task.id} should have a valid difficulty"
+            assert task.priority in ("Crítica", "Alta", "Media", "Baja")
+            assert task.difficulty in ("Crítica", "Alta", "Media", "Baja"), f"Task {task.id} should have a valid difficulty"
 
     def test_no_task_has_independent_value(self, tmp_path: Path):
         review = _fixture_review_ready()
@@ -199,7 +199,7 @@ class TestProposeTasksFromUserStory:
             objective="Generado por LLM",
             description="Propuesta LLM.",
             criteria=["Criterio LLM"],
-            priority="Critica",
+            priority="Crítica",
             difficulty="Alta",
         )
 

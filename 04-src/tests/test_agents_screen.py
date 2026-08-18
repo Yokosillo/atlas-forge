@@ -176,9 +176,14 @@ async def test_choosing_developer_opencode_and_model_leaves_agent_operative(
         assert launched_agent["name"] in str(dashboard_agents_widget.content)
 
 
-async def test_invalid_combination_shows_clear_message_without_launching_anything(
+async def test_claude_code_with_model_launches_successfully(
     tmp_path, backend
 ) -> None:
+    """T-FB024-US11-13 (2026-08-17): Claude Code SÍ admite indicar modelo
+    al lanzar — corrección de la premisa original (T-FB002-US01-01) que
+    asumía lo contrario sin verificarlo contra `claude --help`. Antes de
+    esta corrección, esta combinación se rechazaba como "combinación
+    inválida"; ahora lanza con normalidad, igual que OpenCode+modelo."""
     workspace_root = tmp_path / "workspace"
     state_dir = tmp_path / "state"
     _select_project_and_start_backend_session(workspace_root, state_dir)
@@ -203,10 +208,9 @@ async def test_invalid_combination_shows_clear_message_without_launching_anythin
 
         result_widget = agents_screen.query_one("#launch-result")
         result_text = str(result_widget.content)
-        assert "no se pudo lanzar" in result_text.lower()
-        assert "modelo" in result_text.lower()
+        assert "operativo" in result_text.lower()
 
-        assert backend.get_agents() == []
+        assert len(backend.get_agents()) == 1
 
 
 async def test_launching_a_second_agent_works_on_same_session_without_leaving_screen(

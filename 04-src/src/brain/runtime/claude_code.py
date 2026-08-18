@@ -21,21 +21,31 @@ DEFAULT_CLAUDE_CODE_COMMAND = "claude"
 DEFAULT_CLAUDE_CODE_ARGS: list[str] = ["--dangerously-skip-permissions"]
 
 
-def register_claude_code_runtime(runtime_id: str = "claude-code") -> Runtime:
+def register_claude_code_runtime(
+    runtime_id: str = "claude-code", model: str | None = None
+) -> Runtime:
     """Registra Claude Code como Runtime disponible, con su configuración
     mínima por defecto, incluyendo la flag de autonomía por defecto.
 
-    Claude Code no expone selección de modelo por flag de la misma forma
-    que OpenCode (ver `01-documentacion/` y `US-FB002-01`) — esta función
-    no acepta parámetro de modelo, para no introducir un parámetro sin
-    efecto real.
+    Corrección T-FB024-US11-13 (2026-08-17): la premisa original ("Claude
+    Code no expone selección de modelo por flag") estaba desactualizada —
+    verificado directamente contra `claude --help` en esta VM: SÍ existe
+    `--model <model>` como flag real de arranque. Si se indica `model`
+    (alias corto: "sonnet"/"opus"/"haiku", o el id completo), se añade
+    `--model <model>` a los `args` construidos, mismo patrón que
+    `register_opencode_runtime`. Sin `model`, el comportamiento es el
+    mismo que antes (solo la flag de autonomía).
     """
+    args = list(DEFAULT_CLAUDE_CODE_ARGS)
+    if model is not None:
+        args += ["--model", model]
+
     return Runtime(
         id=runtime_id,
         name="Claude Code",
         type="claude-code",
         command=DEFAULT_CLAUDE_CODE_COMMAND,
-        args=list(DEFAULT_CLAUDE_CODE_ARGS),
+        args=args,
     )
 
 

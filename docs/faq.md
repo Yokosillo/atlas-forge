@@ -12,7 +12,7 @@ Claude Code and OpenCode (launched in tmux sessions). **Codex is not supported y
 
 ### Do I need Ollama?
 
-No. Scribe (Ollama) is **optional**: it is a token saver for reads/summaries. Without Ollama everything keeps working, degrading explicitly (notes in Jobs, exit code 1 in the summary CLI, hard failure only on plan steps that explicitly use Scribe).
+No. Scribe (Ollama) is **optional**: it is a token saver for reads/summaries. Without Ollama everything keeps working, degrading explicitly (notes in Jobs, exit code 1 in the summary CLI, hard failure only on the `indexar` action that explicitly uses Scribe).
 
 ### How do I select an agent's model?
 
@@ -58,22 +58,18 @@ Liveness is lazy: if the runtime's tmux session died without you asking, the age
 - Stop the agent (`POST /agents/{id}/stop`) if it is stuck.
 - Query the agent's pane (`GET /agents/{id}/pane`) to see what it is doing.
 
-### The plan does not dispatch (stays `proposed`)
+### A Task never gets picked up
 
-A `proposed` plan runs nothing until the **single human approval** (`POST /plans/{id}/approve`). Also verify that agents are launched for the `agent` steps and that Scribe is available if there are `scribe` steps.
-
-### On approval, the plan becomes `blocked`
-
-A step failed with `JobCreationError` or `ScribeUnavailableError`. Check `GET /plans/{plan_id}` to see the failed step, launch the needed agent and ask/approve the plan again.
+Confirm its `state` is `EN_DESARROLLO` (not `TODO`) — the Dispatcher only picks up eligible states, and a plain `TODO` Task waits for a human to progress it. Also confirm a Developer is `idle` and its dependencies are all `DONE`.
 
 ### Scribe is not available
 
 - Confirm Ollama is running: `curl http://localhost:11434` and `ollama list` (the `qwen2.5-coder:14b` model must exist).
-- The rest of the system works without Scribe; only the `scribe` plan steps and the `indexar` action fail explicitly.
+- The rest of the system works without Scribe; only the `indexar` action fails explicitly.
 
-### Model change is not reflected (OpenCode)
+### I want to change an agent's model
 
-`set_active_model` interacts with OpenCode's status bar and returns `False` on any failure (non-OpenCode runtime, dead session, unmatched pattern). Retry or verify that the agent is `idle`/`working` and that the pane is alive.
+Model (and runtime) are chosen at launch — stop the agent and relaunch it with the model you want. There is no on-the-fly model switch for a live agent.
 
 ### The project's scripts do not appear
 

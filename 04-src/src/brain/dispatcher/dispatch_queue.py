@@ -208,6 +208,46 @@ def get_queue(project_root: Path | str, project_name: str) -> list[QueueEntry]:
         return _read_all(path)
 
 
+def migrate_queued_entries_to_state(
+    project_root: Path | str, project_name: str, backlog_dir: Path | str
+) -> list[str]:
+    """T-FB008-US14-01, criterio de aceptación de migración: entradas ya
+    encoladas en `dispatch_queue.json` (`status == "queued"`) ANTES de
+    esta Task nunca tuvieron su `state` real escrito a `EN_DESARROLLO` — solo
+    vivían en el JSON, con el fichero real todavía en `TODO` (el
+    comportamiento anterior a esta Task). Esta función pone al día esos
+    ficheros reales, sin tocar el propio JSON (sigue siendo el registro
+    de orden/auditoría auxiliar, no cambia de formato).
+
+    Solo toca Tasks cuyo `state` real es TODAVÍA `TODO` — si ya está en
+    `EN_DESARROLLO` (encolada de nuevo tras esta Task) o en cualquier otro
+    estado (alguien la movió manualmente, o el Dispatcher ya la tomó y
+    el JSON quedó desincronizado), no se toca: mismo criterio de
+    "solo promueve hacia adelante, nunca revierte" ya usado en
+    `promote_backlog`.
+
+    Devuelve la lista de `task_id` migrados. Idempotente: ejecutarlo dos
+    veces no vuelve a tocar nada la segunda vez (las ya migradas están en
+    `EN_DESARROLLO`, no en `TODO`)."""
+    from brain.backlog.edit import set_item_state
+    from brain.backlog.parser import load_backlog
+
+    entries = get_queue(project_root, project_name)
+    queued_task_ids = {e.task_id for e in entries if e.status == STATUS_QUEUED}
+    if not queued_task_ids:
+        return []
+
+    graph = load_backlog(Path(backlog_dir))
+    migrated = []
+    for task_id in sorted(queued_task_ids):
+        item = graph.items.get(task_id)
+        if item is None or item.state != "TODO":
+            continue
+        set_item_state(item.path, "EN_DESARROLLO")
+        migrated.append(task_id)
+    return migrated
+
+
 def mark_dispatched(
     project_root: Path | str,
     project_name: str,

@@ -308,6 +308,20 @@ def load_backlog(backlog_path: Path) -> BacklogGraph:
     )
 
 
+# Bug corregido (2026-08-17, encontrado end-to-end vía el panel "Próximo
+# foco" tras crear una User Story real): `classify_todo_items` y
+# `find_max_leverage_chain` solo reconocían `state == "TODO"` como
+# "pendiente de empezar, puede bloquear o estar bloqueada" — con el
+# rediseño de estados (T-FB008-US15-01/-02) una User Story recién creada
+# nace en `SIN_TAREAS` (esperando desgranarse en Tasks) o `EN_DISEÑO`
+# (esperando al Arquitecto), ninguno de los dos `TODO`, así que quedaba
+# invisible para ambos cálculos aunque otra Task dependiera de ella —
+# mismo criterio ya aplicado en el resto del código (`EN_DESARROLLO`
+# tratado como "todavía no empezado" en `_mark_story_tasks_done`, etc.):
+# cualquier estado que no sea `DONE` participa como "pendiente".
+_PENDING_STATES = frozenset({"TODO", "SIN_TAREAS", "EN_DISEÑO"})
+
+
 def _dependency_state_blocks(graph: BacklogGraph, item: BacklogItem) -> bool:
     """True si al menos una dependencia declarada de `item` sigue en un
     estado que no es `DONE` (o no existe en el grafo)."""
@@ -329,7 +343,7 @@ def classify_todo_items(
     """
     todos = sorted(
         (item for item in graph.items.values()
-         if item.state == "TODO" and item.kind != ITEM_KIND_EPIC),
+         if item.state in _PENDING_STATES and item.kind != ITEM_KIND_EPIC),
         key=lambda item: item.id,
     )
     lista = [item for item in todos if not _dependency_state_blocks(graph, item)]
@@ -338,8 +352,9 @@ def classify_todo_items(
 
 
 def _cascade_for_item(graph: BacklogGraph, root: BacklogItem) -> list[str]:
-    """Items `TODO`-BLOQUEADOS que la finalizacion de `root` desbloquearia
-    en cascada, recorriendo el grafo hasta punto fijo."""
+    """Items pendientes-BLOQUEADOS (`_PENDING_STATES`) que la finalizacion
+    de `root` desbloquearia en cascada, recorriendo el grafo hasta punto
+    fijo."""
     completed = {
         item.id for item in graph.items.values() if item.state == "DONE"
     } | {root.id}
@@ -350,7 +365,7 @@ def _cascade_for_item(graph: BacklogGraph, root: BacklogItem) -> list[str]:
         changed = False
         for item in graph.items.values():
             if (
-                item.state != "TODO"
+                item.state not in _PENDING_STATES
                 or item.id in completed
                 or item.id in unlocked
             ):
@@ -414,10 +429,10 @@ def calculate_unblock_degree(graph: "BacklogGraph", epic_prefix: str) -> float:
 
 
 def find_max_leverage_chain(graph: BacklogGraph) -> list[BacklogItem]:
-    """Identifica la Task/US en `TODO` cuya finalizacion desbloquea mas
-    Tasks BLOQUEADAS en cascada."""
+    """Identifica la Task/US pendiente (`_PENDING_STATES`) cuya
+    finalizacion desbloquea mas Tasks BLOQUEADAS en cascada."""
     todos = [
-        item for item in graph.items.values() if item.state == "TODO"
+        item for item in graph.items.values() if item.state in _PENDING_STATES
     ]
 
     best_chain: list[BacklogItem] = []

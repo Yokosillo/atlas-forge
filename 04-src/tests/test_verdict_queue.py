@@ -113,7 +113,16 @@ def test_do_dispatch_verdict_finds_agent_by_arquitecto_role() -> None:
     (rol pre-rename) en vez de `ARQUITECTO_ROLE`, por lo que nunca
     encontraba al agente Arquitecto real y el veredicto se descartaba en
     silencio (`return` sin error). Este test ejercita la búsqueda de rol
-    real, sin mockear `_do_dispatch_verdict` como el resto de la suite."""
+    real, sin mockear `_do_dispatch_verdict` como el resto de la suite.
+
+    Mockea `get_runtime_instance_for_agent` en el namespace de
+    `dispatch_queue_worker` (T-FB008-US14-02, refactor 2026-08-17: la
+    lógica real de despacho vive ahora en
+    `dispatch_queue_worker.dispatch_architect_verdict`, invocada por
+    `_do_dispatch_verdict` como delegación fina) — mockear la ruta
+    original (`brain.runtime.agent_runtime_registry`) ya no intercepta
+    la llamada real, porque `dispatch_queue_worker.py` la importa a su
+    propio namespace en tiempo de import del módulo."""
     session = DevelopmentSession(id="s1", project_id="p1")
     activate(session)
     architect = Agent(
@@ -123,7 +132,7 @@ def test_do_dispatch_verdict_finds_agent_by_arquitecto_role() -> None:
     assign_agent(session, architect)
 
     with patch(
-        "brain.runtime.agent_runtime_registry.get_runtime_instance_for_agent",
+        "brain.dispatcher.dispatch_queue_worker.get_runtime_instance_for_agent",
         return_value=None,
     ) as mock_get_runtime:
         _do_dispatch_verdict("US-FB022-99", session, "default")
@@ -144,7 +153,7 @@ def test_do_dispatch_verdict_does_not_find_agent_by_old_critic_role() -> None:
     assign_agent(session, old_critic)
 
     with patch(
-        "brain.runtime.agent_runtime_registry.get_runtime_instance_for_agent",
+        "brain.dispatcher.dispatch_queue_worker.get_runtime_instance_for_agent",
     ) as mock_get_runtime:
         _do_dispatch_verdict("US-FB022-99", session, "default")
 

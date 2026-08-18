@@ -52,7 +52,7 @@ from brain.local_tools import ScribeUnavailableError, index_documents
 _ACTION_DESCRIPTIONS: dict[str, str] = {
     "documentar": (
         "Documenta el proyecto completo. Compara el contenido de "
-        "`01-documentacion/` contra el código real del repositorio. Detecta "
+        "`docs/` contra el código real del repositorio. Detecta "
         "documentación obsoleta, ausente o inconsistente con la "
         "implementación real. Tu salida es una propuesta de cambios "
         "concreta con ficheros afectados y el texto sugerido para cada "
@@ -69,7 +69,7 @@ _ACTION_DESCRIPTIONS: dict[str, str] = {
         "1. Estado real del código módulo por módulo (qué hay implementado "
         "y qué no).\n"
         "2. Deuda técnica detectada con ficheros y líneas concretas.\n"
-        "3. Inconsistencias entre la documentación (`01-documentacion/`) y "
+        "3. Inconsistencias entre la documentación (`docs/`) y "
         "el código real.\n"
         "4. Recomendaciones priorizadas.\n\n"
         "No escribas a `02-backlog/` — tu salida es un informe para que el "
@@ -80,7 +80,7 @@ _ACTION_DESCRIPTIONS: dict[str, str] = {
     "sugerir-ideas": (
         "Analiza el estado actual del proyecto (backlog en `02-backlog/`, "
         "código en `04-src/`, informes recientes en `07-informes/`, "
-        "documentación en `01-documentacion/`) y propón ideas candidatas "
+        "documentación en `docs/`) y propón ideas candidatas "
         "de Epics o User Stories nuevas que podrían añadir valor.\n\n"
         "Tu salida debe ser una lista informal con:\n"
         "- Título descriptivo de cada idea.\n"
@@ -449,7 +449,7 @@ def _dispatch_test_ui_action() -> dict:
 
 _INDEX_MAX_FILE_SIZE_BYTES = 50_000
 _INDEX_MAX_FILES = 100
-_INDEX_DIRS = ("01-documentacion", "02-backlog", "04-src", "00-gobierno")
+_INDEX_DIRS = ("docs", "02-backlog", "04-src", "00-gobierno")
 
 
 def _dispatch_index_action() -> dict:

@@ -26,6 +26,14 @@ DEFAULT_DIFFICULTY_MODEL_MAP = {
 }
 # T-FB002-US04-01: gate de arranque de la TUI por seguridad
 DEFAULT_TUI_ENABLED = False
+# T-FB008-US14-02: si True (decisión de producto explícita, 2026-08-17),
+# el Developer que cierra una Task no se considera `idle` para el
+# reparto de Tasks nuevas mientras esa Task siga en REVIEW (esperando al
+# Tester) — evita que certifique su propio trabajo cogiendo ya la
+# siguiente Task mientras la anterior aún puede volver con una
+# corrección. Configurable a futuro desde Configuración (fuera de
+# alcance de esta Task); por ahora solo el valor por defecto real.
+DEFAULT_DEVELOPER_WAITS_FOR_TESTER_REVIEW = True
 
 
 def _default_state_dir() -> Path:
@@ -51,6 +59,7 @@ def load_system_preferences(
             "max_simultaneous_developers": DEFAULT_MAX_SIMULTANEOUS_DEVELOPERS,
             "difficulty_model_map": DEFAULT_DIFFICULTY_MODEL_MAP,
             "tui_enabled": DEFAULT_TUI_ENABLED,
+            "developer_waits_for_tester_review": DEFAULT_DEVELOPER_WAITS_FOR_TESTER_REVIEW,
         }
     payload = json.loads(path.read_text(encoding="utf-8"))
     return {
@@ -62,6 +71,9 @@ def load_system_preferences(
         ),
         "tui_enabled": payload.get(
             "tui_enabled", DEFAULT_TUI_ENABLED
+        ),
+        "developer_waits_for_tester_review": payload.get(
+            "developer_waits_for_tester_review", DEFAULT_DEVELOPER_WAITS_FOR_TESTER_REVIEW
         ),
     }
 
@@ -80,6 +92,10 @@ def save_system_preferences(
       `DEFAULT_DIFFICULTY_MODEL_MAP` si no se indica).
     - `tui_enabled`: bool — gate de arranque de la TUI (default
       `DEFAULT_TUI_ENABLED` si no se indica).
+    - `developer_waits_for_tester_review`: bool — si el Developer que
+      cierra una Task espera al veredicto del Tester antes de coger una
+      Task nueva (default `DEFAULT_DEVELOPER_WAITS_FOR_TESTER_REVIEW`
+      si no se indica).
     """
     path = _preferences_file(state_dir)
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -92,6 +108,9 @@ def save_system_preferences(
         ),
         "tui_enabled": preferences.get(
             "tui_enabled", DEFAULT_TUI_ENABLED
+        ),
+        "developer_waits_for_tester_review": preferences.get(
+            "developer_waits_for_tester_review", DEFAULT_DEVELOPER_WAITS_FOR_TESTER_REVIEW
         ),
     }
     path.write_text(json.dumps(payload), encoding="utf-8")
@@ -118,3 +137,9 @@ def get_tui_enabled(state_dir: Path | None = None) -> bool:
     Devuelve un bool indicando si la TUI está habilitada. Por defecto es False
     (TUI bloqueada por seguridad, superficie sin mantenimiento activo)."""
     return load_system_preferences(state_dir=state_dir)["tui_enabled"]
+
+
+def get_developer_waits_for_tester_review(state_dir: Path | None = None) -> bool:
+    """Atajo para obtener si el Developer espera al veredicto del Tester
+    antes de coger una Task nueva (T-FB008-US14-02). Por defecto True."""
+    return load_system_preferences(state_dir=state_dir)["developer_waits_for_tester_review"]

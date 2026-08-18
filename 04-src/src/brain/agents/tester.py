@@ -15,6 +15,7 @@ from brain.agents.governance import (
 )
 from brain.agents.registry import register_agent_with_reuse
 from brain.agents.roles import RoleConfig, register_role
+from brain.dispatcher.task_verdict import TASK_VERDICT_PROMPT_INSTRUCTION
 from brain.models import DevelopmentSession, Runtime
 from brain.runtime import RuntimeInstance
 from brain.tmux.manager import DEFAULT_SOCKET_NAME
@@ -62,7 +63,13 @@ TESTER_PROMPT = (
     "  (logs de test, valores reales, casos reproductibles).\n"
     "- Siguiente paso sugerido: una única acción recomendada (p. ej. 'rechazar "
     "  porque [criterio] no se cumple', o 'aprobar porque todos los criterios "
-    "  están cubiertos')."
+    "  están cubiertos').\n"
+    "\n"
+    "## Verificación de una Task individual en REVIEW\n"
+    "\n"
+    "Cuando el Dispatcher te asigna una Task concreta en estado REVIEW "
+    "(no una User Story completa), verifica solo los criterios de "
+    "aceptación de ESA Task. " + TASK_VERDICT_PROMPT_INSTRUCTION
 )
 
 

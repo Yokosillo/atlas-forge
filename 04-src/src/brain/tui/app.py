@@ -1,8 +1,8 @@
 """Aplicación Textual de Factory Brain: app raíz y navegación entre
 pantallas (Workspace ↔ Dashboard ↔ Agentes, US-FB002-02).
 
-Flujo de arranque (`01-documentacion/05-tui.md`, "Flujo principal";
-`01-documentacion/00-vision.md`): si no hay proyecto activo persistido
+Flujo de arranque (`docs/interfaces-tui.md`, "Flujo principal";
+`docs/index.md`): si no hay proyecto activo persistido
 (o el persistido ya no es válido), arranca en Workspace; si lo hay,
 arranca directamente en Dashboard — mismo criterio ya resuelto por
 `resolve_startup_project` (FB-001), reutilizado aquí sin reimplementarlo.

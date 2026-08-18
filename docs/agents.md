@@ -2,7 +2,7 @@
 
 Agents are the fundamental unit of work. An agent = **role** + **prompt** + **runtime** + **tmux session** + **state**. They are not language models nor generic processes.
 
-In the backlog-centric pipeline, agents are roles orchestrated by the product (Architect, Developer, Tester) rather than launched one by one by hand: the product decides who runs each step of a plan.
+In the backlog-centric pipeline, agents are roles orchestrated by the product (Architect, Developer, Tester) rather than launched one by one by hand: the product decides who runs each step of the work pipeline.
 
 ## Registered roles
 
@@ -12,9 +12,10 @@ Factory Brain uses a **centralized role registry** (`brain/agents/roles.py`) whe
 |---|---|---|
 | **`developer`** | `developer.md` | Implements User Stories. Persistent and human-managed (not ephemeral — keeps conversation context across successive Jobs). Always creates a new instance when launched (never reused), self-named `Developer-1`, `Developer-2`… up to a configurable simultaneous limit (default **3**, `GET`/`PUT /system/preferences`). "Stop" deletes the instance outright and frees its slot immediately — there is no paused/reusable Developer to relaunch. |
 | **`arquitecto`** | `ARQUITECTO.md` | Reusable, **triple-function** role: lands the backlog (generates Epic→US→Task in standard format), issues structured **verdicts** (`APROBADO` / `APROBADO_CON_OBSERVACIONES` / `RECHAZADO`) on Developer work, and converses with the human about existing Epics (read-only on the backlog). |
-
-!!! note "Tester"
-    The **Tester role is not yet registered** in the backend (there is no `agents/tester.py`). Its *input/output contract* does exist (`dispatcher/tester_input.py`: packages acceptance criteria + code diff for a Tester Job) and it appears in the web role configuration with a default model. Registering the Tester agent is future work.
+| **`tester`** | `TESTER.md` | Verifies a closed Task's work (`dispatcher/tester_input.py` packages acceptance criteria + code diff for a Tester Job) and returns a structured verdict (`EXITO` / `FALLO`). A failed Task goes back to the same Developer for corrections. Reusable, single instance per session. |
+| **`ux`** | `UX.md` | Headless web UX audits (run via `opencode run --auto`). Reusable. |
+| **`auditor_oss`** | `AUDITOR-OSS.md` | OSS audit of the web UX. Reusable. |
+| **`documentador`** | `DOCUMENTADOR.md` | Keeps the public documentation (`docs/`) aligned with the real code (Senior Developer Advocate). Reusable. |
 
 ## Prompts: two layers (base role + project governance)
 
@@ -71,10 +72,9 @@ stateDiagram-v2
 
 ## Governance
 
-`project_has_governance(project, role)` checks on disk that `00-gobierno/<role>.md` and `00-gobierno/METODOLOGIA.md` exist. `project_governance_instruction(...)` returns the instruction to add to the prompt (or empty string). See the project's `00-gobierno/` for the real files: `ARQUITECTO.md`, `CRITICO.md`, `DIRECTOR.md`, `developer.md`, `METODOLOGIA.md`, `UX.md`, `DOCUMENTADOR.md`, `AUDITOR-OSS.md`.
+`project_has_governance(project, role)` checks on disk that `00-gobierno/<role>.md` and `00-gobierno/METODOLOGIA.md` exist. `project_governance_instruction(...)` returns the instruction to add to the prompt (or empty string). See the project's `00-gobierno/` for the real files: `ARQUITECTO.md`, `AUDITOR-OSS.md`, `DEVELOPER.md`, `DOCUMENTADOR.md`, `METODOLOGIA.md`, `OPERACION.md`, `TESTER.md`, `UX.md` (retired roles live in `00-gobierno/old/`).
 
 ## Planned (not implemented)
 
 - **Stuck-agent detection and automatic recovery** (FB-023): a human-triggered "review if stuck" action exists in the web (dispatches a real Job asking the Architect to judge the agent's pane) — automatic background detection is not implemented.
-- **Tester role** (FB-022/23): pending registration.
 - **Agent capability declaration** (US-FB005-03): blocked until the Capability Engine (FB-010).

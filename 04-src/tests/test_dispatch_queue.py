@@ -125,3 +125,82 @@ def test_two_different_projects_have_independent_queues(tmp_path):
 
     assert [e.task_id for e in get_queue(tmp_path, "proj-a")] == ["T-a"]
     assert [e.task_id for e in get_queue(tmp_path, "proj-b")] == ["T-b"]
+
+
+# ---------------------------------------------------------------------------
+# migrate_queued_entries_to_state (T-FB008-US14-01, criterio de migración)
+# ---------------------------------------------------------------------------
+
+
+def _write_task_md(tasks_dir, task_id, us_id, state):
+    tasks_dir.mkdir(parents=True, exist_ok=True)
+    (tasks_dir / f"{task_id}.md").write_text(
+        "---\n"
+        f"id: {task_id}\ntype: task\ntitle: Task\nstate: {state}\n"
+        f"dependencies: []\nepic: FB-999\nuser_story: {us_id}\npriority: Alta\n"
+        "---\n\n"
+        f"# {task_id}\n\n## Objetivo\n\nObjetivo.\n\n## Criterios de aceptación\n\n1. Y.\n",
+        encoding="utf-8",
+    )
+
+
+def test_migrate_queued_entries_to_state_updates_task_still_in_todo(tmp_path):
+    """Caso real de la migración: una Task se encoló ANTES de esta Task
+    (entrada `queued` en el JSON) con el mecanismo antiguo — su fichero
+    real sigue en `TODO`, nunca se escribió `EN_DESARROLLO`. La migración pone
+    el fichero real al día sin perder la entrada JSON."""
+    from brain.dispatcher.dispatch_queue import migrate_queued_entries_to_state
+
+    backlog_dir = tmp_path / "02-backlog"
+    _write_task_md(backlog_dir / "tasks", "T-FB999-US01-01", "US-FB999-01", "TODO")
+    enqueue_task(tmp_path, "proj", task_id="T-FB999-US01-01", us_id="US-FB999-01", priority="Alta")
+
+    migrated = migrate_queued_entries_to_state(tmp_path, "proj", backlog_dir)
+
+    assert migrated == ["T-FB999-US01-01"]
+    task_text = (backlog_dir / "tasks" / "T-FB999-US01-01.md").read_text(encoding="utf-8")
+    assert "state: EN_DESARROLLO" in task_text
+    # La entrada JSON no se toca — sigue como registro auxiliar.
+    entries = get_queue(tmp_path, "proj")
+    assert entries[0].status == STATUS_QUEUED
+
+
+def test_migrate_queued_entries_to_state_is_idempotent(tmp_path):
+    """Ejecutarlo dos veces no vuelve a tocar nada la segunda vez — la
+    Task ya migrada está en `EN_DESARROLLO`, no en `TODO`."""
+    from brain.dispatcher.dispatch_queue import migrate_queued_entries_to_state
+
+    backlog_dir = tmp_path / "02-backlog"
+    _write_task_md(backlog_dir / "tasks", "T-FB999-US01-01", "US-FB999-01", "TODO")
+    enqueue_task(tmp_path, "proj", task_id="T-FB999-US01-01", us_id="US-FB999-01", priority="Alta")
+
+    first = migrate_queued_entries_to_state(tmp_path, "proj", backlog_dir)
+    second = migrate_queued_entries_to_state(tmp_path, "proj", backlog_dir)
+
+    assert first == ["T-FB999-US01-01"]
+    assert second == []
+
+
+def test_migrate_queued_entries_to_state_skips_task_already_past_todo(tmp_path):
+    """Una Task `queued` en el JSON cuyo fichero real ya no está en
+    `TODO` (p. ej. el Dispatcher ya la despachó y el JSON quedó
+    desincronizado, o alguien la movió a mano) no se toca — mismo
+    criterio de "nunca revierte" que `promote_backlog`."""
+    from brain.dispatcher.dispatch_queue import migrate_queued_entries_to_state
+
+    backlog_dir = tmp_path / "02-backlog"
+    _write_task_md(backlog_dir / "tasks", "T-FB999-US01-01", "US-FB999-01", "IN_PROGRESS")
+    enqueue_task(tmp_path, "proj", task_id="T-FB999-US01-01", us_id="US-FB999-01", priority="Alta")
+
+    migrated = migrate_queued_entries_to_state(tmp_path, "proj", backlog_dir)
+
+    assert migrated == []
+    task_text = (backlog_dir / "tasks" / "T-FB999-US01-01.md").read_text(encoding="utf-8")
+    assert "state: IN_PROGRESS" in task_text
+
+
+def test_migrate_queued_entries_to_state_returns_empty_for_empty_queue(tmp_path):
+    from brain.dispatcher.dispatch_queue import migrate_queued_entries_to_state
+
+    backlog_dir = tmp_path / "02-backlog"
+    assert migrate_queued_entries_to_state(tmp_path, "proj", backlog_dir) == []

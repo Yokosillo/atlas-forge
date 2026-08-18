@@ -142,7 +142,10 @@ def test_create_user_story_content_has_the_expected_frontmatter_and_sections(tmp
     assert "id: US-FB900-01" in content
     assert "type: user_story" in content
     assert "title: US de prueba" in content
-    assert "state: TODO" in content
+    # T-FB008-US15-01 (2026-08-17): toda User Story nueva nace en
+    # SIN_TAREAS, no TODO — TODO queda reservado para cuando ya tiene al
+    # menos una Task real.
+    assert "state: SIN_TAREAS" in content
     assert "dependencies: []" in content
     assert "epic: FB-900" in content
     assert "priority: Media" in content

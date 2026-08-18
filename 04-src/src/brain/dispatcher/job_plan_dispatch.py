@@ -76,6 +76,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any, Callable
 
+from brain.backlog.parser import load_backlog
 from brain.core.session_lifecycle import list_agents
 from brain.dispatcher.job_creation import JobCreationError, create_job
 from brain.dispatcher.job_dispatch import dispatch_job
@@ -392,11 +393,16 @@ def dispatch_plan(
     finally:
         clear_job_plan_cancellation(plan)
 
-    # T-FB022-US05-02: disparo automático del Job de veredicto al
-    # completarse todos los pasos del plan. Si el plan terminó en estado
-    # 'approved' o 'blocked' (con trabajos completados), el veredicto
-    # procede — el Arquitecto decide si bloquea o aprueba.
-    # Si el plan fue cancelado, no hay trabajo que veredictar.
+    # T-FB022-US05-02 / T-FB008-US14-02: disparo automático del Job de
+    # veredicto al completarse todos los pasos del plan Y quedar TODA la
+    # User Story con sus Tasks en DONE (no solo los pasos de este plan
+    # concreto — un plan puede cubrir solo parte de la Story si el resto
+    # ya se despachó por el otro mecanismo, la cola de EN_DESARROLLO/REVIEW de
+    # US-FB008-14). Si el plan fue cancelado, no hay trabajo que
+    # veredictar. `trigger_architect_verdict` ya no dispara el veredicto
+    # directamente: marca la Story en REVIEW y es
+    # `run_architect_verdict_dispatch_cycle` (`dispatch_queue_worker.py`)
+    # quien la asigna a un Arquitecto libre.
     if plan.status != "cancelled":
         try:
             trigger_architect_verdict(
@@ -455,32 +461,65 @@ def trigger_architect_verdict(
     session: DevelopmentSession,
     socket_name: str = DEFAULT_SOCKET_NAME,
     reports_root: Path | None = None,
+    backlog_dir: Path | None = None,
 ) -> None:
-    """T-FB022-US05-02 / T-FB022-US07-01: encola automáticamente un Job de
-    veredicto hacia el Arquitecto cuando todo el trabajo de Developer (y
-    opcionalmente Tester) para `story_id` ha terminado.
+    """T-FB022-US05-02 / T-FB008-US14-02: marca `story_id` en `REVIEW`
+    cuando TODAS sus Tasks están `DONE` — el disparo real del veredicto
+    ya no ocurre aquí ni en la cola FIFO ciega (`architect_verdict_queue`,
+    que no comprobaba disponibilidad del Arquitecto). En su lugar, es
+    `run_architect_verdict_dispatch_cycle`
+    (`dispatch_queue_worker.py`) quien, en su ciclo de polling, asigna
+    las User Stories en `REVIEW` a un Arquitecto libre — mismo criterio
+    "un agente libre a la vez" ya vigente para Developer/Tester.
 
-    A partir de T-FB022-US07-01, esta función no despacha el veredicto
-    directamente — lo encola en la cola FIFO (`architect_verdict_queue`),
-    que garantiza que el Arquitecto procese los veredictos uno detrás de
-    otro, sin solapamiento, en orden de llegada.
+    No hace nada (silenciosamente) si `story_id` todavía tiene Tasks sin
+    `DONE`: corrige el bug de diseño donde un Job suelto con `story_id`
+    (`POST /jobs`) disparaba el veredicto tras completarse él mismo, sin
+    esperar al resto de Tasks de la misma Story."""
+    from brain.dispatcher.dispatch_queue_worker import story_is_fully_done
 
-    Retorna inmediatamente (el worker daemon procesa la cola en segundo
-    plano) — el estado "en cola, esperando veredicto" es consultable vía
-    `get_verdict_queue_status()`.
-    """
-    from brain.dispatcher.architect_verdict_queue import enqueue_architect_verdict
+    if backlog_dir is None:
+        backlog_dir = Path(__file__).resolve().parents[4] / "02-backlog"
+    graph = load_backlog(backlog_dir)
 
-    enqueue_architect_verdict(story_id, session, socket_name, reports_root)
+    if not story_is_fully_done(graph, story_id):
+        return
+
+    item = graph.items.get(story_id)
+    if item is None or item.state == "REVIEW" or item.state == "DONE":
+        return
+
+    story_path = item.path
+    text = story_path.read_text(encoding="utf-8")
+    current_state = _read_task_state(text)
+    if not current_state:
+        return
+    updated = text.replace(f"state: {current_state}", "state: REVIEW", 1)
+    story_path.write_text(updated, encoding="utf-8")
 
 
-def _process_verdict_result(story_id: str, verdict_output: str) -> None:
-    """T-FB022-US05-03: procesa el resultado del veredicto del Arquitecto.
+def _process_verdict_result(
+    story_id: str, verdict_output: str, backlog_dir: Path | None = None
+) -> None:
+    """T-FB022-US05-03 / T-FB008-US14-02: procesa el resultado del
+    veredicto del Arquitecto sobre una User Story ya en `REVIEW` (con
+    todas sus Tasks `DONE` por el ciclo de Tester).
 
     - APROBADO / APROBADO_CON_OBSERVACIONES: marca `Estado: DONE` en
-      todos los ficheros de Task de `story_id` que estén en TODO.
-    - RECHAZADO: genera instrucción de corrección accionable (persistida
-      como informe en 07-informes/<story_id>/_rechazo.md).
+      todos los ficheros de Task de `story_id` que estén en TODO/EN_DESARROLLO
+      (caso residual, plan que no cubrió toda la Story) y promueve la
+      propia US de REVIEW a DONE.
+    - RECHAZADO por falta de cobertura de producto (rediseño 2026-08-17,
+      "PIPELINE OPERATIVO Y RECONCILIACIÓN" — sustituye el diseño
+      anterior de `US-FB008-14`): el Arquitecto AÑADE UNA TASK NUEVA A LA
+      MISMA User Story, nunca crea una US nueva — decisión explícita del
+      usuario. Esa Task entra DIRECTAMENTE en `state: EN_DESARROLLO` (se
+      salta `TODO`, el Dispatcher la despacha ya en el siguiente ciclo,
+      sin esperar a que el humano la progrese). La US original NO se
+      promueve a `DONE` en este caso — tiene trabajo pendiente de nuevo,
+      así que `_mark_story_tasks_done` no se invoca aquí; el ciclo normal
+      (todas las Tasks vuelven a `DONE`) la llevará a `REVIEW`/veredicto
+      otra vez cuando corresponda.
     """
     if not verdict_output:
         return
@@ -488,16 +527,20 @@ def _process_verdict_result(story_id: str, verdict_output: str) -> None:
     estado, justificacion, siguiente_prompt = parse_verdict(verdict_output)
 
     if estado in (VERDICT_APPROVED, VERDICT_APPROVED_WITH_NOTES):
-        _mark_story_tasks_done(story_id)
+        _mark_story_tasks_done(story_id, backlog_dir=backlog_dir)
     elif estado == VERDICT_REJECTED:
-        _write_rejection_instruction(story_id, justificacion, siguiente_prompt)
+        _create_rejection_correction_task(
+            story_id, justificacion, siguiente_prompt, backlog_dir=backlog_dir
+        )
 
 
 def _mark_story_tasks_done(story_id: str, backlog_dir: Path | None = None) -> None:
     """Marca `Estado: DONE` en todos los ficheros de Task de `story_id`
-    que actualmente están en `TODO`, y promueve transitivamente la propia
-    User Story (y su Epic) a `DONE` si con esto quedan todos sus hijos
-    completados (T-FB022-US13-01) — misma invocación, sin paso posterior.
+    que actualmente están en `TODO`/`EN_DESARROLLO` (ambos tratados como
+    "todavía no empezado", ver más abajo), y promueve transitivamente la
+    propia User Story (y su Epic) a `DONE` si con esto quedan todos sus
+    hijos completados (T-FB022-US13-01) — misma invocación, sin paso
+    posterior.
 
     `backlog_dir` solo se sobreescribe en tests (sintético con `tmp_path`);
     en producción se resuelve contra el `02-backlog/` real del proyecto.
@@ -509,8 +552,13 @@ def _mark_story_tasks_done(story_id: str, backlog_dir: Path | None = None) -> No
     for task_path in sorted(tasks_dir.glob(f"{prefix}*.md")):
         text = task_path.read_text(encoding="utf-8")
         state = _read_task_state(text)
-        if state == "TODO":
-            updated = text.replace("state: TODO", "state: DONE", 1)
+        # T-FB008-US14-01: EN_DESARROLLO se trata como "todavía no empezado",
+        # igual que TODO — si una Story despachada por Plan tenía además
+        # alguna Task marcada para desarrollo por el otro mecanismo
+        # (cola de US-FB008-14), el veredicto del Arquitecto la cierra
+        # igual, sin dejarla huérfana en EN_DESARROLLO.
+        if state in ("TODO", "EN_DESARROLLO"):
+            updated = text.replace(f"state: {state}", "state: DONE", 1)
             task_path.write_text(updated, encoding="utf-8")
 
     from brain.backlog.promote import promote_backlog
@@ -518,20 +566,63 @@ def _mark_story_tasks_done(story_id: str, backlog_dir: Path | None = None) -> No
     promote_backlog(backlog_dir)
 
 
-def _write_rejection_instruction(
-    story_id: str, justificacion: str, siguiente_prompt: str
-) -> None:
-    """Persiste la instrucción de corrección del Arquitecto en
-    07-informes/<story_id>/_rechazo.md."""
-    root = Path(__file__).resolve().parents[4] / "07-informes"
-    story_dir = root / story_id
-    story_dir.mkdir(parents=True, exist_ok=True)
-    content = (
-        f"# Veredicto RECHAZADO · {story_id}\n\n"
-        f"## Justificación\n\n{justificacion}\n\n"
-        f"## Instrucción para el Developer\n\n{siguiente_prompt}\n"
-    )
-    (story_dir / "_rechazo.md").write_text(content, encoding="utf-8")
+def _next_task_id_for_story(tasks_dir: Path, story_id: str) -> str:
+    """Siguiente `task_id` libre bajo `story_id` (p. ej. `T-FB008-US14-05`)
+    — acepta tanto ficheros con slug (`T-FB008-US14-05-slug.md`) como el
+    formato legacy sin slug (`T-FB008-US14-05.md`)."""
+    import re as _re
+
+    prefix = task_file_story_prefix(story_id)
+    existing = list(tasks_dir.glob(f"T-{prefix}-*.md"))
+    max_n = 0
+    for path in existing:
+        match = _re.match(rf"T-{_re.escape(prefix)}-(\d+)(?:-.*)?$", path.stem)
+        if match:
+            max_n = max(max_n, int(match.group(1)))
+    return f"T-{prefix}-{max_n + 1:02d}"
+
+
+def _create_rejection_correction_task(
+    story_id: str, justificacion: str, siguiente_prompt: str, backlog_dir: Path | None = None
+) -> str | None:
+    """Rediseño 2026-08-17 ("PIPELINE OPERATIVO Y RECONCILIACIÓN",
+    sustituye `_write_rejection_instruction`): ante un veredicto
+    RECHAZADO del Arquitecto sobre una User Story, crea una Task nueva
+    bajo LA MISMA US (nunca una US nueva) con el contenido del rechazo
+    como objetivo/descripción, y la escribe directamente en
+    `state: EN_DESARROLLO` — se salta `TODO`, el Dispatcher la despacha
+    en el siguiente ciclo sin esperar a que el humano la progrese.
+
+    Devuelve el `task_id` creado, o `None` si no se pudo (US inexistente
+    u otro fallo de validación — no debe tumbar el procesamiento del
+    veredicto)."""
+    from brain.backlog.create import create_task
+    from brain.backlog.edit import set_item_state
+
+    if backlog_dir is None:
+        backlog_dir = Path(__file__).resolve().parents[4] / "02-backlog"
+    tasks_dir = backlog_dir / "tasks"
+    new_task_id = _next_task_id_for_story(tasks_dir, story_id)
+
+    try:
+        path, _epic_id = create_task(
+            backlog_dir,
+            us_id=story_id,
+            task_id=new_task_id,
+            title=f"Cobertura pendiente tras veredicto RECHAZADO de {story_id}",
+            objetivo=(
+                f"Ampliar {story_id} para cubrir lo que el Arquitecto detectó "
+                f"como faltante en su veredicto de cierre."
+            ),
+            descripcion=siguiente_prompt or justificacion or "Ver veredicto del Arquitecto.",
+            criterios_aceptacion=justificacion or "Ver veredicto del Arquitecto.",
+            priority="Alta",
+        )
+    except Exception:
+        return None
+
+    set_item_state(path, "EN_DESARROLLO")
+    return new_task_id
 
 
 def _read_task_state(text: str) -> str:

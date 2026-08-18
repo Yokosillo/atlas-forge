@@ -102,6 +102,7 @@ def test_post_agent_stop_reflects_in_get_agents_immediately(
             "model": None,
             "session_name": runtime_instance.session_name,
             "last_command_at": None,
+            "limited_until": None,
         }
     ]
 

@@ -64,7 +64,7 @@ nav:
   - API: api.md
   - Agents: agents.md
   - Runtime and Scribe: runtime.md
-  - Jobs and plans: jobs.md
+  - Jobs: jobs.md
   - Scripts: scripts.md
   - Backlog and pipeline: backlog.md
   - Configuration: configuration.md

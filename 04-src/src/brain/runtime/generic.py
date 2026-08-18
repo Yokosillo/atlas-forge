@@ -26,11 +26,13 @@ _CLAUDE_CODE_TRUST_DIALOG_WAIT_SECONDS = 1.5
 # grafo de dependencias.
 def _prompt_args_builder_by_type() -> dict[str, Callable[[str], list[str]]]:
     from brain.runtime.claude_code import build_prompt_args as claude_code_prompt_args
+    from brain.runtime.codex import build_prompt_args as codex_prompt_args
     from brain.runtime.opencode import build_prompt_args as opencode_prompt_args
 
     return {
         "claude-code": claude_code_prompt_args,
         "opencode": opencode_prompt_args,
+        "codex": codex_prompt_args,
     }
 
 

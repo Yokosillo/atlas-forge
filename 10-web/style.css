@@ -185,6 +185,16 @@ body {
   border-radius: 4px;
   background: #fff;
 }
+
+/* Botón "Confirmar" del selector de modelo inline: fuera del grid de
+   .agent-actions (vive en agent-info, junto al <select>), así que no
+   hereda su min-height reducido — se sobreescribe aquí directamente. */
+.agent-model-change {
+  min-height: 28px;
+  padding: 2px 8px;
+  font-size: 13px;
+  margin-left: 4px;
+}
 .agent-model-prelaunch {
   color: #666;
   font-style: italic;
@@ -244,34 +254,27 @@ body {
 /* FB-021 · Acciones por agente (T-FB021-US03-02)                      */
 /* ------------------------------------------------------------------ */
 
-/* Fila de acciones dentro de agent-card (T-FB024-US11-02, ampliada a 5
-   columnas en T-FB032-US02-01, a 6 en T-FB024-US11-05): columnas de
-   ancho FIJO por posición (1a Cambiar modelo cuando aplica como botón —
-   T-FB024-US11-12: OpenCode vivo en idle usa el selector inline del
-   bloque de información en su lugar, no ocupa esta columna —, 2a
-   Lanzar/Detener, 3a Copiar comando, 4a Revisar si esta bloqueado cuando
-   aplica, 5a Ver log en vivo, 6a Consultar modelo cuando aplica — solo
-   filas Claude Code), no flex con min-width variable — con flex, el
-   texto mas largo de un boton en una fila concreta (p. ej. "Detener" vs
-   "Lanzar") desplazaba horizontalmente los botones siguientes de ESA
-   fila, rompiendo la alineacion vertical con las demas filas. Con grid,
-   cada columna reserva siempre el mismo ancho sin importar el texto del
-   boton que caiga en ella en cada fila; una fila con menos botones (sin
-   "Revisar si esta bloqueado"/"Consultar modelo"/"Cambiar modelo")
-   simplemente no ocupa esa columna, sin afectar el ancho de las demas. */
+/* Bloque de acciones dentro de agent-card (T-FB024-US11-13): botones
+   APILADOS verticalmente (uno debajo de otro), bloque alineado a la
+   derecha de la tarjeta — no en fila horizontal. agent-card ya es
+   flex/wrap con agent-info en flex:1 (crece) y este bloque con
+   flex-shrink:0 y ancho fijo, así que se queda pegado al borde derecho
+   sin envolverse a una fila propia por debajo mientras quepa junto a
+   agent-info (ver .agent-card / .agent-info). */
 .agent-actions {
-  display: grid;
-  grid-template-columns: repeat(6, 10em);
-  justify-content: end;
-  align-items: center;
-  gap: 8px;
-  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 6px;
+  width: 9em;
+  flex: 0 0 auto;
 }
 
 .agent-actions button {
   width: 100%;
   min-width: 0;
-  padding: 4px 8px;
+  min-height: 28px;
+  padding: 2px 8px;
   font-size: 13px;
 }
 
@@ -856,6 +859,33 @@ body {
 .backlog-edit-state {
   font-size: 12px;
   padding: 2px 4px;
+}
+
+/* T-FB008-US14-01: EN_DESARROLLO distinguible visualmente del resto de
+   estados — color propio (azul/morado), no confundible con
+   TODO/IN_PROGRESS/REVIEW/DONE (mismo criterio de distinción visual
+   propio ya usado/planeado para POSTERGADA en US-FB036-09). */
+.backlog-edit-state--en-desarrollo {
+  background: #ede7f6;
+  border-color: #7e57c2;
+  color: #4527a0;
+  font-weight: 600;
+}
+
+/* T-FB008-US15-01/-02 (2026-08-17): SIN_TAREAS/EN_DISEÑO, cada uno con su
+   propio color, no confundibles entre sí ni con EN_DESARROLLO/POSTERGADA. */
+.backlog-edit-state--sin-tasks {
+  background: #eceff1;
+  border-color: #78909c;
+  color: #37474f;
+  font-weight: 600;
+}
+
+.backlog-edit-state--en-diseno {
+  background: #fff3e0;
+  border-color: #fb8c00;
+  color: #e65100;
+  font-weight: 600;
 }
 
 /* Seccion Modelos (T-FB022-US10-02). */

@@ -76,7 +76,7 @@ User-editable state, distinct from the catalog. Location: `<state_dir>/model_pre
 | Field | Type | Semantics |
 |---|---|---|
 | `enabled_model_ids` | `list[string]` | Enabled models. **Empty = all enabled.** |
-| `default_model_by_role` | `dict[string, string]` | Default model per role (`developer`, `critic`, `arquitecto`, `tester`). |
+| `default_model_by_role` | `dict[string, string]` | Default model per role (`developer`, `arquitecto`, `tester`, `ux`, `auditor_oss`, `documentador`). |
 
 It is edited from the **Models** tab of the web (`GET/PUT /models/preferences`). If the file does not exist, the defaults are used (`enabled_model_ids: []`, `default_model_by_role: {}`).
 

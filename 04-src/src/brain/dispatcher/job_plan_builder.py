@@ -27,7 +27,7 @@ no hay un catálogo formal que resuelva "qué script determinista cierra
 esta Task concreta". En vez de inventar esa resolución de capacidades
 aquí (fuera del alcance de esta Task), se aplica una heurística explícita
 y documentada sobre el propio texto de la Task, coherente con
-`01-documentacion/10-automation-engine.md` (Scripts deterministas /
+`02-backlog/epics/FB-010-capability-engine.md` (Scripts deterministas /
 Modelos locales / agentes cognitivos, con prioridad decreciente):
 
 - si el título o la descripción de la Task menciona explícitamente

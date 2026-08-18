@@ -27,6 +27,19 @@
 #     para poder verificar end-to-end (tmux real, sin parsear el pane)
 #     que el agente realmente recibió el contexto pre-procesado de
 #     Scribe, no solo que dispatch_job lo generó internamente.
+#   SIM_ROLE=architect_approved_verdict (T-FB022-US15-04): simula un
+#     Arquitecto real que emite un veredicto ESTADO: APROBADO en el
+#     formato estructurado que `architect_verdict.parse_verdict` espera
+#     — para tests end-to-end del disparo automático del Tester de UI
+#     que necesitan un veredicto aprobado real, sin mockear
+#     `_do_dispatch_verdict` ni `parse_verdict`.
+#   SIM_ROLE=tester_passed_verdict (T-FB008-US14-02): simula un Tester
+#     real que emite RESULTADO: EXITO en el formato estructurado que
+#     `task_verdict.parse_task_verdict` espera.
+#   SIM_ROLE=tester_failed_verdict (T-FB008-US14-02): simula un Tester
+#     real que emite RESULTADO: FALLO, con RESUMEN/SIGUIENTE_PASO fijos
+#     — para verificar end-to-end que un fallo genera la Task de
+#     corrección nueva en EN_DESARROLLO.
 buffer=""
 while IFS= read -r line; do
     buffer="$buffer$line"$'\n'
@@ -44,6 +57,30 @@ while IFS= read -r line; do
             else
                 echo "CRITIC VERDICT: no prior result was provided to review" > "$report_file"
             fi
+        elif [ "${SIM_ROLE:-}" = "architect_approved_verdict" ]; then
+            {
+                echo "ESTADO: APROBADO"
+                echo "JUSTIFICACIÓN:"
+                echo "Los criterios de aceptación se cumplen."
+                echo "SIGUIENTE_PROMPT_PARA_WORKER:"
+                echo "(sin correcciones pendientes)"
+            } > "$report_file"
+        elif [ "${SIM_ROLE:-}" = "tester_passed_verdict" ]; then
+            {
+                echo "RESULTADO: EXITO"
+                echo "RESUMEN:"
+                echo "Todos los criterios de aceptación se cumplen."
+                echo "SIGUIENTE_PASO:"
+                echo "(sin correcciones pendientes)"
+            } > "$report_file"
+        elif [ "${SIM_ROLE:-}" = "tester_failed_verdict" ]; then
+            {
+                echo "RESULTADO: FALLO"
+                echo "RESUMEN:"
+                echo "El criterio de aceptación 2 no se cumple: el endpoint devuelve 500."
+                echo "SIGUIENTE_PASO:"
+                echo "Corregir el manejo de la excepción en el endpoint afectado."
+            } > "$report_file"
         elif [ "${SIM_ROLE:-}" = "scribe_check" ]; then
             if echo "$buffer" | grep -q -- "--- Contexto pre-procesado por Scribe ---"; then
                 scribe_section=$(echo "$buffer" | sed -n '/--- Contexto pre-procesado por Scribe ---/,/--- Fin del contexto pre-procesado por Scribe ---/p')

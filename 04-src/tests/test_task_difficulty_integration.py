@@ -46,7 +46,7 @@ class TestDifficultyInProposedTasks:
         for task in result.tasks:
             assert hasattr(task, 'difficulty'), f"Task {task.id} debe tener difficulty"
             assert task.difficulty, f"Task {task.id} debe tener difficulty asignado"
-            assert task.difficulty in ("Critica", "Alta", "Media", "Baja"), \
+            assert task.difficulty in ("Crítica", "Alta", "Media", "Baja"), \
                 f"Task {task.id} difficulty '{task.difficulty}' no es válido"
 
     def test_difficulty_varies_by_task_type(self, tmp_path: Path):

@@ -43,7 +43,7 @@ brain-api
 
 Navigate to `http://<host>:8000/ui/` (or `http://127.0.0.1:8000/ui/` locally).
 
-On first startup the web guides you: verify connectivity → choose your first project → enter the operational view. From there you can run roles, create Jobs, ask for plans, run scripts, inspect the backlog and trigger cross-cutting actions.
+On first startup the web guides you: verify connectivity → choose your first project → enter the operational view. From there you can launch agents, drive the backlog pipeline with "Progresar", dispatch isolated Jobs, run scripts and trigger cross-cutting actions.
 
 ### 3. (Alternative) Use the TUI
 
@@ -51,7 +51,7 @@ On first startup the web guides you: verify connectivity → choose your first p
 brain
 ```
 
-The TUI (Textual) is also an API client: it checks connectivity, selects or recovers the project and offers Workspace, Dashboard, Agents, Jobs, Plan, Scripts and Backlog screens. It assumes `brain-api` is already running (e.g. via systemd).
+The TUI (Textual) is also an API client: it checks connectivity, selects or recovers the project and offers Workspace, Dashboard, Agents, Jobs, Scripts and Backlog screens. It assumes `brain-api` is already running (e.g. via systemd).
 
 ### 4. (Alternative) Install as a systemd service
 

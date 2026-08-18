@@ -228,6 +228,19 @@ async def _lifespan(app: FastAPI):
         )
         routes_module._dispatch_queue_worker.start()
 
+    # T-FB024-US21-01: arranca el watcher de límite de sesión de Claude
+    # Code — mismo patrón y mismo requisito (`current_session` real ya
+    # resuelto) que `_dispatch_queue_worker` justo arriba; a diferencia de
+    # ese, no depende de `active_project` (revisa el pane de cada agente
+    # `claude-code` de la sesión, sin necesitar el backlog de ningún
+    # proyecto concreto).
+    if current_session is not None:
+        routes_module._session_limit_watcher = SessionLimitWatcher(
+            current_session,
+            socket_name=routes_module._SOCKET_NAME,
+        )
+        routes_module._session_limit_watcher.start()
+
     yield
 
     # Shutdown: detiene el hilo `daemon` del Dispatcher al cerrar la app
@@ -242,6 +255,10 @@ async def _lifespan(app: FastAPI):
     if routes_module._dispatch_queue_worker is not None:
         routes_module._dispatch_queue_worker.stop()
         routes_module._dispatch_queue_worker = None
+
+    if routes_module._session_limit_watcher is not None:
+        routes_module._session_limit_watcher.stop()
+        routes_module._session_limit_watcher = None
 
 
 def create_app() -> FastAPI:

@@ -93,7 +93,12 @@
   // superado por US-FB005-07 — eliminada del fichero. Sin esta entrada,
   // visitar `/ui/agents` directamente cae al `DEFAULT_SECTION` en vez de
   // intentar cargar una sección que ya no existe.
-  var ROUTE_SECTIONS = ["backlog", "roles", "arquitecto", "plan", "scripts", "acciones", "jobs", "models", "configuracion"];
+  // "plan" (2026-08-18): mismo criterio que "agents" arriba — sin pestaña
+  // visible desde la navegación (deprecated, ver `renderTabsAndBody`),
+  // se retira también de las rutas directas para que `/ui/plan` caiga al
+  // `DEFAULT_SECTION` en vez de mostrar una sección sin ningún enlace de
+  // entrada real.
+  var ROUTE_SECTIONS = ["backlog", "roles", "arquitecto", "scripts", "acciones", "jobs", "models", "configuracion"];
 
   function sectionFromPath(pathname) {
     // "/ui/roles" -> "roles"; "/ui/" o "/ui" -> sección por defecto.
@@ -187,6 +192,12 @@
     // "Despertar": single-flight del POST /agents/{id}/send-keys (empujón al pane).
     awakeningAgentId: null,
     awakenError: null,
+    // T-FB024-US11-13: modelo real de un agente Claude Code, leído UNA
+    // sola vez (GET /agents/{id}/status-model) al montar su selector
+    // inline de modelo — Claude Code no tiene lectura pasiva
+    // (agent.model siempre null), así que sin esto la preselección
+    // siempre caería en el primer modelo del catálogo en vez del real.
+    statusModelByAgentId: {},
     // T-FB005-US07-03: runtime elegido por fila ANTES de lanzar
     // (`chosenRuntimeByRow[rowKey]` = "opencode"|"claude-code"|"codex") —
     // el runtime es una elección explícita y obligatoria para un agente
@@ -195,12 +206,16 @@
     // Se guarda por `rowKeyFor(agent)` para que cada fila (Developer-1/2/3,
     // Arquitecto, UX, ...) tenga su propia elección.
     chosenRuntimeByRow: {},
+    // T-FB024-US11-13 (2026-08-17, tercera revisión de esta Task): modelo
+    // elegido por fila ANTES de lanzar, para OpenCode Y Claude Code (el
+    // cambio en caliente queda bloqueado — ver renderCambiarModeloBtn).
+    // Mismo patrón que chosenRuntimeByRow: id del catálogo, por rowKey.
+    chosenModelByRow: {},
     // T-FB005-US07-03: cambio de modelo en caliente de un agente OpenCode
     // vivo (idle) — single-flight por `agent_id` en vuelo, con el
     // resultado/error del `PUT /agents/{id}/model` real.
     changeModelInFlight: null,
     changeModelError: null,
-    changeModelResult: null, // {agentId, model, changed}
     // T-FB024-US11-12 (ajuste de diseño): selector de modelo INLINE para
     // un agente OpenCode vivo en idle, mismo patrón visual que
     // `renderRuntimeSelector` (dropdown directo en la fila, sin botón
@@ -787,7 +802,15 @@
     // enlaces/botones que cambian qué sección del DOM se muestra, sin
     // recargar la página.
     var nav = h("nav", "section-nav");
-    ["backlog", "roles", "arquitecto", "plan", "scripts", "acciones", "configuracion"].forEach(function (key) {
+    // "plan" (flujo de Plan con aprobación, POST /plans) queda DEPRECATED
+    // (2026-08-18, decisión del usuario: sustituido por el pipeline único
+    // Progresar → Dispatcher → Developer → Tester → Arquitecto) — se
+    // retira de la navegación visible, sin borrar `renderPlansInto`/el
+    // resto del código (el backend `POST /plans` tampoco se elimina, solo
+    // deja de tener ningún enlace desde la web). El Job aislado
+    // (`POST /jobs`, "Crear Job manual"/"Lanzar desarrollo") NO es esto —
+    // se queda vigente y accesible, ver `renderAdvancedOptionsCollapsible`.
+    ["backlog", "roles", "arquitecto", "scripts", "acciones", "configuracion"].forEach(function (key) {
       var tab = button(SECTION_LABEL(key), "section-tab");
       if (key === "backlog" && state.pendingBacklogCount > 0) {
         tab.appendChild(h("span", "backlog-pending-badge", String(state.pendingBacklogCount)));
@@ -874,6 +897,7 @@
       rolesSection.awakenError = null;
       rolesSection.liveModelOptionsByAgentId = {};
       rolesSection.liveModelIndexByAgentId = {};
+      rolesSection.statusModelByAgentId = {};
     }
     if (key !== state.section && state.section === "jobs") {
       // Al salir de la pestaña Jobs se cierra el WebSocket (no se mantiene
@@ -3854,8 +3878,20 @@
   // que rompía el criterio "la Epic aparece expandida tras crearla").
   function epicIsDone(epic) {
     var totalCount = sumCounts(epic.user_stories) + sumCounts(epic.tasks);
-    var todoCount = (epic.user_stories && epic.user_stories.TODO || 0) + (epic.tasks && epic.tasks.TODO || 0);
-    return totalCount > 0 && todoCount === 0;
+    // Bug corregido (2026-08-17, encontrado end-to-end vía el formulario
+    // real de "+ Nueva User Story"): antes solo contaba `TODO` como
+    // "pendiente" — una US recién creada nace en `SIN_TAREAS`
+    // (T-FB008-US15-01), no `TODO`, así que la Epic con una única US
+    // nueva se consideraba erróneamente "Terminada" (`todoCount === 0`)
+    // y quedaba oculta bajo el grupo plegado "Terminadas (N)", pese a no
+    // tener NADA completado — la Epic recién creada literalmente
+    // desaparecía del listado visible. `SIN_TAREAS`/`EN_DISEÑO` cuentan
+    // igual que `TODO`: cualquier estado que no sea `DONE` es trabajo
+    // pendiente.
+    var pendingCount =
+      (epic.user_stories && (epic.user_stories.TODO || 0) + (epic.user_stories.SIN_TAREAS || 0) + (epic.user_stories["EN_DISEÑO"] || 0) + (epic.user_stories.EN_DESARROLLO || 0) + (epic.user_stories.IN_PROGRESS || 0) + (epic.user_stories.REVIEW || 0) || 0) +
+      (epic.tasks && (epic.tasks.TODO || 0) + (epic.tasks.EN_DESARROLLO || 0) + (epic.tasks.IN_PROGRESS || 0) + (epic.tasks.REVIEW || 0) || 0);
+    return totalCount > 0 && pendingCount === 0;
   }
 
   function renderBacklogEpicCard(wrap, epic) {
@@ -4549,8 +4585,20 @@
     renderBacklogBody();
 
     BackendClient.setBacklogItemState(itemId, newState)
-      .then(function () {
+      .then(function (result) {
         backlogSection.editItemInFlight = null;
+        // T-FB008-US14-04: marcar una User Story como EN_DESARROLLO desde
+        // este selector es un atajo del mismo efecto que "Marcar toda la
+        // Story para desarrollo" — el backend devuelve `enqueued`/
+        // `skipped_already_queued` en ese caso; se reutiliza el mismo
+        // estado/feedback que ya usa `enqueueAllTasksAction`, para que el
+        // mensaje "N Tasks encoladas" aparezca igual sin importar el
+        // camino que lo disparó.
+        if (result && result.enqueued) {
+          backlogSection.enqueueAllResult = result;
+          backlogSection.enqueueAllError = null;
+          loadDispatchQueue();
+        }
         refreshBacklogReport();
         refreshOpenDetailsFor(itemId);
         renderBacklogBody();
@@ -4564,7 +4612,21 @@
   }
 
   var EDITABLE_PRIORITIES = ["Crítica", "Alta", "Media", "Baja"];
-  var EDITABLE_STATES = ["TODO", "IN_PROGRESS", "REVIEW", "DONE"];
+  // T-FB008-US14-01: EN_DESARROLLO añadido al conjunto editable — alineado con
+  // `validator_v2._VALID_STATES`/`backlog/edit.py::VALID_STATES`
+  // (backend). POSTERGADA queda fuera deliberadamente: ya se gestiona
+  // con su propio control dedicado (US-FB036-09), no por este selector
+  // genérico.
+  //
+  // T-FB008-US15-01/-02 (2026-08-17): `SIN_TAREAS`/`EN_DISEÑO` incluidos
+  // como `<option>` — necesario para que el `<select>` HTML muestre
+  // correctamente el estado ACTUAL de una User Story recién creada (nace
+  // en `SIN_TAREAS`) o en tránsito (`EN_DISEÑO`), aunque el flujo normal
+  // para entrar/salir de esos estados es el botón único "Progresar"
+  // (`renderProgresarUserStoryControls`), no este selector — mismo
+  // criterio que ya aplica a `EN_DESARROLLO`/`DONE`: el selector permite
+  // corrección manual excepcional, no sustituye el flujo guiado.
+  var EDITABLE_STATES = ["SIN_TAREAS", "EN_DISEÑO", "TODO", "EN_DESARROLLO", "IN_PROGRESS", "REVIEW", "DONE"];
 
   // T-FB036-US08-01, criterio de aceptación 1/5: los dos `<select>` de
   // prioridad/estado en la línea de título — solo para User Story/Task
@@ -4604,7 +4666,18 @@
     wrap.appendChild(prioritySelect);
 
     var stateSelect = document.createElement("select");
-    stateSelect.className = "backlog-edit-state";
+    // T-FB008-US14-01, criterio "distinguible visualmente": clase
+    // modificadora cuando el estado ACTUAL es EN_DESARROLLO — mismo patrón que
+    // el resto de la pantalla, un color propio no confundible con
+    // TODO/IN_PROGRESS/REVIEW/DONE (ver `.backlog-edit-state--en-desarrollo`
+    // en style.css). T-FB008-US15-01/-02: mismo criterio para
+    // SIN_TAREAS/EN_DISEÑO, cada uno con su propia clase/color.
+    var STATE_CSS_CLASS = {
+      "EN_DESARROLLO": "backlog-edit-state--en-desarrollo",
+      "SIN_TAREAS": "backlog-edit-state--sin-tasks",
+      "EN_DISEÑO": "backlog-edit-state--en-diseno",
+    };
+    stateSelect.className = "backlog-edit-state" + (STATE_CSS_CLASS[currentState] ? " " + STATE_CSS_CLASS[currentState] : "");
     stateSelect.disabled = inFlight;
     EDITABLE_STATES.forEach(function (s) {
       var option = document.createElement("option");
@@ -4642,6 +4715,12 @@
       .then(function () {
         backlogSection.enqueueTaskInFlight = null;
         loadDispatchQueue();
+        // T-FB008-US14-01: encolar ahora también escribe `state: EN_DESARROLLO`
+        // en el fichero real — se refresca el detalle ya cargado de esta
+        // Task para que el selector de estado de la línea de título
+        // muestre el valor real de inmediato, sin esperar a un refresco
+        // manual (mismo mecanismo que `setItemStateAction`).
+        refreshOpenDetailsFor(taskId);
         renderBacklogBody();
       })
       .catch(function (error) {
@@ -4661,6 +4740,10 @@
       .then(function () {
         backlogSection.enqueueTaskInFlight = null;
         loadDispatchQueue();
+        // T-FB008-US14-01: desencolar revierte `state` a `TODO` — mismo
+        // motivo que en enqueueTaskAction, refrescar el detalle ya
+        // cargado.
+        refreshOpenDetailsFor(taskId);
         renderBacklogBody();
       })
       .catch(function (error) {
@@ -4685,6 +4768,10 @@
         backlogSection.enqueueAllInFlight = null;
         backlogSection.enqueueAllResult = result;
         loadDispatchQueue();
+        // T-FB008-US14-01: mismo motivo que enqueueTaskAction — refresca
+        // cualquier detalle ya abierto (la propia US, o alguna de sus
+        // Tasks) para reflejar `state: EN_DESARROLLO` de inmediato.
+        refreshOpenDetailsFor(usId);
         renderBacklogBody();
       })
       .catch(function (error) {
@@ -4788,8 +4875,15 @@
       });
   }
 
-  // T-FB036-US10-01, "Aterrizar en Tasks": mismo patrón que
-  // `proposeStoriesAction` para el pipeline User Story→Task.
+  // DEPRECATED (T-FB008-US15-02, 2026-08-17): "Aterrizar en Tasks"
+  // llamaba SIEMPRE de forma síncrona a `propose-tasks` desde el
+  // navegador — sustituido por el botón único "Progresar"
+  // (`renderProgresarUserStoryControls`), que marca `EN_DISEÑO` y deja
+  // que el Dispatcher reparta el aterrizaje al Arquitecto libre
+  // (`run_us_landing_dispatch_cycle`, backend). Esta función ya no tiene
+  // ningún botón que la invoque — se conserva sin borrar por si hace
+  // falta reactivar el atajo síncrono en el futuro, mismo criterio de
+  // "marcar deprecated, no borrar sin más" ya aplicado en esta sesión.
   function proposeTasksAction(usId) {
     if (backlogSection.proposeTasksInFlight) return;
     backlogSection.proposeTasksInFlight = usId;
@@ -5169,46 +5263,23 @@
         box.appendChild(renderNewTaskForm());
       }
 
-      // T-FB036-US07-01: "Marcar para desarrollo" es la acción PRINCIPAL
-      // del detalle — se pinta primero y siempre visible (criterio de
-      // aceptación 1), sin necesidad de desplegar nada.
-      box.appendChild(renderEnqueueAllControls(detail.id));
+      // T-FB008-US15-02 (2026-08-17): botón único "Progresar" sustituye
+      // a "Aterrizar en Tasks" (que llamaba SIEMPRE disponible, de forma
+      // síncrona, directo a propose-tasks) — su acción depende del
+      // estado real de la User Story: en `SIN_TAREAS` marca `EN_DISEÑO`
+      // (el Dispatcher reparte el aterrizaje al Arquitecto libre,
+      // `run_us_landing_dispatch_cycle`); en `EN_DISEÑO` queda
+      // deshabilitado ("esperando al Arquitecto"); en `TODO` (ya con
+      // Tasks) es el mismo atajo que "Marcar toda la Story para
+      // desarrollo" (`T-FB008-US14-04`, marca `EN_DESARROLLO`).
+      box.appendChild(renderProgresarUserStoryControls(detail));
 
-      // T-FB036-US10-01, criterio 2: botón "Aterrizar en Tasks" en el
-      // detalle de User Story — vía automática/alternativa al formulario
-      // manual "+ Nueva Task" (`US-FB036-02`), conviven sin sustituirse
-      // (criterio 5). Invoca `POST /backlog/us/{us_id}/propose-tasks`
-      // con single-flight por us_id (etiqueta de progreso + deshabilitado
-      // en vuelo, criterio 4). Pipeline no aprobado: motivo verbatim del
-      // backend (criterio 3).
-      var proposeTasksWrap = h("div", "accion-controls");
-      var proposeTasksBtn = button(
-        backlogSection.proposeTasksInFlight === detail.id ? "Aterrizando en Tasks…" : "Aterrizar en Tasks",
-        "accion-run"
-      );
-      if (backlogSection.proposeTasksInFlight === detail.id) proposeTasksBtn.disabled = true;
-      proposeTasksBtn.addEventListener("click", function () {
-        proposeTasksAction(detail.id);
-      });
-      proposeTasksWrap.appendChild(proposeTasksBtn);
-      if (backlogSection.proposeTasksError) {
-        proposeTasksWrap.appendChild(h("p", "agent-error", backlogSection.proposeTasksError));
-      }
-      if (backlogSection.proposeTasksResult) {
-        var tasksResult = backlogSection.proposeTasksResult;
-        var taskIds = (tasksResult.tasks || []).map(function (t) { return t.id; }).join(", ");
-        proposeTasksWrap.appendChild(
-          h(
-            "p",
-            "job-hint",
-            tasksResult.num_tasks + " Task" + (tasksResult.num_tasks === 1 ? "" : "s") +
-            " propuesta" + (tasksResult.num_tasks === 1 ? "" : "s") +
-            (taskIds ? ": " + taskIds : "") +
-            " — el listado se ha refrescado."
-          )
-        );
-      }
-      box.appendChild(proposeTasksWrap);
+      // "Marcar para desarrollo" (`T-FB036-US07-01`) sigue disponible
+      // como acción explícita independiente del botón único "Progresar"
+      // — mismo mecanismo, ambos caminos coordinados
+      // (`setItemStateAction`/`enqueueAllTasksAction` comparten estado y
+      // feedback).
+      box.appendChild(renderEnqueueAllControls(detail.id));
 
       // T-FB036-US07-01: "Lanzar desarrollo" y "Crear Job manual" quedan
       // agrupados bajo "Opciones avanzadas", colapsado por defecto — siguen
@@ -5261,6 +5332,46 @@
 
     if (backlogSection.enqueueTaskError) {
       wrap.appendChild(h("p", "agent-error", backlogSection.enqueueTaskError));
+    }
+    return wrap;
+  }
+
+  // T-FB008-US15-02 (2026-08-17): botón único "Progresar" en el detalle
+  // de una User Story — su texto/acción depende del `state` real:
+  // `SIN_TAREAS` -> marca `EN_DISEÑO` (el Dispatcher reparte el
+  // aterrizaje al Arquitecto); `EN_DISEÑO` -> deshabilitado, esperando
+  // al Arquitecto; `TODO` (con Tasks) -> marca `EN_DESARROLLO`, mismo
+  // atajo que `T-FB008-US14-04`; cualquier otro estado (`EN_DESARROLLO`,
+  // `REVIEW`, `DONE`, `POSTERGADA`) -> el botón no se muestra, no define
+  // ninguna acción "Progresar" ahí (fuera de alcance de esta Task).
+  function renderProgresarUserStoryControls(detail) {
+    var wrap = h("div", "accion-controls");
+    var inFlight = backlogSection.editItemInFlight === detail.id;
+
+    if (detail.state === "SIN_TAREAS") {
+      var progresarBtn = button(inFlight ? "Progresando…" : "Progresar", "accion-run");
+      if (inFlight) progresarBtn.disabled = true;
+      progresarBtn.addEventListener("click", function () {
+        setItemStateAction(detail.id, "EN_DISEÑO");
+      });
+      wrap.appendChild(progresarBtn);
+    } else if (detail.state === "EN_DISEÑO") {
+      var waitingBtn = button("Progresar", "accion-run");
+      waitingBtn.disabled = true;
+      waitingBtn.title = "Esperando a que el Arquitecto la desgrane en Tasks.";
+      wrap.appendChild(waitingBtn);
+      wrap.appendChild(h("p", "section-note", "Esperando al Arquitecto."));
+    } else if (detail.state === "TODO") {
+      var progresarToDevBtn = button(inFlight ? "Progresando…" : "Progresar", "accion-run");
+      if (inFlight) progresarToDevBtn.disabled = true;
+      progresarToDevBtn.addEventListener("click", function () {
+        setItemStateAction(detail.id, "EN_DESARROLLO");
+      });
+      wrap.appendChild(progresarToDevBtn);
+    }
+
+    if (backlogSection.editItemError && backlogSection.editItemErrorFor === detail.id) {
+      wrap.appendChild(h("p", "agent-error", backlogSection.editItemError));
     }
     return wrap;
   }
@@ -5833,8 +5944,21 @@
       ? rolesSection.maxSimultaneousDevelopers
       : DEFAULT_MAX_SIMULTANEOUS_DEVELOPERS;
     devAgents.forEach(function (a) { rows.push(a); });
+    // Bug real corregido (T-FB024-US11-13, 2026-08-17): el nombre real
+    // de la instancia ("Developer-N") lo asigna el BACKEND por conteo de
+    // instancias ya existentes (`_next_developer_name`,
+    // `brain/agents/developer.py`) — nunca por la posición de la fila
+    // sintética pulsada. Lanzar "Developer-3" mientras "Developer-2" no
+    // existe hacía que la instancia real naciera como "Developer-2" (la
+    // siguiente posición libre según el backend), no "Developer-3" — el
+    // modelo/runtime elegidos en la fila 3 aparecían aplicados a la fila
+    // 2 tras el refresco. Solo la PRIMERA fila sintética (la siguiente
+    // posición libre real) puede lanzarse; el resto queda bloqueada con
+    // motivo explícito hasta que le toque el turno.
     for (var devIdx = devAgents.length; devIdx < maxDevelopers; devIdx++) {
-      rows.push(syntheticRow("developer", "stopped", "Developer-" + (devIdx + 1)));
+      var syntheticDev = syntheticRow("developer", "stopped", "Developer-" + (devIdx + 1));
+      syntheticDev._launchable = devIdx === devAgents.length;
+      rows.push(syntheticDev);
     }
 
     // UX y Auditor-OSS (T-FB024-US13-01/-02/-03): igual que Arquitecto,
@@ -5907,6 +6031,70 @@
 
   function setChosenRuntimeForRow(agent, runtime) {
     rolesSection.chosenRuntimeByRow[rowKeyFor(agent)] = runtime;
+    // Un cambio de runtime invalida el modelo elegido para la fila (el
+    // catálogo de modelos depende del runtime) — se limpia para que el
+    // selector de modelo vuelva a "sin elegir" con el nuevo runtime.
+    delete rolesSection.chosenModelByRow[rowKeyFor(agent)];
+  }
+
+  // T-FB024-US11-13 (2026-08-17, tercera revisión): modelo elegido para
+  // la fila ANTES de lanzar, para OpenCode Y Claude Code (el cambio en
+  // caliente queda bloqueado). Sin fallback al default del rol aquí —
+  // a diferencia del runtime, el modelo simplemente queda "sin elegir"
+  // si el usuario no lo toca (el catálogo puede no tener default, y
+  // lanzar sin modelo elegido es válido para el runtime que lo permita).
+  function chosenModelForRow(agent) {
+    return rolesSection.chosenModelByRow[rowKeyFor(agent)] || "";
+  }
+
+  function setChosenModelForRow(agent, modelId) {
+    rolesSection.chosenModelByRow[rowKeyFor(agent)] = modelId;
+  }
+
+  // Catálogo de modelos filtrado al runtime elegido para la fila —
+  // `models.yml` usa snake_case (`claude_code`), el runtime real
+  // registrado usa kebab-case (`claude-code`), mismo criterio de mapeo
+  // ya usado en el backend (`_CATALOG_RUNTIME_BY_REAL_TYPE`, routes.py).
+  var _MODEL_CATALOG_RUNTIME_BY_REAL_TYPE = { opencode: "opencode", "claude-code": "claude_code", codex: "codex" };
+  function modelCatalogForRuntime(runtimeId) {
+    var catalogRuntime = _MODEL_CATALOG_RUNTIME_BY_REAL_TYPE[runtimeId];
+    if (!catalogRuntime) return [];
+    return (rolesSection.models || []).filter(function (m) {
+      return m.runtime === catalogRuntime && m.enabled !== false;
+    });
+  }
+
+  // Selector de modelo para una fila NO lanzada — solo aplica si ya hay
+  // un runtime elegido que admite modelo (OpenCode/Claude Code); Codex
+  // devuelve null (sin catálogo todavía). No es obligatorio: si el
+  // usuario no elige nada, `launch_agent` lanza sin `--model` (el
+  // runtime arranca con su propio default).
+  function renderModelSelectorForLaunch(agent) {
+    var runtimeId = chosenRuntimeForRow(agent);
+    var catalog = modelCatalogForRuntime(runtimeId);
+    if (catalog.length === 0) return null;
+
+    var wrap = h("div", "agent-model");
+    wrap.appendChild(h("span", "agent-runtime-label", "Modelo: "));
+    var sel = document.createElement("select");
+    sel.className = "clickable runtime-select";
+    var noneOpt = document.createElement("option");
+    noneOpt.value = "";
+    noneOpt.textContent = "— por defecto del runtime —";
+    sel.appendChild(noneOpt);
+    catalog.forEach(function (m) {
+      var option = document.createElement("option");
+      option.setAttribute("value", m.id);
+      option.textContent = m.name;
+      sel.appendChild(option);
+    });
+    sel.value = chosenModelForRow(agent);
+    sel.addEventListener("change", function () {
+      setChosenModelForRow(agent, sel.value);
+      renderRolesBody();
+    });
+    wrap.appendChild(sel);
+    return wrap;
   }
 
   // Selector de runtime para una fila NO lanzada — el runtime es una
@@ -6000,30 +6188,55 @@
       info.appendChild(renderRuntimeSelector(agent));
     }
 
-    // Modelo: solo se muestra el valor real de un agente vivo (o el
-    // recordado de una consulta explícita). Un agente no lanzado NO
-    // presenta el modelo recordado de una instancia anterior como real
-    // (criterio 3 de US-FB005-07: tras detenerlo se vuelve al flujo de
-    // elección de runtime, no se arrastra el modelo como si siguiera
-    // siendo válido) — el modelo solo aplica en el siguiente lanzamiento.
-    if (isLiveRow && agent.runtime_id === "opencode" && agent.status === "idle") {
-      // T-FB024-US11-12 (ajuste de diseño del usuario, 2026-08-17):
-      // agente OpenCode vivo en idle es el único caso donde el modelo es
-      // editable en caliente (criterio 4 de US-FB005-07) — se muestra el
-      // selector inline en vez del texto plano, mismo patrón que
-      // `renderRuntimeSelector` para el runtime antes de lanzar.
-      info.appendChild(renderLiveModelSelectorInline(agent));
+    // Modelo (decisión de producto 2026-08-17, T-FB024-US11-13 —
+    // segundo cambio de criterio en la misma Task): el cambio de modelo
+    // EN CALIENTE queda BLOQUEADO por ahora para todos los runtimes (el
+    // mecanismo real resultó frágil en ambos — atajos de OpenCode
+    // rotos/reparados a medias, diálogo de confirmación de Claude Code —
+    // se deja para investigar en una Task aparte). El modelo se elige
+    // AL LANZAR, para OpenCode Y Claude Code (antes solo OpenCode) — ver
+    // `renderRuntimeSelector`/`chosenModelForRow`. Un agente vivo
+    // siempre muestra el modelo como texto plano, nunca un selector.
+    if (isLiveRow && agent.runtime_id === "claude-code") {
+      // Claude Code no tiene lectura pasiva (agent.model siempre null) —
+      // se usa el texto real leído por `/status` (`statusModelByAgentId`,
+      // consulta puntual al montar la fila), igual que antes servía
+      // para preseleccionar el selector inline ahora retirado.
+      var isPending = rolesSection.statusModelByAgentId[agent.id] === "__pending__";
+      var isUndef = rolesSection.statusModelByAgentId[agent.id] === undefined;
+      if (isUndef && agent.status === "idle") {
+        rolesSection.statusModelByAgentId[agent.id] = "__pending__";
+        BackendClient.getAgentStatusModel(agent.id)
+          .then(function (result) {
+            rolesSection.statusModelByAgentId[agent.id] = result.model || null;
+            renderRolesBody();
+          })
+          .catch(function () {
+            rolesSection.statusModelByAgentId[agent.id] = null;
+            renderRolesBody();
+          });
+      }
+      var claudeModelText = isPending || isUndef ? "cargando…" : (rolesSection.statusModelByAgentId[agent.id] || "sin modelo");
+      info.appendChild(h("div", "agent-model", "Modelo: " + claudeModelText));
     } else if (isLiveRow) {
       var modelLabel = agent.model || "sin modelo";
       info.appendChild(h("div", "agent-model", "Modelo: " + modelLabel));
     } else {
-      var defaultForLaunch = chosenRuntimeForRow(agent) === "opencode"
-        ? defaultModelLabelFor(agent.role)
-        : null;
-      var preModelLabel = defaultForLaunch
-        ? "Modelo (al lanzar): " + defaultForLaunch
-        : "Modelo: se define al lanzar";
-      info.appendChild(h("div", "agent-model agent-model-prelaunch", preModelLabel));
+      // No lanzado: selector de modelo por fila (T-FB024-US11-13,
+      // 2026-08-17, tercera revisión — el modelo se elige AL LANZAR
+      // para OpenCode y Claude Code, no en caliente). Solo aparece si el
+      // runtime elegido tiene catálogo; si no hay ninguno elegido
+      // todavía o es Codex, se muestra el texto informativo de siempre.
+      var modelSelector = renderModelSelectorForLaunch(agent);
+      if (modelSelector) {
+        info.appendChild(modelSelector);
+      } else {
+        var defaultForLaunch = defaultModelLabelFor(agent.role);
+        var preModelLabel = defaultForLaunch
+          ? "Modelo: " + defaultForLaunch
+          : "Modelo: se define al lanzar";
+        info.appendChild(h("div", "agent-model agent-model-prelaunch", preModelLabel));
+      }
     }
 
     // --- Comando de conexión como texto de detalle (no botón) ---
@@ -6051,10 +6264,9 @@
     // (c) Ver log en vivo (T-FB032-US02-01)
     actions.appendChild(renderVerLogEnVivoBtn(agent));
 
-    // (d) Despertar (solo si está trabajando) — envía empujón al pane
-    if (isWorking) {
-      actions.appendChild(renderDespertarBtn(agent));
-    }
+    // (d) Despertar — siempre visible, deshabilitado salvo cuando el
+    // agente está trabajando (envía empujón al pane).
+    actions.appendChild(renderDespertarBtn(agent));
 
     card.appendChild(actions);
 
@@ -6071,19 +6283,6 @@
     // Se traduce el 400 crudo del backend a un mensaje accionable.
     if (agent.role === "arquitecto" && arquitectoState.error) {
       card.appendChild(h("div", "agent-error", translateArquitectoError(arquitectoState.error)));
-    }
-
-    // Resultado/error del cambio de modelo en caliente (OpenCode vivo idle,
-    // T-FB005-US07-03) — solo bajo la fila que lo produjo.
-    if (rolesSection.changeModelError && rolesSection.changeModelInFlight === null) {
-      card.appendChild(h("div", "agent-error", "Cambiar modelo: " + rolesSection.changeModelError));
-    }
-    if (rolesSection.changeModelResult && rolesSection.changeModelResult.agentId === agent.id) {
-      var cmr = rolesSection.changeModelResult;
-      var changedText = cmr.changed
-        ? "Modelo cambiado a " + cmr.model
-        : "Modelo solicitado (" + cmr.model + "), pendiente de confirmar en la barra de estado";
-      card.appendChild(h("div", "agent-model", changedText));
     }
 
     wrap.appendChild(card);
@@ -6127,62 +6326,32 @@
   }
 
   // ── botón Cambiar modelo ────────────────────────────────────────────────
-  // T-FB005-US07-03: solo aparece cuando la capacidad del runtime + estado
-  // permite una operación real de cambio de modelo (criterio 3):
-  //   - OpenCode VIVO en idle → habilitado (cambio en caliente real,
-  //     `PUT /agents/{id}/model` — criterio 4 de US-FB005-07).
-  //   - OpenCode VIVO en idle → el selector se muestra INLINE en el bloque
-  //     de información de la fila (`renderLiveModelSelectorInline`, ajuste
-  //     de diseño T-FB024-US11-12: mismo patrón que `renderRuntimeSelector`,
-  //     sin botón previo que abrir) — esta función devuelve null en ese
-  //     caso, el botón de `actions` no aplica.
-  //   - OpenCode VIVO trabajando → deshabilitado (riesgo de corromper el
-  //     pane en marcha, US-FB024-11).
-  //   - No lanzado con runtime OpenCode elegido → abre el editor de modelo
-  //     por defecto del rol (el modelo sí aplica en el lanzamiento).
-  //   - Claude Code / Codex (o runtime sin elegir) → devuelve null: no se
-  //     ofrece un control de modelo que no tiene efecto real.
+  // Cambio de criterio (T-FB024-US11-13, 2026-08-17, tercera revisión):
+  // el cambio de modelo EN CALIENTE queda BLOQUEADO para todos los
+  // runtimes — el mecanismo real resultó frágil tanto en OpenCode
+  // (atajos de teclado rotos con la CLI actual, navegación por índice de
+  // línea mezclaba cabeceras de proveedor con opciones reales) como en
+  // Claude Code (diálogo de confirmación "Switch model?" no siempre
+  // predecible) — se deja para investigar en una Task aparte. El modelo
+  // se elige AL LANZAR, para OpenCode Y Claude Code (antes solo
+  // OpenCode) — ver `renderRuntimeSelector`. Esta función ya no ofrece
+  // ningún control: el modelo de un agente vivo se muestra solo como
+  // texto plano (ver el bloque de "Modelo:" en `renderUnifiedRow`).
   function renderCambiarModeloBtn(agent) {
-    var isUnavailable = agent.status === "unavailable";
-    var isLive = agent.id && agent.status !== "stopped" && agent.status !== "unregistered" && !isUnavailable;
-    var runtimeId = isLive ? agent.runtime_id : chosenRuntimeForRow(agent);
-
-    // Solo el runtime OpenCode admite cambio de modelo (contrato de
-    // `brain/runtime_model_contract`): Claude Code lo lee pero no lo cambia,
-    // Codex no lo soporta.
-    if (runtimeId !== "opencode") return null;
-
-    if (isLive && agent.status === "idle") {
-      // Selector inline en el bloque de información, no un botón aquí.
-      return null;
-    }
-
-    var b = button("Cambiar modelo", "agent-model-change");
-    if (isLive) {
-      // OpenCode vivo trabajando: el cambio en caliente NUNCA es seguro
-      // mientras hay actividad en curso.
-      b.disabled = true;
-      b.title = "no se puede cambiar el modelo en caliente mientras el agente está trabajando: detenlo primero";
-    } else {
-      // No lanzado con OpenCode elegido: abre el editor de modelo por
-      // defecto del rol para esa fila (el modelo se usará en el lanzamiento).
-      b.addEventListener("click", function () {
-        rolesSection.editingRole = agent.role;
-        rolesSection.editingRowKey = rowKeyFor(agent);
-        rolesSection.modelIndex = 0;
-        rolesSection.modelIndexDirty = false;
-        rolesSection.saveError = null;
-        renderRolesBody();
-      });
-    }
-    return b;
+    return null;
   }
 
-  // Cambia el modelo de un agente OpenCode VIVO (idle) vía el endpoint ya
-  // existente `PUT /agents/{id}/model` (`set_active_model`), con
-  // single-flight y feedback del resultado real. `model` viene ya resuelto
-  // del `<select>` inline (`renderLiveModelSelectorInline`), no de un
-  // `prompt()` — T-FB024-US11-12, ajuste de diseño del usuario.
+  // Cambia el modelo de un agente VIVO (idle), con single-flight y
+  // feedback del resultado real. `model` viene ya resuelto del `<select>`
+  // inline (`renderLiveModelSelectorInline`), no de un `prompt()` —
+  // T-FB024-US11-12, ajuste de diseño del usuario.
+  //
+  // Un único endpoint para ambos runtimes (T-FB024-US11-13, decisión de
+  // producto 2026-08-17): `PUT /agents/{id}/model` — el backend resuelve
+  // internamente el mecanismo real según el runtime (atajos de teclado
+  // para OpenCode, comando interno '/model <id>' + confirmación de
+  // diálogo para Claude Code, `set_active_model`/
+  // `set_active_model_claude_code` en `brain/agent_model.py`).
   function changeLiveAgentModel(agent, model) {
     if (rolesSection.changeModelInFlight === agent.id) return;
     if (!model) return;
@@ -6193,11 +6362,11 @@
     BackendClient.setAgentModel(agent.id, model)
       .then(function (result) {
         rolesSection.changeModelInFlight = null;
-        rolesSection.changeModelResult = {
-          agentId: agent.id,
-          model: result.model,
-          changed: result.changed,
-        };
+        // Mensaje arriba de la lista (mismo canal que "Despertar"), no
+        // pegado a la fila — decisión de producto 2026-08-17.
+        rolesSection.actionMessage = result.changed
+          ? "Modelo de " + agent.name + " cambiado a " + result.model + "."
+          : "Modelo solicitado (" + result.model + ") para " + agent.name + ", pendiente de confirmar.";
         // Limpia la selección en curso: el siguiente render debe
         // preseleccionar contra el `agent.model` real ya actualizado
         // (próximo tick de polling), no arrastrar el índice de la
@@ -6249,7 +6418,47 @@
         });
     }
 
+    // Claude Code no tiene lectura pasiva de modelo (agent.model siempre
+    // null) — sin esto, el <select> siempre preseleccionaría el primer
+    // elemento del catálogo en vez del modelo real con el que arrancó
+    // (bug real reportado por el usuario en vivo, 2026-08-17: agente
+    // lanzado con Haiku, la UI mostraba "Sonnet"). Consulta puntual, UNA
+    // sola vez por agente (decisión de producto: nunca en cada polling,
+    // mismo criterio ya fijado para GET /agents/{id}/status-model — solo
+    // bajo demanda explícita, nunca automático en bucle). Guarda
+    // INDEPENDIENTE de la carga del catálogo de arriba (bug real: antes
+    // vivía anidada dentro de `if (cached === undefined)`, así que si el
+    // catálogo ya estaba cacheado de un render previo, esta consulta
+    // nunca se disparaba).
+    var isClaudeCode = agent.runtime_id === "claude-code";
+    var statusModelPending = isClaudeCode && rolesSection.statusModelByAgentId[agent.id] === undefined;
+    if (statusModelPending) {
+      rolesSection.statusModelByAgentId[agent.id] = "__pending__";
+      BackendClient.getAgentStatusModel(agent.id)
+        .then(function (result) {
+          rolesSection.statusModelByAgentId[agent.id] = result.model || null;
+          renderRolesBody();
+        })
+        .catch(function () {
+          rolesSection.statusModelByAgentId[agent.id] = null;
+          renderRolesBody();
+        });
+    }
+
     if (cached === undefined || cached === null) {
+      wrap.appendChild(h("span", "agent-runtime-label", "Modelo: "));
+      wrap.appendChild(document.createTextNode("cargando…"));
+      return wrap;
+    }
+
+    // Claude Code: mientras la consulta real a /status está en curso, no
+    // se construye el <select> con una preselección todavía desconocida
+    // (bug real reportado por el usuario en vivo, 2026-08-17: se veía un
+    // parpadeo "Sonnet" → "Opus" al cargar, porque el <select> se pintaba
+    // antes de tener el dato real y luego se reconstruía al llegar la
+    // respuesta) — se muestra "cargando…" hasta saber el valor real,
+    // igual que ya hace el catálogo de arriba.
+    if (isClaudeCode && rolesSection.statusModelByAgentId[agent.id] === "__pending__") {
       wrap.appendChild(h("span", "agent-runtime-label", "Modelo: "));
       wrap.appendChild(document.createTextNode("cargando…"));
       return wrap;
@@ -6287,12 +6496,40 @@
       option.textContent = m.name;
       sel.appendChild(option);
     });
-    var currentIndex = rolesSection.liveModelIndexByAgentId[agent.id];
-    if (currentIndex === undefined) {
-      // Preselección: el modelo actual del agente si está en el catálogo,
-      // si no el primero — nunca deja el <select> en un índice fuera de
-      // rango.
-      var idxOfCurrent = cached.findIndex(function (m) { return m.id === agent.model; });
+    // Preselección: `liveModelIndexByAgentId` SOLO se rellena cuando el
+    // usuario elige algo a mano en el <select> (evento "change" más
+    // abajo) — nunca aquí. Bug real corregido (2026-08-17): antes esta
+    // rama calculaba el índice inicial Y lo guardaba en
+    // `liveModelIndexByAgentId`, así que si `statusModelByAgentId`
+    // todavía no había respondido en el PRIMER render (la consulta a
+    // `/status` es async), la preselección caía en el índice 0
+    // ("Sonnet") y quedaba FIJADA para siempre — la respuesta real de
+    // `/status` llegaba después, pero el índice ya cacheado nunca se
+    // recalculaba (agente lanzado con Opus, la UI seguía mostrando
+    // Sonnet indefinidamente). Ahora el cálculo se repite en CADA render
+    // mientras el usuario no haya tocado el <select>.
+    var userChosenIndex = rolesSection.liveModelIndexByAgentId[agent.id];
+    var currentIndex;
+    if (userChosenIndex !== undefined) {
+      currentIndex = userChosenIndex;
+    } else {
+      // El modelo actual del agente si está en el catálogo, si no el
+      // primero — nunca deja el <select> en un índice fuera de rango.
+      // Para Claude Code, `agent.model` es siempre null (sin lectura
+      // pasiva) — se usa en su lugar el texto real leído por `/status`
+      // (`statusModelByAgentId`), con matching por inclusión de nombre:
+      // el texto real trae formato libre (p. ej. "Default (Sonnet 5 ·
+      // Efficient for routine tasks)"), nunca coincide exacto con el id
+      // del catálogo ("sonnet") — sí contiene el nombre visible
+      // ("Sonnet").
+      var realModelText = agent.runtime_id === "claude-code"
+        ? rolesSection.statusModelByAgentId[agent.id]
+        : agent.model;
+      var idxOfCurrent = realModelText
+        ? cached.findIndex(function (m) {
+            return m.id === realModelText || realModelText.toLowerCase().indexOf(m.name.toLowerCase()) !== -1;
+          })
+        : -1;
       currentIndex = idxOfCurrent >= 0 ? idxOfCurrent : 0;
     }
     sel.selectedIndex = Math.min(currentIndex, cached.length - 1);
@@ -6378,6 +6615,14 @@
     if (isUnregistered) {
       devLaunch.disabled = true;
       devLaunch.title = "rol no disponible todavía: pendiente de registrar en el backend";
+    } else if (agent._synthetic && agent._launchable === false) {
+      // Bug real corregido (T-FB024-US11-13, 2026-08-17): el nombre real
+      // lo asigna el backend por conteo, no por la fila pulsada — lanzar
+      // fuera de orden hacía que la instancia naciera en la posición
+      // libre anterior, no en la fila que se pulsó. Se bloquea con el
+      // motivo explícito.
+      devLaunch.disabled = true;
+      devLaunch.title = "Lanza primero las filas de Developer anteriores (el nombre real lo asigna el orden de lanzamiento, no esta fila).";
     } else if (!chosenRuntimeForRow(agent)) {
       // T-FB005-US07-03: el lanzamiento exige un runtime elegido — se
       // bloquea con aviso explícito si no hay ninguno (criterio 1 de
@@ -6417,6 +6662,10 @@
   }
 
   function launchStoppedDev(agent) {
+    // Defensa por si se invoca sin pasar por el botón ya deshabilitado
+    // (ver `renderLanzarDetenerBtn`): nunca lanzar una fila sintética
+    // fuera de orden.
+    if (agent._synthetic && agent._launchable === false) return;
     var payload = { role: agent.role };
     // T-FB005-US07-02/-03: el runtime se manda SIEMPRE explícito en
     // `POST /agents` (contrato: runtime separado del modelo), y es la
@@ -6432,17 +6681,19 @@
     }
     payload.runtime_type = chosenRuntime;
 
-    // El modelo solo aplica en el lanzamiento cuando el runtime lo admite
-    // (OpenCode). Se usa el default de modelo del rol (`rolesSection.defaults`),
-    // y NUNCA el modelo recordado de una instancia anterior (criterio 3 de
-    // US-FB005-07: tras detener un agente, no se reutiliza el modelo
-    // recordado como si siguiera siendo válido). Claude Code no acepta
-    // modelo en el lanzamiento; Codex tampoco.
-    if (chosenRuntime === "opencode") {
-      var defaultId = rolesSection.defaults && rolesSection.defaults[agent.role];
-      if (defaultId && defaultId !== "claude-code") {
-        payload.model_id = defaultId;
-      }
+    // El modelo elegido POR FILA en el selector (T-FB024-US11-13,
+    // 2026-08-17, tercera revisión: ahora tanto OpenCode como Claude
+    // Code admiten elegir modelo al lanzar — antes solo OpenCode, y
+    // tomado del default del rol en vez de una elección explícita por
+    // instancia). Nunca el modelo recordado de una instancia anterior
+    // (criterio 3 de US-FB005-07: tras detener un agente, no se reutiliza
+    // el modelo recordado como si siguiera siendo válido) — el
+    // `chosenModelByRow` se limpia al detener/cambiar runtime. Opcional:
+    // si no se elige nada, se lanza sin `model_id` (el runtime arranca
+    // con su propio default).
+    var chosenModel = chosenModelForRow(agent);
+    if (chosenModel) {
+      payload.model_id = chosenModel;
     }
     // T-FB024-US11-06: el nombre de la fila sintética ("Developer-N") es
     // solo una etiqueta visual por posición — el backend decide el nombre
@@ -6516,12 +6767,29 @@
   }
 
 
-  // ── botón Despertar (envía empujón al pane cuando está working) ──────────
+  // ── botón Despertar (envía un empujón al pane) ──────────────────────────
+  // Siempre visible; deshabilitado solo cuando no hay sesión tmux viva a
+  // la que enviar nada (stopped/unregistered/unavailable) — decisión de
+  // producto 2026-08-17: el estado `working` del backend es una
+  // transición manual que solo dispara el Dispatcher al despachar un Job
+  // formal (`mark_working`, `brain/agents/lifecycle.py`), no una
+  // detección real de actividad en el pane; un agente puede estar
+  // realmente ocupado (conversación directa por tmux, fuera del
+  // mecanismo de Jobs) mientras el backend lo sigue reportando `idle`.
+  // Limitar el botón a `working` lo dejaba inutilizable en ese caso real
+  // — se habilita en cualquier estado "vivo" (idle/working/limited).
 
   function renderDespertarBtn(agent) {
+    var isAlive = agent.status === "idle" || agent.status === "working" || agent.status === "limited";
     var isAwakening = rolesSection.awakeningAgentId === agent.id;
     var label = isAwakening ? "Despertando…" : "Despertar";
     var btn = button(label, "agent-model-change");
+
+    if (!isAlive) {
+      btn.disabled = true;
+      btn.title = "no disponible: el agente no tiene una sesión activa";
+      return btn;
+    }
     btn.disabled = isAwakening;
 
     btn.addEventListener("click", function () {
@@ -6888,6 +7156,7 @@
         configuracionSection.state = "ready";
         configuracionSection.maxSimultaneousDevelopers = result.max_simultaneous_developers;
         configuracionSection.maxSimultaneousDevelopersInput = String(result.max_simultaneous_developers);
+        configuracionSection.developerWaitsForTesterReview = result.developer_waits_for_tester_review;
         configuracionSection.dirty = false;
         configuracionSection.saveError = null;
         renderConfiguracionBody();
@@ -6956,7 +7225,49 @@
       form.appendChild(h("p", "section-note", "Sin cambios pendientes."));
     }
 
+    form.appendChild(h("div", "jobs-form-title", "Dispatcher"));
+
+    var reviewRow = h("div", "model-row");
+    var reviewLabel = document.createElement("label");
+    var reviewCheckbox = document.createElement("input");
+    reviewCheckbox.type = "checkbox";
+    reviewCheckbox.checked = !!configuracionSection.developerWaitsForTesterReview;
+    reviewCheckbox.disabled = !!configuracionSection.savingReviewPreference;
+    reviewCheckbox.addEventListener("change", function () {
+      saveDeveloperWaitsForTesterReview(reviewCheckbox.checked);
+    });
+    reviewLabel.appendChild(reviewCheckbox);
+    reviewLabel.appendChild(document.createTextNode(" El Developer espera al veredicto del Tester antes de coger una Task nueva"));
+    reviewRow.appendChild(reviewLabel);
+    form.appendChild(reviewRow);
+    form.appendChild(h(
+      "p",
+      "section-note",
+      "Si está activo, un Developer con una Task suya todavía en REVIEW no recibe una Task EN_DESARROLLO nueva hasta que el Tester la resuelva."
+    ));
+    if (configuracionSection.reviewPreferenceSaveError) {
+      form.appendChild(h("p", "agent-error", configuracionSection.reviewPreferenceSaveError));
+    }
+
     wrap.appendChild(form);
+  }
+
+  function saveDeveloperWaitsForTesterReview(nextValue) {
+    configuracionSection.savingReviewPreference = true;
+    configuracionSection.reviewPreferenceSaveError = null;
+    renderConfiguracionBody();
+
+    BackendClient.updateSystemPreferences({ developer_waits_for_tester_review: nextValue })
+      .then(function (result) {
+        configuracionSection.savingReviewPreference = false;
+        configuracionSection.developerWaitsForTesterReview = result.developer_waits_for_tester_review;
+        renderConfiguracionBody();
+      })
+      .catch(function (error) {
+        configuracionSection.savingReviewPreference = false;
+        configuracionSection.reviewPreferenceSaveError = buildErrorMessage(error);
+        renderConfiguracionBody();
+      });
   }
 
   function saveSystemPreferences() {
@@ -6993,7 +7304,7 @@
   // deterministas, sin pasar por el modo conversacional del Arquitecto.
 
   var ACCIONES = [
-    { id: "documentar", label: "Documentar todo", desc: "Revisa que la documentación en 01-documentacion/ esté al día con el código real. Propone cambios, no escribe directamente." },
+    { id: "documentar", label: "Documentar todo", desc: "Revisa que la documentación en docs/ esté al día con el código real. Propone cambios, no escribe directamente." },
     { id: "analizar-arquitectura", label: "Analizar arquitectura", desc: "Análisis de arquitectura con evidencia de código real. Informe para decisión humana." },
     { id: "sugerir-ideas", label: "Sugerir ideas para el backlog", desc: "Propone ideas candidatas de Epics/User Stories a partir del estado actual del proyecto. No escribe a 02-backlog/." },
     { id: "testear", label: "Testear todo", desc: "Ejecuta la suite completa de tests del proyecto. Resultado determinista (pasa/falla), sin corrección automática." },
@@ -7151,8 +7462,14 @@
     BackendClient.getBacklog()
       .then(function (report) {
         var count = 0;
+        // T-FB008-US15-01/-02 (2026-08-17): SIN_TAREAS/EN_DISEÑO también
+        // son trabajo pendiente real (una US recién creada, o esperando
+        // al Arquitecto) — antes solo contaba TODO, dejando el badge en
+        // 0 pese a haber Epics/US con trabajo real por hacer.
         (report.by_epic || []).forEach(function (epic) {
           count += (epic.user_stories && epic.user_stories.TODO || 0)
+                 + (epic.user_stories && epic.user_stories.SIN_TAREAS || 0)
+                 + (epic.user_stories && epic.user_stories["EN_DISEÑO"] || 0)
                  + (epic.tasks && epic.tasks.TODO || 0);
         });
         state.pendingBacklogCount = count;

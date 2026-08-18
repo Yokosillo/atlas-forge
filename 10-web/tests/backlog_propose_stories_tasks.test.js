@@ -1,18 +1,20 @@
-/* T-FB036-US10-01 (US-FB036-10): exponer en la web los dos endpoints
- * backend ya existentes y sin usar:
- *   - "Proponer User Stories" en el detalle de Epic →
- *     `POST /backlog/epic/{epic_id}/propose-stories`
- *   - "Aterrizar en Tasks" en el detalle de User Story →
- *     `POST /backlog/us/{us_id}/propose-tasks`
+/* T-FB036-US10-01 (US-FB036-10): exponer en la web "Proponer User
+ * Stories" en el detalle de Epic → `POST /backlog/epic/{epic_id}/propose-stories`.
+ *
+ * DEPRECATED (T-FB008-US15-02, 2026-08-17): este fichero cubría también
+ * "Aterrizar en Tasks" (US→Tasks), que llamaba SIEMPRE de forma síncrona
+ * al endpoint desde el navegador. Ese botón fue sustituido por "Progresar"
+ * (marca `EN_DISEÑO`, el Dispatcher reparte el aterrizaje al Arquitecto
+ * libre) — los tests de ese flujo viejo se movieron/reescribieron en
+ * `backlog_progresar_user_story.test.js`. Solo queda aquí "Proponer User
+ * Stories" (Epic→US), que esta reorganización NO toca.
  *
  * Casos reales contra el backend real aislado (sin mockear lógica):
  *   1. Pipeline no aprobado ("Proponer User Stories" sobre una Epic sin
  *      alcance) → el motivo verbatim del backend aparece, nada se escribió.
- *   2. Pipeline no aprobado ("Aterrizar en Tasks" sobre una US sin
- *      secciones de Prioridad/Dependencias/Estado) → motivo verbatim.
  *
- * Casos de éxito (APROBADO) simulando SOLO la respuesta de red de los
- * endpoints de propuesta y del refresco del detalle (mecanismo explícito
+ * Caso de éxito (APROBADO) simulando SOLO la respuesta de red del
+ * endpoint de propuesta y del refresco del detalle (mecanismo explícito
  * de `00-gobierno/DEVELOPER.md` para estados no alcanzables de forma
  * segura contra el backend real — el backend de propuesta hoy falla su
  * validación de formato contra el validador antiguo, bug preexistente
@@ -188,56 +190,6 @@ async function test_propose_stories_rejected_shows_verbatim_reason() {
 }
 
 // ---------------------------------------------------------------------
-// Caso real: pipeline no aprobado — US sin secciones de
-// Prioridad/Dependencias/Estado → RECHAZADO.
-// ---------------------------------------------------------------------
-
-async function test_propose_tasks_rejected_shows_verbatim_reason() {
-  await withBackend(async ({ page, baseUrl }) => {
-    await page.goto(baseUrl + "/ui/");
-    await _goToBacklogTab(page);
-    await _createEpicViaForm(page, "FB-921", "Epic para tasks");
-    // US creada por el formulario real (frontmatter YAML, sin secciones
-    // `## Prioridad`/`## Dependencias`/`## Estado`) → `review_user_story_for_gaps`
-    // detecta huecos → el pipeline no genera ninguna Task y la
-    // autoauditoría la RECHAZA ("No se generó ninguna Task.").
-    await _createUserStoryViaForm(page, "US-FB921-01");
-
-    // Expandir la US pulsando su línea dentro del detalle de la Epic.
-    await page.evaluate(() => {
-      const line = Array.from(document.querySelectorAll(".backlog-us-line")).find((l) =>
-        l.textContent.includes("US-FB921-01")
-      );
-      line.click();
-    });
-    await page.waitForFunction(
-      () =>
-        Array.from(document.querySelectorAll("button")).some(
-          (b) => b.textContent.trim() === "Aterrizar en Tasks"
-        ),
-      { timeout: 10000 }
-    );
-    await _clickButtonByText(page, "Aterrizar en Tasks");
-
-    await page.waitForFunction(
-      () =>
-        Array.from(document.querySelectorAll(".agent-error")).some((e) =>
-          e.textContent.includes("No se generó ninguna Task")
-        ),
-      { timeout: 15000 }
-    );
-
-    // Nada se escribió: el detalle de la US sigue sin Tasks.
-    const hasTask = await page.evaluate(() =>
-      Array.from(document.querySelectorAll(".job-line")).some((l) =>
-        l.textContent.includes("T-FB921")
-      )
-    );
-    assert.strictEqual(hasTask, false, "No debe aparecer ninguna Task cuando el pipeline no aprobó.");
-  });
-}
-
-// ---------------------------------------------------------------------
 // Éxito (APROBADO) simulado solo a nivel de red: el botón invoca el
 // endpoint, termina el single-flight y refresca el listado de US de la
 // Epic sin recargar la página.
@@ -311,116 +263,13 @@ async function test_propose_stories_approved_refreshes_epic_list() {
   });
 }
 
-// ---------------------------------------------------------------------
-// Éxito (APROBADO) simulado solo a nivel de red: el botón invoca el
-// endpoint, termina el single-flight y refresca el listado de Tasks de la
-// US sin recargar la página.
-// ---------------------------------------------------------------------
-
-async function test_propose_tasks_approved_refreshes_us_list() {
-  await withBackend(async ({ page, baseUrl }) => {
-    await page.goto(baseUrl + "/ui/");
-    await _goToBacklogTab(page);
-    await _createEpicViaForm(page, "FB-923", "Epic para tasks");
-    await _createUserStoryViaForm(page, "US-FB923-01");
-
-    // Expandir la US (carga real del detalle, sin Tasks todavía).
-    await page.evaluate(() => {
-      const line = Array.from(document.querySelectorAll(".backlog-us-line")).find((l) =>
-        l.textContent.includes("US-FB923-01")
-      );
-      line.click();
-    });
-    await page.waitForFunction(
-      () =>
-        Array.from(document.querySelectorAll("button")).some(
-          (b) => b.textContent.trim() === "Aterrizar en Tasks"
-        ),
-      { timeout: 10000 }
-    );
-
-    const proposedTasks = [
-      { id: "T-FB923-US01-01", title: "Implementar núcleo", epic_id: "FB-923", us_id: "US-FB923-01",
-        objective: "Implementar.", description: "Implementar.", criteria: ["Criterio."], priority: "Alta", dependencies: [] },
-      { id: "T-FB923-US01-02", title: "Conectar entrada", epic_id: "FB-923", us_id: "US-FB923-01",
-        objective: "Conectar.", description: "Conectar.", criteria: ["Criterio."], priority: "Alta", dependencies: [] },
-    ];
-    const proposeResponse = {
-      us_id: "US-FB923-01",
-      epic_id: "FB-923",
-      num_tasks: 2,
-      tasks: proposedTasks,
-      notes: [],
-      validation_valid: true,
-      validation_errors: [],
-      self_audit: { status: "APROBADO", justification: "La propuesta pasa la autoauditoría sin observaciones.", suggestions: [] },
-    };
-
-    await page.setRequestInterception(true);
-    page.on("request", (req) => {
-      if (req.method() === "POST" && /\/backlog\/us\/US-FB923-01\/propose-tasks$/.test(req.url())) {
-        req.respond({ status: 200, contentType: "application/json", body: JSON.stringify(proposeResponse) });
-        return;
-      }
-      if (req.method() === "GET" && /\/backlog\/US-FB923-01$/.test(req.url())) {
-        req.respond({
-          status: 200,
-          contentType: "application/json",
-          body: JSON.stringify({
-            id: "US-FB923-01",
-            kind: "US",
-            state: "TODO",
-            epic: "FB-923",
-            objetivo: "Como usuario quiero X para lograr Y.",
-            criterios_aceptacion: "- Criterio uno.",
-            dependencies: [],
-            tasks: [
-              { id: "T-FB923-US01-01", state: "TODO", priority: "Alta" },
-              { id: "T-FB923-US01-02", state: "TODO", priority: "Alta" },
-            ],
-          }),
-        });
-        return;
-      }
-      req.continue();
-    });
-
-    await _clickButtonByText(page, "Aterrizar en Tasks");
-
-    // El refresco del detalle (GET /backlog/US-FB923-01) muestra las Tasks
-    // propuestas en el MISMO documento, sin recargar la página.
-    await page.waitForFunction(
-      () =>
-        Array.from(document.querySelectorAll(".job-line")).some((l) =>
-          l.textContent.includes("T-FB923-US01-01")
-        ),
-      { timeout: 10000 }
-    );
-
-    const hint = await page.evaluate(() =>
-      Array.from(document.querySelectorAll(".job-hint")).some((h) =>
-        h.textContent.includes("2 Tasks propuestas")
-      )
-    );
-    assert.ok(hint, "Se debe mostrar el resumen de Tasks propuestas.");
-  });
-}
-
 module.exports = [
   {
     name: "Proponer User Stories sobre una Epic sin alcance muestra el motivo verbatim del backend (pipeline no aprobado, nada escrito)",
     fn: test_propose_stories_rejected_shows_verbatim_reason,
   },
   {
-    name: "Aterrizar en Tasks sobre una US incompleta muestra el motivo verbatim del backend (pipeline no aprobado, nada escrito)",
-    fn: test_propose_tasks_rejected_shows_verbatim_reason,
-  },
-  {
     name: "Proponer User Stories aprobado refresca el listado de User Stories de la Epic sin recargar la página",
     fn: test_propose_stories_approved_refreshes_epic_list,
-  },
-  {
-    name: "Aterrizar en Tasks aprobado refresca el listado de Tasks de la US sin recargar la página",
-    fn: test_propose_tasks_approved_refreshes_us_list,
   },
 ];

@@ -15,6 +15,7 @@ from brain.agent_model import (
     get_active_model,
     get_active_model_claude_code,
     set_active_model,
+    set_active_model_claude_code,
 )
 
 
@@ -280,6 +281,52 @@ def test_get_active_model_claude_code_closes_status_panel_even_if_run_command_fa
         )
 
 
+# -- set_active_model_claude_code (T-FB024-US11-13) ------------------------
+#
+# Bug real reportado por el usuario en vivo (2026-08-17), reproducido a
+# mano contra una sesión Claude Code real antes de corregir: enviar solo
+# '/model <id>' + Enter no basta cuando aparece el diálogo interno
+# "Switch model? ... 1. Yes, switch to <modelo>" (se abre cuando hay
+# contexto cacheado sustancial) — el modelo NUNCA cambia sin una segunda
+# confirmación. Sin diálogo (poco contexto cacheado), el cambio se aplica
+# directo y una segunda confirmación de más sería una línea en blanco no
+# deseada — de ahí que la función compruebe el pane antes de decidir si
+# manda el Enter extra.
+
+
+def test_set_active_model_claude_code_confirms_dialog_when_it_appears() -> None:
+    with (
+        patch("brain.agent_model.run_command") as mock_run_command,
+        patch("brain.agent_model.capture_pane_lines",
+              return_value=["Switch model?", "❯ 1. Yes, switch to Haiku 4.5", "  2. No, go back"]),
+        patch("brain.agent_model.send_keys_literal") as mock_send_keys,
+        patch("brain.agent_model.time.sleep"),
+    ):
+        set_active_model_claude_code("test-session", "haiku", socket_name="factory-brain")
+        mock_run_command.assert_called_once_with(
+            "test-session", "/model haiku", socket_name="factory-brain"
+        )
+        # El diálogo apareció: se confirma con un segundo Enter.
+        mock_send_keys.assert_called_once_with(
+            "test-session", "Enter", socket_name="factory-brain"
+        )
+
+
+def test_set_active_model_claude_code_skips_extra_enter_when_no_dialog() -> None:
+    with (
+        patch("brain.agent_model.run_command") as mock_run_command,
+        patch("brain.agent_model.capture_pane_lines", return_value=["❯ "]),
+        patch("brain.agent_model.send_keys_literal") as mock_send_keys,
+        patch("brain.agent_model.time.sleep"),
+    ):
+        set_active_model_claude_code("test-session", "sonnet", socket_name="factory-brain")
+        mock_run_command.assert_called_once_with(
+            "test-session", "/model sonnet", socket_name="factory-brain"
+        )
+        # Sin diálogo: nunca se envía un Enter de más (línea en blanco).
+        mock_send_keys.assert_not_called()
+
+
 # -- set_active_model ------------------------------------------------------
 
 
@@ -304,24 +351,22 @@ def test_set_active_model_returns_false_when_no_runtime() -> None:
 
 
 def test_set_active_model_success_flow() -> None:
-    """Camino feliz: las verificaciones de cambio de pane pasan y el modelo
-    leido al final coincide (match laxo)."""
-    # 7 llamadas a capture_pane_lines:
+    """Camino feliz (flujo corregido T-FB024-US11-13, 2026-08-17: Ctrl+X
+    directo + 'm', Search por nombre, offset sobre listado FILTRADO —
+    ver docstring de `set_active_model`). Las verificaciones de cambio de
+    pane pasan y el modelo leido al final coincide (match laxo)."""
+    # 5 llamadas a capture_pane_lines:
     # 0: get_active_model inicial (previous)
-    # 1: _capture_safe before C-p
-    # 2: _capture_safe after C-p
-    # 3: _capture_safe before C-x
-    # 4: _capture_safe after C-x
-    # 5: _capture_safe lectura del selector
-    # 6: get_active_model verificacion final
+    # 1: _capture_safe before 'm' (_send_and_verify_change)
+    # 2: _capture_safe after 'm'
+    # 3: _capture_safe del listado YA FILTRADO por Search
+    # 4: get_active_model verificacion final
     mock_captures = [
         ["Build · old-model OldCo"],
-        ["Build · old-model OldCo"],
-        ["paleta de comandos abierta"],
-        ["paleta de comandos abierta"],
-        ["selector de modelos"],
-        ["selector de modelos", "  modelo-a", "  deepseek/deepseek-chat", "  modelo-c"],
-        ["Build · deepseek/deepseek-chat SomeProvider"],
+        ["Select variant"],
+        ["Select model", "deepseek", "", "deepseek-chat                          SomeProvider"],
+        ["Select model", "deepseek", "", "deepseek-chat                          SomeProvider"],
+        ["Build · deepseek-chat SomeProvider"],
     ]
 
     call_count = 0
@@ -341,7 +386,7 @@ def test_set_active_model_success_flow() -> None:
         patch("brain.agent_model.send_keys_literal"),
         patch("brain.agent_model.time.sleep"),
     ):
-        result = set_active_model("agent-1", "deepseek/deepseek-chat")
+        result = set_active_model("agent-1", "deepseek-chat")
         assert result is True
 
 

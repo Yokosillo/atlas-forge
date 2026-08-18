@@ -45,13 +45,17 @@ class USPipelineResult:
 def _build_us_content(story) -> str:
     criteria_text = "\n".join(f"- {c}" for c in story.criteria)
     deps_block = _yaml_block_list([story.epic_id])  # default: depends on parent Epic
+    # `state: SIN_TAREAS` (T-FB008-US15-01, 2026-08-17): toda User Story
+    # nueva nace sin Tasks, mismo criterio que `create_user_story`
+    # (`backlog/create.py`, formulario manual) — un único punto de
+    # verdad para "acabo de nacer, sin desgranar".
     return (
         "---\n"
         f"id: {story.id}\n"
         "type: user_story\n"
         f"title: {story.title}\n"
         f"epic: {story.epic_id}\n"
-        f"state: TODO\n"
+        f"state: SIN_TAREAS\n"
         f"dependencies:{deps_block}\n"
         f"priority: {story.priority}\n"
         "---\n\n"

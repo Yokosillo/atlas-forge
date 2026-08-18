@@ -7,7 +7,20 @@ El Arquitecto nunca tiene más de un Job de veredicto en curso a la vez,
 coherente con la decisión de que es un rol reactivo de contexto pesado por
 Task (ver FB-022, Contexto).
 
-Uso:
+**Estado tras T-FB008-US14-02 (refactor 2026-08-17):** el disparo real del
+veredicto en producción ya no pasa por `enqueue_architect_verdict` —
+`trigger_architect_verdict` (`job_plan_dispatch.py`) solo marca la User
+Story en `state: REVIEW`, y es `dispatch_queue_worker.run_architect_verdict_dispatch_cycle`
+(polling del Dispatcher, mismo criterio "un agente libre a la vez" que ya
+usa para Developer/Tester) quien la asigna a un Arquitecto libre y ejecuta
+el ciclo completo (`dispatch_queue_worker.dispatch_architect_verdict`,
+que esta misma cola importa y delega en vez de duplicar). Esta cola FIFO
+sigue viva solo para `ui_tester_queue.py` (serialización del Job de
+Tester de UI) y para compatibilidad de los tests de integración
+existentes — el Dispatcher es quien posee el ciclo de veredicto de
+principio a fin, no esta cola.
+
+Uso (ruta histórica, todavía funcional):
     from brain.dispatcher.architect_verdict_queue import (
         enqueue_architect_verdict,
         get_verdict_queue_status,
@@ -178,24 +191,27 @@ def _do_dispatch_verdict(
     session: Any,
     socket_name: str,
     reports_root: Path | None = None,
+    backlog_dir: Path | None = None,
 ) -> None:
     """Despacha un Job de veredicto concreto hacia el Arquitecto y procesa
-    su resultado. Invocado exclusivamente por el worker daemon de la cola.
+    su resultado. Invocado exclusivamente por el worker daemon de esta
+    cola FIFO histórica (todavía en uso indirecto vía
+    `ui_tester_queue.py` para el Tester de UI, `T-FB022-US15-04`).
 
-    Lógica extraída de `trigger_architect_verdict` (T-FB022-US05-02), sin
-    cambios — la cola solo añade serialización externa, no modifica el
-    contrato de despacho.
-    """
-    from brain.agents.arquitecto import ARQUITECTO_ROLE
-    from brain.core.session_lifecycle import list_agents
-    from brain.dispatcher.job_creation import JobCreationError, create_job
-    from brain.dispatcher.job_dispatch import dispatch_job
-    from brain.dispatcher.job_plan_dispatch import (
-        _collect_story_reports,
-        _process_verdict_result,
+    Refactor 2026-08-17 (T-FB008-US14-02, "el flujo de trabajo debe
+    estar encadenado en el dispatcher"): la lógica real de despacho +
+    interpretar el veredicto + promoción de estado vive ahora en
+    `dispatch_queue_worker.dispatch_architect_verdict` — el Dispatcher
+    de polling pasa a poseer el ciclo completo. Esta función queda como
+    delegación fina para no duplicar esa lógica en dos módulos."""
+    from brain.dispatcher.dispatch_queue_worker import dispatch_architect_verdict
+    from brain.dispatcher.job_plan_dispatch import _collect_story_reports
+
+    verdict_output = dispatch_architect_verdict(
+        story_id, session, socket_name, reports_root, backlog_dir=backlog_dir
     )
-    from brain.models import Agent
-    from brain.runtime.agent_runtime_registry import get_runtime_instance_for_agent
+    if verdict_output is None:
+        return
 
     root = (
         reports_root
@@ -203,42 +219,43 @@ def _do_dispatch_verdict(
         else Path(__file__).resolve().parents[4] / "07-informes"
     )
     reports = _collect_story_reports(story_id, root)
+    _maybe_enqueue_ui_tester(story_id, verdict_output, reports, session, socket_name, reports_root)
 
-    architect_agent = next(
-        (
-            agent
-            for agent in list_agents(session)
-            if isinstance(agent, Agent) and agent.role == ARQUITECTO_ROLE
-        ),
-        None,
+
+def _maybe_enqueue_ui_tester(
+    story_id: str,
+    verdict_output: str,
+    reports: list[str],
+    session: Any,
+    socket_name: str,
+    reports_root: Path | None,
+) -> None:
+    """T-FB022-US15-04: si el veredicto fue aprobado (con o sin
+    observaciones) y la User Story toca `10-web/` (heurística sobre los
+    informes de cierre ya leídos — ver `story_scope.py` para la
+    justificación de diseño), encola un Job de Tester de UI.
+
+    Se ejecuta tras `_process_verdict_result`, en el mismo hilo del
+    worker de la cola de veredictos — nunca bloquea el flujo de cierre de
+    la US (criterio de aceptación 4): `enqueue_ui_tester_job` solo
+    encola y retorna, el Job de Tester real lo procesa un worker daemon
+    DISTINTO en segundo plano."""
+    from brain.dispatcher.architect_verdict import (
+        VERDICT_APPROVED,
+        VERDICT_APPROVED_WITH_NOTES,
+        parse_verdict,
     )
-    if architect_agent is None:
+    from brain.dispatcher.story_scope import story_touches_web
+    from brain.dispatcher.ui_tester_queue import enqueue_ui_tester_job
+
+    if not verdict_output:
         return
 
-    runtime_instance = get_runtime_instance_for_agent(architect_agent.id)
-    if runtime_instance is None:
+    estado, _justificacion, _siguiente_prompt = parse_verdict(verdict_output)
+    if estado not in (VERDICT_APPROVED, VERDICT_APPROVED_WITH_NOTES):
         return
 
-    if reports:
-        report_blocks = "\n\n---\n\n".join(reports)
-        description = (
-            f"Revisa el trabajo completado para la User Story {story_id}.\n\n"
-            f"A continuación se incluyen los informes de cierre de cada Job "
-            f"que trabajó en esta User Story. Emite tu veredicto en el "
-            f"formato estructurado ESTADO:/JUSTIFICACIÓN:/"
-            f"SIGUIENTE_PROMPT_PARA_WORKER:\n\n"
-            f"{report_blocks}"
-        )
-    else:
-        description = (
-            f"Revisa el trabajo completado para la User Story {story_id}.\n\n"
-            f"(No se encontraron informes de cierre para esta User Story. "
-            f"Emite tu veredicto basándote en el contexto disponible.)"
-        )
+    if not story_touches_web(reports):
+        return
 
-    try:
-        job = create_job(description, architect_agent, session)
-        dispatch_job(job, architect_agent, runtime_instance, socket_name=socket_name)
-        _process_verdict_result(story_id, job.result)
-    except JobCreationError:
-        pass
+    enqueue_ui_tester_job(story_id, session, socket_name, reports_root)

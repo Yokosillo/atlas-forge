@@ -7,7 +7,7 @@ from brain.storage.workspace_store import resolve_workspace_id
 
 # Justificación del mecanismo de almacenamiento (T-FB001-US01-01):
 #
-# 01-documentacion/08-data-model.md sitúa `Project` bajo `Workspace`, pero no
+# docs/concepts.md sitúa `Project` bajo `Workspace`, pero no
 # obliga a ninguna tecnología concreta de persistencia. En el alcance v1 de
 # FB-001 (ver 02-backlog/epics/FB-001-workspace-management.md) el Workspace es
 # implícito y solo hay un dato real que persistir entre ejecuciones: cuál es

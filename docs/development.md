@@ -24,14 +24,14 @@ pytest tests/test_scribe.py -k index   # filter by name
 
 - pytest config in `pyproject.toml`: `testpaths = ["tests"]`, `asyncio_mode = "auto"`.
 - Tests use an in-memory `TestClient` (httpx) and their own tmux sockets; they do not require a real runtime or Ollama.
-- Isolation awareness: the singleton registries (`job_history`, `job_cancellation`, `plan_registry`, verdict queue…) have `_reset_registry_for_tests()`.
+- Isolation awareness: the singleton registries (`job_history`, `job_cancellation`, verdict queue…) have `_reset_registry_for_tests()`.
 
 ## How to debug
 
 - **Backend**: start with `brain-api --host 127.0.0.1` for local development and test against `http://127.0.0.1:8000`. HTTP errors carry the domain `detail`.
 - **Web**: served at `/ui/` of the same backend; open the browser inspector (console + network).
 - **Agents/runtimes**: `GET /agents/{id}/pane` returns the textual content of the agent's tmux pane. You can also `tmux -L factory-brain attach` on the host.
-- **Closing reports**: each Job of a plan writes `07-informes/<story_id>/<job_id>.md`; rejected verdicts write `_rechazo.md`.
+- **Closing reports**: each Job writes `07-informes/<story_id>/<job_id>.md`; rejected verdicts write `_rechazo.md`.
 
 ## Architecture for development
 
@@ -49,7 +49,7 @@ pytest tests/test_scribe.py -k index   # filter by name
 3. Export the role from `agents/__init__.py`.
 4. Add tests: `test_agent_options_catalog.py` (combinations), `test_api_routes_agents.py` (≥6 combos), `test_module_boundaries.py`.
 
-Real example to follow: `04-src/src/brain/agents/director.py`.
+Real example to follow: `04-src/src/brain/agents/tester.py`.
 
 ## How to add a runtime
 
@@ -80,13 +80,13 @@ For a **generic script**:
 
 1. Find the corresponding domain capability (endpoints are thin layers).
 2. Add the route in `04-src/src/brain/api/routes.py` (returning the domain's already-serialized objects; errors as `HTTPException` with the domain `detail`).
-3. Publish WebSocket events if the client must see progress (see `api/events.py`, `jobs_hub`/`plans_hub` pattern).
+3. Publish WebSocket events if the client must see progress (see `api/events.py`, `jobs_hub` pattern).
 4. API tests in `tests/test_api_routes_*.py` (`TestClient` pattern).
 
 ## Backlog conventions
 
 - All development starts from an **existing Task** in `02-backlog/`; do not implement functionality without backlog representation.
-- Closed states: `TODO | IN_PROGRESS | REVIEW | DONE`. A Task/US is only `DONE` when it meets all its acceptance criteria.
+- Closed states: `TODO | EN_DESARROLLO | IN_PROGRESS | REVIEW | DONE | POSTERGADA` (Task), plus `SIN_TAREAS`/`EN_DISEÑO` for User Stories. A Task/US is only `DONE` when it meets all its acceptance criteria.
 - Closing reports go to `07-informes/<story_id>/` (see `write_job_report`).
 
 ## Contribution
