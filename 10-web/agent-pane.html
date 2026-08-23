@@ -3,10 +3,10 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Log en vivo — Factory Brain</title>
+  <title>Log en vivo — Atlas Forge</title>
   <link rel="stylesheet" href="/ui/style.css?v={{CACHE_BUST_VERSION}}" />
   <style>
-    /* Página independiente (T-FB032-US02-01): se abre en ventana/pestaña
+    /* Página independiente (T-AF032-US02-01): se abre en ventana/pestaña
        aparte desde "Ver log en vivo" (pantalla Roles), sin pasar por el
        bootstrap completo de app.js (selector de proyecto, nav, polling
        de otras secciones) — solo necesita conectar a un único WebSocket
@@ -93,7 +93,7 @@
         }
       };
 
-      // Motivo explícito de cierre (T-FB032-US01-01: código 4004 +
+      // Motivo explícito de cierre (T-AF032-US01-01: código 4004 +
       // `reason` cuando el agente no existe/no tiene runtime/no está
       // vivo) — nunca una pantalla en blanco sin explicación (criterio
       // 3 de la Task).

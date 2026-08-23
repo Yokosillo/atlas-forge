@@ -2,9 +2,9 @@
 
 ## Frequently asked questions
 
-### Is Factory Brain an IDE or an agent framework?
+### Is Atlas Forge an IDE or an agent framework?
 
-No. It is a **coordination** platform. Agents execute with their own runtimes (Claude Code, OpenCode) and models; Factory Brain decides who does what, when, and keeps context alive.
+No. It is a **coordination** platform. Agents execute with their own runtimes (Claude Code, OpenCode) and models; Atlas Forge decides who does what, when, and keeps context alive.
 
 ### What runtimes does it support?
 
@@ -20,27 +20,27 @@ When launching an agent you choose role + model from the catalog (`GET /agents/o
 
 ### Where is the state stored?
 
-Active project and model preferences in `~/.local/share/brain/`. Session, agents and Jobs **in the memory of the `brain-api` process** — lost when the backend restarts. See [Configuration](configuration.md).
+Active project and model preferences in `~/.local/share/atlas_forge/`. Session, agents and Jobs **in the memory of the `atlas-forge-api` process** — lost when the backend restarts. See [Configuration](configuration.md).
 
 ### Is there a plugin system or MCP?
 
-**No.** The Plugin System (FB-011) is planned but not implemented. Any new integration is done by code in `04-src/`.
+**No.** The Plugin System (AF-011) is planned but not implemented. Any new integration is done by code in `04-src/`.
 
 ### Why is the backlog the center of the product?
 
-Since Phase 1.0 (2026-08-05) the product is **backlog-centric**: all work is deployed from the backlog (Epic → US → Task → Implement) with buttons, not by writing Markdown by hand or talking to each agent separately. See [Backlog and pipeline](backlog.md).
+Since Phase 0.9 (2026-08-05) the product is **backlog-centric**: all work is deployed from the backlog (Epic → US → Task → Implement) with buttons, not by writing Markdown by hand or talking to each agent separately. See [Backlog and pipeline](backlog.md).
 
 ## Troubleshooting
 
 ### The backend does not start
 
-If `brain-api` without `--host` cannot resolve the machine's network interface, it raises an error with the reason. Solutions:
+If `atlas-forge-api` without `--host` cannot resolve the machine's network interface, it raises an error with the reason. Solutions:
 - Verify that the network interface is up.
-- For development/local: `brain-api --host 127.0.0.1`.
+- For development/local: `atlas-forge-api --host 127.0.0.1`.
 
 ### The web does not connect ("No connection to the backend")
 
-- Confirm `brain-api` is running (`systemctl status factory-brain-api` or `curl http://<host>:8000/health`).
+- Confirm `atlas-forge-api` is running (`systemctl status atlas-forge-api` or `curl http://<host>:8000/health`).
 - Access via the correct IP/URL: the web is served at `/ui/` of the same process, same-origin (no CORS).
 
 ### An agent appears as `unavailable`
@@ -69,7 +69,7 @@ Model (and runtime) are chosen at launch — stop the agent and relaunch it with
 
 ### The project's scripts do not appear
 
-- The manifest must be in `.factory-brain/scripts.yml` of the **active project** (not the Factory Brain repository).
+- The manifest must be in `.atlas-forge/scripts.yml` of the **active project** (not the Atlas Forge repository).
 - Manifest errors → `MalformedScriptManifestError` when querying `GET /scripts`.
 - The TTL cache is 5s; wait or query again.
 

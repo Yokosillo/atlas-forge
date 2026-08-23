@@ -1,11 +1,11 @@
 # Suite Puppeteer de `10-web/`
 
 Suite de tests de interacción real (navegador, no solo lectura de
-código) contra la interfaz web de Factory Brain (T-FB022-US15-03,
-`US-FB022-15` · "El Tester verifica la interfaz web real"). Reutilizable
+código) contra la interfaz web de Atlas Forge (T-AF022-US15-03,
+`US-AF022-15` · "El Tester verifica la interfaz web real"). Reutilizable
 y persistente: los tests se **amplían** aquí en vez de escribirse como
 scripts sueltos y descartarse tras el uso (patrón anterior, ver
-`07-informes/US-FB024-11/corregir-editor-modelo-filas-sinteticas.md` —
+`07-informes/US-AF024-11/corregir-editor-modelo-filas-sinteticas.md` —
 "script de verificación... descartado tras el uso").
 
 ## Qué prueba esta suite (y qué no)
@@ -14,7 +14,7 @@ Bugs de **interacción real**: identidad de fila al hacer clic, timing de
 polling frente a estado en edición, estilos visuales resueltos por el
 navegador — la clase de bug que un `grep` de código o un test unitario
 de Python no puede detectar. No cubre diferencias visuales/pixel-diff
-(diferido a v2 de `US-FB022-15`) ni navegadores distintos de Chromium.
+(diferido a v2 de `US-AF022-15`) ni navegadores distintos de Chromium.
 
 ## Cómo ejecutar la suite completa
 
@@ -43,13 +43,13 @@ const cases = require('./10-web/tests/roles_editor_row_identity.test.js');
 
 ## Contra qué corre: backend real y completamente aislado
 
-Cada test arranca su propio `brain-api` real (mismo `create_app()` que
+Cada test arranca su propio `atlas-forge-api` real (mismo `create_app()` que
 producción, servido con `uvicorn` real — nunca mockeado) en un puerto
 local libre, con:
 
 - `state_dir` temporal (directorio nuevo por ejecución, vía
   `tempfile.TemporaryDirectory`).
-- Socket tmux propio y aislado (nunca el socket `factory-brain` real de
+- Socket tmux propio y aislado (nunca el socket `atlas-forge` real de
   producción).
 - Un proyecto sintético (`.git` vacío) preseleccionado como activo, para
   que `_lifespan` resuelva una sesión sin depender del proyecto activo
@@ -129,7 +129,7 @@ tests, ni entre ejecuciones de la suite.
 - `*.test.js`: los tests reales, uno por fichero, agrupados por lo que
   verifican.
 - `../../04-src/scripts/run_isolated_test_backend.py`: el script Python
-  que el harness lanza como subproceso — arranca el `brain-api` real
+  que el harness lanza como subproceso — arranca el `atlas-forge-api` real
   aislado y opcionalmente lanza agentes reales de prueba antes de
   imprimir `READY <url>` por stdout.
 
@@ -137,11 +137,11 @@ tests, ni entre ejecuciones de la suite.
 
 - `roles_editor_row_identity.test.js` — el editor inline "Cambiar
   modelo" se abre SOLO en la fila sintética Developer pulsada, nunca en
-  las demás filas Developer-N a la vez (regresión de `T-FB024-US11-03`).
+  las demás filas Developer-N a la vez (regresión de `T-AF024-US11-03`).
 - `roles_model_editor_survives_polling.test.js` — con el editor de
   modelo abierto, la selección elegida por el usuario sobrevive a un
   ciclo completo de polling (3s) sin resetearse al default del backend
-  (regresión de `T-FB024-US11-07`).
+  (regresión de `T-AF024-US11-07`).
 - `roles_stop_button_consistent_style.test.js` — el botón
   "Detener"/"Eliminar" tiene el mismo color/fondo/borde para Arquitecto
-  y Developer, ambos ya lanzados (regresión de `T-FB024-US11-04`).
+  y Developer, ambos ya lanzados (regresión de `T-AF024-US11-04`).

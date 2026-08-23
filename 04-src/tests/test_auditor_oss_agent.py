@@ -3,9 +3,9 @@ import uuid
 import libtmux
 import pytest
 
-from brain.agents import AUDITOR_OSS_PROMPT, AUDITOR_OSS_ROLE, register_auditor_oss
-from brain.core import activate
-from brain.models import DevelopmentSession, Runtime
+from atlas_forge.agents import AUDITOR_OSS_PROMPT, AUDITOR_OSS_ROLE, register_auditor_oss
+from atlas_forge.core import activate
+from atlas_forge.models import DevelopmentSession, Runtime
 
 
 @pytest.fixture
@@ -13,7 +13,7 @@ def isolated_socket():
     """Mismo criterio que `test_developer_agent.py`/`test_ux_agent.py`:
     aislar en un servidor tmux propio, nunca lanzar el binario real de
     Claude Code/OpenCode."""
-    name = f"brain-test-{uuid.uuid4().hex[:8]}"
+    name = f"atlas_forge-test-{uuid.uuid4().hex[:8]}"
     yield name
     try:
         libtmux.Server(socket_name=name).kill()
@@ -69,7 +69,7 @@ def test_registering_auditor_oss_twice_reuses_the_same_instance(
 
 
 def test_auditor_oss_prompt_includes_project_governance_when_declared(tmp_path) -> None:
-    from brain.agents.auditor_oss import build_auditor_oss_prompt
+    from atlas_forge.agents.auditor_oss import build_auditor_oss_prompt
 
     governance_dir = tmp_path / "00-gobierno"
     governance_dir.mkdir()

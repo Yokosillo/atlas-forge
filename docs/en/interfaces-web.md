@@ -1,6 +1,6 @@
 # Web interface
 
-The **web interface is the main interface** of Factory Brain. It is served from the backend itself at `http://<host>:8000/ui/`, is plain JS without frameworks and talks to the same REST + WebSocket API as the rest of the clients.
+The **web interface is the main interface** of Atlas Forge. It is served from the backend itself at `http://<host>:8000/ui/`, is plain JS without frameworks and talks to the same REST + WebSocket API as the rest of the clients.
 
 ## Startup flow
 
@@ -35,7 +35,7 @@ A dedicated conversational tab for the Architect: pick one of its predefined ord
 
 ### Scripts
 
-Combined catalog `GET /scripts` split into **"Generic (Factory Brain)"** and **"Project"**. Each card shows the description; the shell command is hidden by default and shown with "▶ View command". Only the `commit` script asks for a message. Running shows success/exit code/stdout/stderr, and formats the `backlog_status` output (count per Epic, LISTA, BLOQUEADA, leverage chain).
+Combined catalog `GET /scripts` split into **"Generic (Atlas Forge)"** and **"Project"**. Each card shows the description; the shell command is hidden by default and shown with "▶ View command". Only the `commit` script asks for a message. Running shows success/exit code/stdout/stderr, and formats the `backlog_status` output (count per Epic, LISTA, BLOQUEADA, leverage chain).
 
 ### Acciones
 
@@ -50,7 +50,7 @@ Cross-cutting project actions as direct buttons to `POST /project/actions/{actio
 | **Audit the web UX** | Headless `opencode run --auto` run according to `00-gobierno/UX.md`. |
 | **Index project (Scribe)** | Indexes `docs/`, `02-backlog/`, `04-src/`, `00-gobierno/` with Scribe/Ollama. |
 
-All of them persist their reports with a timestamp in `07-informes/US-FB025-*/` without overwriting previous runs.
+All of them persist their reports with a timestamp in `07-informes/US-AF025-*/` without overwriting previous runs.
 
 ### Configuración
 
@@ -67,4 +67,4 @@ System preferences editable from the web: the maximum number of simultaneous Dev
 
 ## Client configuration
 
-The client is configured with `BackendClient.setBaseUrl(...)`; by default it uses the same origin (served from `brain-api`, no CORS). Errors: `BackendUnavailableError` (network) and `BackendRequestError` (4xx/5xx with the real backend `detail`).
+The client is configured with `BackendClient.setBaseUrl(...)`; by default it uses the same origin (served from `atlas-forge-api`, no CORS). Errors: `BackendUnavailableError` (network) and `BackendRequestError` (4xx/5xx with the real backend `detail`).

@@ -1,4 +1,4 @@
-"""Tests de T-FB008-US12-02: dispatcher elige Developer/modelo por dificultad.
+"""Tests de T-AF008-US12-02: dispatcher elige Developer/modelo por dificultad.
 
 Cubre la lógica de _pick_developer_for_difficulty y la integración con
 _get_task_difficulty, get_models_for_difficulty, get_active_model, y
@@ -10,23 +10,23 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from brain.core.session_lifecycle import activate, assign_agent
-from brain.dispatcher.dispatch_queue import (
+from atlas_forge.core.session_lifecycle import activate, assign_agent
+from atlas_forge.dispatcher.dispatch_queue import (
     STATUS_DISPATCHED,
     STATUS_QUEUED,
     enqueue_task,
     get_queue,
 )
-from brain.dispatcher.dispatch_queue_worker import (
+from atlas_forge.dispatcher.dispatch_queue_worker import (
     _get_task_difficulty,
     _pick_developer_for_difficulty,
     run_dispatch_cycle,
 )
-from brain.models import Agent, DevelopmentSession, Runtime
-from brain.runtime import register_runtime_instance_for_agent, RuntimeInstance
+from atlas_forge.models import Agent, DevelopmentSession, Runtime
+from atlas_forge.runtime import register_runtime_instance_for_agent, RuntimeInstance
 
 
-def _write_backlog_item(backlog_dir, filename, state="TO_DO", difficulty=None):
+def _write_backlog_item(backlog_dir, filename, state="READY", difficulty=None):
     """Escribe un item de backlog con frontmatter YAML."""
     tasks_dir = backlog_dir / "tasks"
     tasks_dir.mkdir(parents=True, exist_ok=True)
@@ -37,8 +37,8 @@ type: task
 title: Test Task
 state: {state}
 dependencies: []
-epic: FB-999
-user_story: US-FB999-01
+epic: AF-999
+user_story: US-AF999-01
 priority: Alta
 """
     if difficulty:
@@ -50,39 +50,39 @@ priority: Alta
 
 def test_get_task_difficulty_returns_difficulty_for_task():
     """_get_task_difficulty extrae la dificultad de una Task del grafo."""
-    from brain.backlog.parser import load_backlog
+    from atlas_forge.backlog.parser import load_backlog
     from pathlib import Path
     import tempfile
 
     with tempfile.TemporaryDirectory() as tmp:
         backlog_dir = Path(tmp) / "02-backlog"
-        _write_backlog_item(backlog_dir, "T-FB999-US01-01", difficulty="Alta")
+        _write_backlog_item(backlog_dir, "T-AF999-US01-01", difficulty="Alta")
 
         graph = load_backlog(backlog_dir)
-        difficulty = _get_task_difficulty(graph, "T-FB999-US01-01")
+        difficulty = _get_task_difficulty(graph, "T-AF999-US01-01")
 
         assert difficulty == "Alta"
 
 
 def test_get_task_difficulty_returns_none_when_no_difficulty():
     """_get_task_difficulty retorna None para Task sin difficulty."""
-    from brain.backlog.parser import load_backlog
+    from atlas_forge.backlog.parser import load_backlog
     from pathlib import Path
     import tempfile
 
     with tempfile.TemporaryDirectory() as tmp:
         backlog_dir = Path(tmp) / "02-backlog"
-        _write_backlog_item(backlog_dir, "T-FB999-US01-01")  # sin difficulty
+        _write_backlog_item(backlog_dir, "T-AF999-US01-01")  # sin difficulty
 
         graph = load_backlog(backlog_dir)
-        difficulty = _get_task_difficulty(graph, "T-FB999-US01-01")
+        difficulty = _get_task_difficulty(graph, "T-AF999-US01-01")
 
         assert difficulty is None
 
 
 def test_pick_developer_for_difficulty_no_developer_available():
     """Sin Developer idle disponible, retorna None."""
-    from brain.dispatcher.dispatch_queue_worker import _NoAgentAvailableError
+    from atlas_forge.dispatcher.dispatch_queue_worker import _NoAgentAvailableError
 
     session = DevelopmentSession(id="s1", project_id="p1")
     activate(session)
@@ -93,11 +93,11 @@ def test_pick_developer_for_difficulty_no_developer_available():
 
 
 def test_pick_developer_for_difficulty_ignores_a_limited_developer():
-    """Criterio de aceptación de T-FB024-US21-01: un Developer `limited`
+    """Criterio de aceptación de T-AF024-US21-01: un Developer `limited`
     (sin límite de sesión liberado todavía) nunca es elegible — mismo
     filtro estricto `status == "idle"` que ya excluye `working`/`stopped`/
     `unavailable`, sin necesitar ningún caso especial nuevo."""
-    from brain.agents.lifecycle import mark_limited
+    from atlas_forge.agents.lifecycle import mark_limited
 
     session = DevelopmentSession(id="s1", project_id="p1")
     activate(session)
@@ -144,13 +144,13 @@ def test_pick_developer_for_difficulty_unrecognized_difficulty():
     assert "degradado" in reason
 
 
-@patch("brain.dispatcher.dispatch_queue_worker.get_active_model")
-@patch("brain.dispatcher.dispatch_queue_worker.get_models_for_difficulty")
+@patch("atlas_forge.dispatcher.dispatch_queue_worker.get_active_model")
+@patch("atlas_forge.dispatcher.dispatch_queue_worker.get_models_for_difficulty")
 def test_pick_developer_for_difficulty_model_already_fits(
     mock_get_models, mock_get_active_model
 ):
     """Con modelo actual que ya encaja, devuelve reason='encaja directo'."""
-    from brain.models_catalog import ModelEntry
+    from atlas_forge.models_catalog import ModelEntry
 
     session = DevelopmentSession(id="s1", project_id="p1")
     activate(session)
@@ -172,15 +172,15 @@ def test_pick_developer_for_difficulty_model_already_fits(
     assert "encaja directo" in reason
 
 
-@patch("brain.dispatcher.dispatch_queue_worker.get_runtime_instance_for_agent")
-@patch("brain.dispatcher.dispatch_queue_worker.set_active_model")
-@patch("brain.dispatcher.dispatch_queue_worker.get_active_model")
-@patch("brain.dispatcher.dispatch_queue_worker.get_models_for_difficulty")
+@patch("atlas_forge.dispatcher.dispatch_queue_worker.get_runtime_instance_for_agent")
+@patch("atlas_forge.dispatcher.dispatch_queue_worker.set_active_model")
+@patch("atlas_forge.dispatcher.dispatch_queue_worker.get_active_model")
+@patch("atlas_forge.dispatcher.dispatch_queue_worker.get_models_for_difficulty")
 def test_pick_developer_for_difficulty_changes_model_on_opencode(
     mock_get_models, mock_get_active, mock_set_active, mock_get_runtime
 ):
     """Con modelo inadecuado en OpenCode, intenta cambiar el modelo."""
-    from brain.models_catalog import ModelEntry
+    from atlas_forge.models_catalog import ModelEntry
 
     session = DevelopmentSession(id="s1", project_id="p1")
     activate(session)
@@ -215,14 +215,14 @@ def test_pick_developer_for_difficulty_changes_model_on_opencode(
     mock_set_active.assert_called_once()
 
 
-@patch("brain.dispatcher.dispatch_queue_worker.get_runtime_instance_for_agent")
-@patch("brain.dispatcher.dispatch_queue_worker.get_active_model")
-@patch("brain.dispatcher.dispatch_queue_worker.get_models_for_difficulty")
+@patch("atlas_forge.dispatcher.dispatch_queue_worker.get_runtime_instance_for_agent")
+@patch("atlas_forge.dispatcher.dispatch_queue_worker.get_active_model")
+@patch("atlas_forge.dispatcher.dispatch_queue_worker.get_models_for_difficulty")
 def test_pick_developer_for_difficulty_degraded_on_unsupported_runtime(
     mock_get_models, mock_get_active, mock_get_runtime
 ):
     """Con runtime que no soporta cambio de modelo, retorna degradado."""
-    from brain.models_catalog import ModelEntry
+    from atlas_forge.models_catalog import ModelEntry
 
     session = DevelopmentSession(id="s1", project_id="p1")
     activate(session)
@@ -255,7 +255,7 @@ def test_pick_developer_for_difficulty_degraded_on_unsupported_runtime(
 
 def test_pick_developer_for_difficulty_no_models_in_catalog(tmp_path):
     """Cuando no hay modelos disponibles para el tier requerido, degradado."""
-    with patch("brain.dispatcher.dispatch_queue_worker.get_models_for_difficulty") as mock_get_models:
+    with patch("atlas_forge.dispatcher.dispatch_queue_worker.get_models_for_difficulty") as mock_get_models:
         session = DevelopmentSession(id="s1", project_id="p1")
         activate(session)
 
@@ -274,12 +274,12 @@ def test_pick_developer_for_difficulty_no_models_in_catalog(tmp_path):
 
 def test_run_dispatch_cycle_records_dispatch_reason(tmp_path):
     """run_dispatch_cycle registra dispatch_reason en la cola."""
-    from brain.core.session_lifecycle import activate, assign_agent
+    from atlas_forge.core.session_lifecycle import activate, assign_agent
 
     backlog_root = tmp_path / "backlog_root"
     backlog = backlog_root / "02-backlog"
-    _write_backlog_item(backlog, "T-FB999-US01-01", state="EN_DESARROLLO", difficulty="Alta")
-    enqueue_task(backlog_root, "proj", task_id="T-FB999-US01-01", us_id="US-FB999-01", priority="Alta")
+    _write_backlog_item(backlog, "T-AF999-US01-01", state="TO_DEVELOP", difficulty="Alta")
+    enqueue_task(backlog_root, "proj", task_id="T-AF999-US01-01", us_id="US-AF999-01", priority="Alta")
 
     session = DevelopmentSession(id="s1", project_id="p1")
     activate(session)
@@ -287,15 +287,15 @@ def test_run_dispatch_cycle_records_dispatch_reason(tmp_path):
     agent = Agent(id="a-dev", name="dev1", role="developer", prompt="p", runtime_id="r1")
     assign_agent(session, agent)
 
-    with patch("brain.dispatcher.dispatch_queue_worker._pick_developer_for_difficulty") as mock_pick:
+    with patch("atlas_forge.dispatcher.dispatch_queue_worker._pick_developer_for_difficulty") as mock_pick:
         mock_pick.return_value = (agent, "encaja directo: test")
 
-        with patch("brain.dispatcher.dispatch_queue_worker.get_runtime_instance_for_agent") as mock_get_rt:
+        with patch("atlas_forge.dispatcher.dispatch_queue_worker.get_runtime_instance_for_agent") as mock_get_rt:
             rt = Runtime(id="r1", name="Test", type="test", command="bash", args=[])
             mock_get_rt.return_value = RuntimeInstance(runtime=rt, session_name="test-session")
 
-            with patch("brain.dispatcher.dispatch_queue_worker.create_job"):
-                with patch("brain.dispatcher.dispatch_queue_worker.dispatch_job"):
+            with patch("atlas_forge.dispatcher.dispatch_queue_worker.create_job"):
+                with patch("atlas_forge.dispatcher.dispatch_queue_worker.dispatch_job_send"):
                     run_dispatch_cycle(backlog_root, "proj", session)
 
     entries = get_queue(backlog_root, "proj")

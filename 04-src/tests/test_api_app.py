@@ -3,10 +3,10 @@ from pathlib import Path
 import pytest
 from fastapi.testclient import TestClient
 
-from brain.api import create_app
-from brain.core import resolve_startup_session
-from brain.core.session_registry import _reset_registry_for_tests
-from brain.workspace import discover_projects, select_active_project
+from atlas_forge.api import create_app
+from atlas_forge.core import resolve_startup_session
+from atlas_forge.core.session_registry import _reset_registry_for_tests
+from atlas_forge.workspace import discover_projects, select_active_project
 
 
 @pytest.fixture(autouse=True)
@@ -60,7 +60,7 @@ def test_health_endpoint_reports_the_active_session_when_one_exists(
 
 def test_two_clients_see_the_same_session_state(tmp_path: Path) -> None:
     """Contraste directo con el problema real detectado con
-    `textual-serve` (cada conexión lanzaba su propio subproceso `brain`,
+    `textual-serve` (cada conexión lanzaba su propio subproceso `atlas_forge`,
     con su propio `_SessionRegistry` en memoria): aquí ambos "clientes"
     (instancias de `TestClient`, cada una como una conexión HTTP
     independiente) hablan contra la MISMA `app` — el mismo proceso — y

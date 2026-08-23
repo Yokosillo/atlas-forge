@@ -1,11 +1,11 @@
-"""Tests de `04-src/scripts/validate_backlog.py` (T-FB022-US13-06/07):
+"""Tests de `04-src/scripts/validate_backlog.py` (T-AF022-US13-06/07):
 CLI de validacion de formato de backlog contra `validate_backlog_file_v2`.
 
-Modo staged (T-FB022-US13-06): valida solo `02-backlog/*/` staged en un
+Modo staged (T-AF022-US13-06): valida solo `02-backlog/*/` staged en un
 repositorio git real (usa `git diff --cached`, se ejercita sobre un repo
 sintetico en `tmp_path`, nunca contra el repo real de este proyecto).
 
-Modo lote (T-FB022-US13-07, `--batch`): valida un directorio arbitrario,
+Modo lote (T-AF022-US13-07, `--batch`): valida un directorio arbitrario,
 sin requerir git ni la estructura `02-backlog/`."""
 
 from __future__ import annotations
@@ -29,13 +29,13 @@ def _load_module():
 
 _VALID_TASK = (
     "---\n"
-    "id: T-FB900-US01-01\n"
+    "id: T-AF900-US01-01\n"
     "type: task\n"
     "title: Ejemplo válido\n"
-    "state: TO_DO\n"
+    "state: READY\n"
     "dependencies: []\n"
-    "epic: FB-900\n"
-    "user_story: US-FB900-01\n"
+    "epic: AF-900\n"
+    "user_story: US-AF900-01\n"
     "priority: Alta\n"
     "---\n\n"
     "## Objetivo\n\nObjetivo.\n\n## Criterios de aceptación\n\n1. Y.\n"
@@ -43,7 +43,7 @@ _VALID_TASK = (
 
 _INVALID_TASK = (
     "---\n"
-    "id: T-FB900-US01-02\n"
+    "id: T-AF900-US01-02\n"
     "type: task\n"
     "title: Ejemplo inválido\n"
     "state: NO_EXISTE\n"
@@ -65,7 +65,7 @@ def _write(path: Path, content: str) -> None:
 
 
 # ---------------------------------------------------------------------------
-# Modo staged (T-FB022-US13-06)
+# Modo staged (T-AF022-US13-06)
 # ---------------------------------------------------------------------------
 
 
@@ -74,7 +74,7 @@ def test_staged_validation_passes_when_all_staged_files_are_valid(
 ) -> None:
     module = _load_module()
     _init_repo(tmp_path)
-    task_path = tmp_path / "02-backlog" / "tasks" / "T-FB900-US01-01.md"
+    task_path = tmp_path / "02-backlog" / "tasks" / "T-AF900-US01-01.md"
     _write(task_path, _VALID_TASK)
     subprocess.run(["git", "add", str(task_path)], cwd=tmp_path, check=True)
 
@@ -90,7 +90,7 @@ def test_staged_validation_fails_when_a_staged_file_is_invalid(
 ) -> None:
     module = _load_module()
     _init_repo(tmp_path)
-    task_path = tmp_path / "02-backlog" / "tasks" / "T-FB900-US01-02.md"
+    task_path = tmp_path / "02-backlog" / "tasks" / "T-AF900-US01-02.md"
     _write(task_path, _INVALID_TASK)
     subprocess.run(["git", "add", str(task_path)], cwd=tmp_path, check=True)
 
@@ -107,12 +107,12 @@ def test_staged_validation_fails_when_a_staged_file_is_invalid(
 def test_staged_validation_ignores_unstaged_backlog_files(
     tmp_path: Path, monkeypatch
 ) -> None:
-    # Criterio 3 de T-FB022-US13-06: solo repasa lo staged, no el backlog
+    # Criterio 3 de T-AF022-US13-06: solo repasa lo staged, no el backlog
     # completo — un fichero inválido presente pero NO staged no bloquea.
     module = _load_module()
     _init_repo(tmp_path)
-    valid_path = tmp_path / "02-backlog" / "tasks" / "T-FB900-US01-01.md"
-    invalid_path = tmp_path / "02-backlog" / "tasks" / "T-FB900-US01-02.md"
+    valid_path = tmp_path / "02-backlog" / "tasks" / "T-AF900-US01-01.md"
+    invalid_path = tmp_path / "02-backlog" / "tasks" / "T-AF900-US01-02.md"
     _write(valid_path, _VALID_TASK)
     _write(invalid_path, _INVALID_TASK)  # nunca se hace `git add` de este
     subprocess.run(["git", "add", str(valid_path)], cwd=tmp_path, check=True)
@@ -141,7 +141,7 @@ def test_staged_validation_ignores_non_backlog_files(tmp_path: Path, monkeypatch
 def test_staged_validation_does_not_write_any_file(tmp_path: Path, monkeypatch) -> None:
     module = _load_module()
     _init_repo(tmp_path)
-    task_path = tmp_path / "02-backlog" / "tasks" / "T-FB900-US01-02.md"
+    task_path = tmp_path / "02-backlog" / "tasks" / "T-AF900-US01-02.md"
     _write(task_path, _INVALID_TASK)
     subprocess.run(["git", "add", str(task_path)], cwd=tmp_path, check=True)
 
@@ -154,7 +154,7 @@ def test_staged_validation_does_not_write_any_file(tmp_path: Path, monkeypatch) 
 
 
 # ---------------------------------------------------------------------------
-# Modo lote (T-FB022-US13-07)
+# Modo lote (T-AF022-US13-07)
 # ---------------------------------------------------------------------------
 
 
@@ -178,11 +178,11 @@ def test_batch_mode_reports_valid_and_invalid_files_separately(
 def test_batch_mode_does_not_require_git_repo_or_02_backlog_structure(
     tmp_path: Path,
 ) -> None:
-    # Criterio 2 de T-FB022-US13-07: cualquier ruta, sin git ni
+    # Criterio 2 de T-AF022-US13-07: cualquier ruta, sin git ni
     # 02-backlog/ — tmp_path aquí es un directorio "suelto" cualquiera,
     # sin `git init` ni subcarpetas epics/user-stories/tasks.
     module = _load_module()
-    _write(tmp_path / "lote" / "T-FB900-US01-01.md", _VALID_TASK)
+    _write(tmp_path / "lote" / "T-AF900-US01-01.md", _VALID_TASK)
 
     exit_code = module._run_batch(tmp_path / "lote")
 
@@ -202,10 +202,10 @@ def test_batch_mode_does_not_modify_input_files(tmp_path: Path) -> None:
 
 
 def test_batch_mode_reuses_validate_backlog_file_v2(tmp_path: Path) -> None:
-    # Criterio 4 de T-FB022-US13-07: no reimplementa una segunda lógica
+    # Criterio 4 de T-AF022-US13-07: no reimplementa una segunda lógica
     # de validación — el mensaje de error exacto debe coincidir con el
     # que produce validate_backlog_file_v2 directamente.
-    from brain.backlog.validator_v2 import validate_backlog_file_v2
+    from atlas_forge.backlog.validator_v2 import validate_backlog_file_v2
 
     module = _load_module()
     path = tmp_path / "invalido.md"
@@ -232,13 +232,13 @@ def test_batch_mode_on_nonexistent_directory_returns_error(tmp_path: Path) -> No
 
 
 def test_real_backlog_of_this_project_passes_v2_validation() -> None:
-    # T-FB022-US13-06, nota de la Task: "confirmar con el Developer si
+    # T-AF022-US13-06, nota de la Task: "confirmar con el Developer si
     # algún fichero legado del backlog real sigue en formato v1" —
     # verificado aquí explícitamente: los 444+ ficheros reales de
     # 02-backlog/ (epics/user-stories/tasks) pasan validate_backlog_file_v2
     # sin excepción, así que el hook puede aplicarlo sin lista de
     # exclusión.
-    from brain.backlog.validator_v2 import validate_backlog_file_v2
+    from atlas_forge.backlog.validator_v2 import validate_backlog_file_v2
 
     backlog_root = _SCRIPT_PATH.parents[2] / "02-backlog"
     invalid = []

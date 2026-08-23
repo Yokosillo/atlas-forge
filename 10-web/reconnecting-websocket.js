@@ -1,5 +1,5 @@
-/* Factory Brain — cliente WebSocket con reconexión automática
- * (T-FB021-US04-01, criterio de aceptación explícito: "un corte de
+/* Atlas Forge — cliente WebSocket con reconexión automática
+ * (T-AF021-US04-01, criterio de aceptación explícito: "un corte de
  * conexión WebSocket reconecta automáticamente sin perder lo ya mostrado
  * en pantalla").
  *

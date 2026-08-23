@@ -4,18 +4,18 @@ from pathlib import Path
 import libtmux
 import pytest
 
-from brain.agents import DEVELOPER_ROLE
-from brain.agents.developer import DEVELOPER_PROMPT
-from brain.agents.launch import AgentLaunchError, launch_agent_with_initial_job
-from brain.core.session_lifecycle import activate, list_agents
-from brain.core.session_registry import _reset_registry_for_tests
-from brain.dispatcher import create_and_record_job, dispatch_job
-from brain.dispatcher.job_history_registry import (
+from atlas_forge.agents import DEVELOPER_ROLE
+from atlas_forge.agents.developer import DEVELOPER_PROMPT
+from atlas_forge.agents.launch import AgentLaunchError, launch_agent_with_initial_job
+from atlas_forge.core.session_lifecycle import activate, list_agents
+from atlas_forge.core.session_registry import _reset_registry_for_tests
+from atlas_forge.dispatcher import create_and_record_job, dispatch_job
+from atlas_forge.dispatcher.job_history_registry import (
     _reset_registry_for_tests as _reset_job_history,
     list_jobs_for_session,
 )
-from brain.models import DevelopmentSession
-from brain.runtime import is_runtime_alive, stop_runtime
+from atlas_forge.models import DevelopmentSession
+from atlas_forge.runtime import is_runtime_alive, stop_runtime
 
 _COOPERATIVE_AGENT_SCRIPT = str(
     Path(__file__).parent / "fixtures" / "cooperative_agent_sim.sh"
@@ -37,8 +37,8 @@ def _no_real_runtime(monkeypatch):
     cooperativo determinista (`cooperative_agent_sim.sh`), para poder
     despachar Jobs reales (tmux real) sin invocar nunca los binarios
     reales — mismo patrón que `test_job_dispatch.py`."""
-    import brain.runtime.claude_code as claude_code_module
-    import brain.runtime.opencode as opencode_module
+    import atlas_forge.runtime.claude_code as claude_code_module
+    import atlas_forge.runtime.opencode as opencode_module
 
     monkeypatch.setattr(claude_code_module, "DEFAULT_CLAUDE_CODE_COMMAND", "bash")
     monkeypatch.setattr(
@@ -54,7 +54,7 @@ def _no_real_runtime(monkeypatch):
 def isolated_socket():
     """Aísla los tests de esta Task en su propio servidor tmux, con
     limpieza garantizada incluso si el test falla a medio camino."""
-    name = f"brain-test-{uuid.uuid4().hex[:8]}"
+    name = f"atlas_forge-test-{uuid.uuid4().hex[:8]}"
     try:
         yield name
     finally:
@@ -145,7 +145,7 @@ def test_launch_without_initial_job_matches_launch_agent_registration(
     )
 
     assert agent.role == DEVELOPER_ROLE
-    # T-FB005-US01-07: el prompt ya no es exactamente DEVELOPER_PROMPT —
+    # T-AF005-US01-07: el prompt ya no es exactamente DEVELOPER_PROMPT —
     # incluye siempre la capa de identidad del proyecto activo.
     assert agent.prompt.startswith(DEVELOPER_PROMPT)
     assert tmp_path.name in agent.prompt
@@ -165,7 +165,7 @@ def test_initial_job_dispatch_failure_keeps_agent_registered_and_idle(
     (runtime que nunca reporta → timeout) deja `job.status == "failed"`
     con el motivo en `job.result`, y el agente permanece registrado y
     `idle` — el fallo NO revierte el registro ni bloquea al agente."""
-    import brain.runtime.claude_code as claude_code_module
+    import atlas_forge.runtime.claude_code as claude_code_module
 
     monkeypatch.setattr(claude_code_module, "DEFAULT_CLAUDE_CODE_ARGS", [])
     session = _active_session()
@@ -198,7 +198,7 @@ def test_manual_job_still_works_after_initial_job_dispatch_failure(
     """Criterio de aceptación: tras un fallo del Job inicial, el mismo
     agente sigue disponible para un Job manual posterior (creación +
     despacho funcionan sobre el agente ya registrado)."""
-    import brain.runtime.claude_code as claude_code_module
+    import atlas_forge.runtime.claude_code as claude_code_module
 
     monkeypatch.setattr(claude_code_module, "DEFAULT_CLAUDE_CODE_ARGS", [])
     session = _active_session()

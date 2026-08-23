@@ -1,20 +1,20 @@
-"""Test de servir la interfaz web estática (T-FB021-US01-01): comprueba que
+"""Test de servir la interfaz web estática (T-AF021-US01-01): comprueba que
 `10-web/` se sirve bajo el prefijo dedicado `/ui` sin colisionar con ningún
 endpoint de dominio existente, y que el esqueleto (index.html + CSS base de
 área clicable mínima + app.js) llega a los clientes correctamente.
 
 Se verifica explícitamente (no solo asumido) que ningún path de dominio
 existe bajo el prefijo `/ui` y que el montaje estático no altera ninguna de
-las rutas de dominio: rutas del router (`brain.api.routes`) + `/health`
+las rutas de dominio: rutas del router (`atlas_forge.api.routes`) + `/health`
 y los dos WebSockets (`/ws/jobs`, `/ws/plans`) definidos en `app.py`."""
 
 from pathlib import Path
 
 from fastapi.testclient import TestClient
 
-from brain.api import create_app
-from brain.api.routes import router as domain_router
-from brain.workspace import discover_projects, select_active_project
+from atlas_forge.api import create_app
+from atlas_forge.api.routes import router as domain_router
+from atlas_forge.workspace import discover_projects, select_active_project
 
 
 def _path_in_domain_routes(path: str) -> bool:
@@ -44,7 +44,7 @@ def test_web_root_is_served_not_a_404() -> None:
 
     assert response.status_code == 200
     assert response.headers["content-type"].startswith("text/html")
-    assert "Factory Brain" in response.text
+    assert "Atlas Forge" in response.text
 
 
 def test_web_root_without_trailing_slash_serves_index_html() -> None:
@@ -54,7 +54,7 @@ def test_web_root_without_trailing_slash_serves_index_html() -> None:
 
     assert response.status_code in (200, 307)
     if response.status_code == 200:
-        assert "Factory Brain" in response.text
+        assert "Atlas Forge" in response.text
 
 
 def test_css_is_served_with_minimum_clickable_area_rule() -> None:

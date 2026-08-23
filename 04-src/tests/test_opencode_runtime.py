@@ -4,19 +4,19 @@ import uuid
 import libtmux
 import pytest
 
-from brain.models import Runtime
-from brain.runtime import is_runtime_alive, start_runtime, stop_runtime
-from brain.runtime.claude_code import register_claude_code_runtime
-from brain.runtime.opencode import register_opencode_runtime
+from atlas_forge.models import Runtime
+from atlas_forge.runtime import is_runtime_alive, start_runtime, stop_runtime
+from atlas_forge.runtime.claude_code import register_claude_code_runtime
+from atlas_forge.runtime.opencode import register_opencode_runtime
 
 
 @pytest.fixture
 def isolated_socket():
     """Aísla los tests de esta Task en su propio servidor tmux, para no
     interferir con sesiones tmux reales del entorno (misma precaución que
-    T-FB004-US01-02: nunca lanzar los binarios reales `claude`/`opencode`
+    T-AF004-US01-02: nunca lanzar los binarios reales `claude`/`opencode`
     en tests)."""
-    name = f"brain-test-{uuid.uuid4().hex[:8]}"
+    name = f"atlas_forge-test-{uuid.uuid4().hex[:8]}"
     yield name
     try:
         libtmux.Server(socket_name=name).kill()
@@ -65,7 +65,7 @@ def test_register_opencode_runtime_uses_same_mechanism_as_claude_code() -> None:
 
 
 def test_register_opencode_runtime_includes_autonomy_flag_by_default() -> None:
-    # T-FB002-US01-01: `--auto` es el mecanismo real de OpenCode
+    # T-AF002-US01-01: `--auto` es el mecanismo real de OpenCode
     # (investigado en la documentación oficial, https://opencode.ai/docs/permissions/,
     # NO el mismo nombre que la flag de Claude Code — no se asumió).
     runtime = register_opencode_runtime()
@@ -84,7 +84,7 @@ def test_register_opencode_runtime_with_model_includes_model_flag() -> None:
 
 
 def test_register_opencode_runtime_without_model_keeps_previous_behavior() -> None:
-    # Test de regresión explícito sobre lo ya cerrado en T-FB004-US02-01:
+    # Test de regresión explícito sobre lo ya cerrado en T-AF004-US02-01:
     # sin `model`, no debe aparecer `--model` en los args.
     runtime = register_opencode_runtime()
 

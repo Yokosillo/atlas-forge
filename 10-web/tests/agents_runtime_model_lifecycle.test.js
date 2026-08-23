@@ -1,4 +1,4 @@
-/* T-FB005-US07-03 (US-FB005-07), reescrito en T-FB024-US11-13
+/* T-AF005-US07-03 (US-AF005-07), reescrito en T-AF024-US11-13
  * (2026-08-17, tercera revisión de esa Task): el modelo se elige AL
  * LANZAR, para OpenCode Y Claude Code — no solo OpenCode como antes, y
  * ya no hay ningún cambio de modelo EN CALIENTE (el mecanismo real
@@ -69,7 +69,7 @@ async function _rowState(page, devName) {
     const hasRuntimeSelect = selects.length > 0;
     // El selector de modelo (si aparece) es el SEGUNDO .runtime-select
     // de la fila, tras el de runtime — ambos comparten la misma clase de
-    // estilo (T-FB024-US11-13: ya no existe ningún selector "inline en
+    // estilo (T-AF024-US11-13: ya no existe ningún selector "inline en
     // caliente" que distinguir por separado).
     const hasModelSelect = selects.length > 1;
     const runtimeText = target.querySelector(".agent-runtime")
@@ -114,7 +114,7 @@ async function test_not_launched_requires_runtime_and_offers_model_selector() {
     assert.strictEqual(st.hasModelSelect, false, "No debe haber selector de modelo antes de elegir runtime.");
 
     // Elegir Claude Code → lanzamiento habilitado, y aparece el selector
-    // de modelo (T-FB024-US11-13: Claude Code también admite elegir
+    // de modelo (T-AF024-US11-13: Claude Code también admite elegir
     // modelo al lanzar, ya no solo OpenCode).
     await _selectRuntimeForRow(page, "Developer-1", "claude-code");
     await new Promise((r) => setTimeout(r, 200));
@@ -136,7 +136,7 @@ async function test_live_agent_shows_runtime_and_model_as_fixed_text() {
   // Interceptar GET /agents para simular un agente VIVO (idle) — sin
   // lanzar un runtime real. Verifica que un agente vivo NUNCA muestra
   // ningún selector ni botón de cambio de modelo, para ningún runtime
-  // (T-FB024-US11-13: cambio en caliente bloqueado por completo).
+  // (T-AF024-US11-13: cambio en caliente bloqueado por completo).
   await withBackend(async ({ page, baseUrl }) => {
     await page.setRequestInterception(true);
     const liveAgent = {

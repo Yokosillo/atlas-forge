@@ -1,12 +1,12 @@
 import pytest
 
-from brain.core import (
+from atlas_forge.core import (
     InvalidSessionTransitionError,
     activate,
     close,
     get_session_state,
 )
-from brain.models import DevelopmentSession
+from atlas_forge.models import DevelopmentSession
 
 
 def test_development_session_constructed_in_created_state() -> None:

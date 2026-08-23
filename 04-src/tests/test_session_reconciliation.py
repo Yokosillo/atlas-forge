@@ -5,16 +5,15 @@ import libtmux
 import pytest
 from fastapi.testclient import TestClient
 
-import brain.api.app as app_module
-import brain.api.routes as routes_module
-from brain.api import create_app
-from brain.core import resolve_startup_session
-from brain.core.session_registry import _reset_registry_for_tests
-from brain.dispatcher.job_history_registry import (
+import atlas_forge.api.routes as routes_module
+from atlas_forge.api import create_app
+from atlas_forge.core import resolve_startup_session
+from atlas_forge.core.session_registry import _reset_registry_for_tests
+from atlas_forge.dispatcher.job_history_registry import (
     _reset_registry_for_tests as _reset_job_history,
 )
-from brain.tmux.manager import create_session, run_command
-from brain.workspace import discover_projects, select_active_project
+from atlas_forge.tmux.manager import create_session, run_command
+from atlas_forge.workspace import discover_projects, select_active_project
 
 _COOPERATIVE_AGENT_SCRIPT = str(
     Path(__file__).parent / "fixtures" / "cooperative_agent_sim.sh"
@@ -30,19 +29,9 @@ def _clean_registry():
     _reset_job_history()
 
 
-@pytest.fixture(autouse=True)
-def _no_real_architect_queue_watcher(monkeypatch):
-    # T-FB030-US03-04: ver mismo fixture en test_ws_agent_pane.py — sin
-    # este stub, los tests de este fichero (que sí disparan `_lifespan`
-    # real con `with TestClient(...)` y un proyecto activo real de test)
-    # dejarían un `architect_queue_watcher.sh` real corriendo tras cada
-    # test, sin relación con la reconciliación de agentes bajo prueba.
-    monkeypatch.setattr(app_module, "launch_architect_queue_watcher", lambda *a, **k: None)
-
-
 @pytest.fixture
 def isolated_socket(monkeypatch):
-    name = f"brain-test-{uuid.uuid4().hex[:8]}"
+    name = f"atlas_forge-test-{uuid.uuid4().hex[:8]}"
     monkeypatch.setattr(routes_module, "_SOCKET_NAME", name)
     try:
         yield name
@@ -94,7 +83,7 @@ def test_reconciles_arquitecto_and_developer_sessions_created_without_register_a
     reales con nombres normalizados (Arquitecto y Developer-1) SIN pasar
     por `register_agent`/`register_developer` — simula que el proceso
     que las lanzó y registró ya no existe (el caso motivador real: un
-    reinicio de `brain-api`). Arrancar `_lifespan` desde cero (construir
+    reinicio de `atlas-forge-api`). Arrancar `_lifespan` desde cero (construir
     `TestClient`) debe reenganchar ambas y `GET /agents` debe listarlas
     en `idle`."""
     project, _session = _active_project_and_session(
@@ -161,8 +150,8 @@ def test_unrecognized_tmux_session_is_neither_reconciled_nor_destroyed(
 ) -> None:
     """Criterio de aceptación explícito: una sesión tmux sin nombre
     reconocible no aparece en GET /agents ni se destruye (sigue viva en
-    tmux, solo ignorada por Brain)."""
-    from brain.tmux.manager import is_alive
+    tmux, solo ignorada por Atlas Forge)."""
+    from atlas_forge.tmux.manager import is_alive
 
     _project, _session = _active_project_and_session(
         tmp_path, monkeypatch, "proyecto-con-sesion-ajena"
@@ -218,14 +207,14 @@ def test_reconciled_agent_receives_a_real_job_successfully(
 def test_lifespan_writes_a_reconciliation_log_entry_reflecting_the_reconciled_agent(
     tmp_path: Path, isolated_socket: str, monkeypatch
 ) -> None:
-    """T-FB037-US02-01, criterio de aceptación explícito de la Task:
-    reiniciar `brain-api` con al menos un agente vivo (sesión tmux
+    """T-AF037-US02-01, criterio de aceptación explícito de la Task:
+    reiniciar `atlas-forge-api` con al menos un agente vivo (sesión tmux
     reconocible) y confirmar que la entrada de log resultante refleja el
     número correcto de sesiones reenganchadas. `with TestClient(...)`
     dispara `_lifespan` real, igual que el resto de este fichero."""
     import json
 
-    from brain.core.reconciliation_log import reconciliation_log_path
+    from atlas_forge.core.reconciliation_log import reconciliation_log_path
 
     project, _session = _active_project_and_session(
         tmp_path, monkeypatch, "proyecto-con-log-real"
@@ -256,3 +245,83 @@ def test_lifespan_writes_a_reconciliation_log_entry_reflecting_the_reconciled_ag
         {"session_name": unrelated_session_name, "reason": "nombre_no_reconocido"}
     ]
     assert "ts" in entry and entry["ts"]
+
+
+def test_infer_runtime_and_model_detects_opencode_from_pane(monkeypatch) -> None:
+    """US-AF031-03, criterio 1/2: una sesión cuyo pane muestra la barra de
+    estado de OpenCode (`"Build · "`) se infiere como OpenCode, y el
+    nombre de pantalla extraído se mapea al id REAL del catálogo
+    ("DeepSeek V4 Flash" -> "opencode-go/deepseek-v4-flash") para que
+    `GET /agents` devuelva un modelo concreto — en vez de asumir siempre
+    Claude Code."""
+    from atlas_forge.core import session_reconciliation as sr
+
+    monkeypatch.setattr(sr, "is_alive", lambda *a, **k: True)
+    monkeypatch.setattr(
+        sr,
+        "capture_pane_lines",
+        lambda *a, **k: [
+            "some output line",
+            "Build · DeepSeek V4 Flash DeepSeek",
+        ],
+    )
+
+    runtime, model = sr._infer_runtime_and_model_for_session("developer-1-proj")
+
+    assert runtime.type == "opencode"
+    assert runtime.id == "opencode"
+    assert model == "opencode-go/deepseek-v4-flash"
+
+
+def test_infer_runtime_and_model_leaves_model_none_for_unmatched_display_name(
+    monkeypatch,
+) -> None:
+    """US-AF031-03, criterio 2: si el nombre tras `"Build · "` no coincide
+    con ninguna entrada del catálogo, el runtime se detecta como OpenCode
+    pero el modelo se deja `None` — nunca un valor inventado."""
+    from atlas_forge.core import session_reconciliation as sr
+
+    monkeypatch.setattr(sr, "is_alive", lambda *a, **k: True)
+    monkeypatch.setattr(
+        sr,
+        "capture_pane_lines",
+        lambda *a, **k: ["Build · Modelo Desconocido Futurista"],
+    )
+
+    runtime, model = sr._infer_runtime_and_model_for_session("developer-1-proj")
+
+    assert runtime.type == "opencode"
+    assert model is None
+
+
+def test_infer_runtime_and_model_defaults_to_claude_code_without_pattern(
+    monkeypatch,
+) -> None:
+    """US-AF031-03, criterio 3: sin ningún patrón reconocible en el pane
+    (agente recién lanzado, CLI distinto, o Claude Code), se conserva el
+    comportamiento documentado: `claude-code` por defecto, modelo `None`."""
+    from atlas_forge.core import session_reconciliation as sr
+
+    monkeypatch.setattr(sr, "is_alive", lambda *a, **k: True)
+    monkeypatch.setattr(
+        sr, "capture_pane_lines", lambda *a, **k: ["just some shell output"]
+    )
+
+    runtime, model = sr._infer_runtime_and_model_for_session("developer-1-proj")
+
+    assert runtime.type == "claude-code"
+    assert runtime.id == "claude-code"
+    assert model is None
+
+
+def test_infer_runtime_and_model_handles_dead_session(monkeypatch) -> None:
+    """US-AF031-03, criterio 3: una sesión no viva (o un fallo al capturar
+    el pane) no rompe la inferencia — se conserva el default claude-code."""
+    from atlas_forge.core import session_reconciliation as sr
+
+    monkeypatch.setattr(sr, "is_alive", lambda *a, **k: False)
+
+    runtime, model = sr._infer_runtime_and_model_for_session("developer-1-proj")
+
+    assert runtime.type == "claude-code"
+    assert model is None

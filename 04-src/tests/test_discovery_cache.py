@@ -1,4 +1,4 @@
-"""Tests de T-FB001-US01-06: caché TTL para `discover_projects` y
+"""Tests de T-AF001-US01-06: caché TTL para `discover_projects` y
 `discover_project_scripts` — verifica que varias llamadas seguidas no repiten
 el recorrido del filesystem, que los cambios se ven tras expirar el TTL, y
 que los errores NO se cachean."""
@@ -9,11 +9,11 @@ from pathlib import Path
 
 import pytest
 
-import brain.workspace.discovery as discovery_module
-import brain.workspace.project_scripts as project_scripts_module
-from brain.workspace import discover_projects
-from brain.workspace.discovery import invalidate_discovery_cache
-from brain.workspace.project_scripts import (
+import atlas_forge.workspace.discovery as discovery_module
+import atlas_forge.workspace.project_scripts as project_scripts_module
+from atlas_forge.workspace import discover_projects
+from atlas_forge.workspace.discovery import invalidate_discovery_cache
+from atlas_forge.workspace.project_scripts import (
     MANIFEST_RELATIVE_PATH,
     MalformedScriptManifestError,
     discover_project_scripts,

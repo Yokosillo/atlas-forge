@@ -1,0 +1,8 @@
+{
+  "comment": "Fixture de actividad simulada del agente (T-AF023-US01-03): secuencias de timestamps (epoch segundos) de última actividad observados en lecturas consecutivas, SIN procesos reales. Los tests alimentan detect_agent_activity/compute_supervision_state con estos valores.",
+  "now": 1300.0,
+  "default_threshold_seconds": 120.0,
+  "frozen_history": [1000.0, 1000.0, 1000.0, 1000.0],
+  "spaced_history": [1000.0, 1050.0, 1100.0, 1150.0],
+  "recent_history": [1280.0, 1290.0, 1295.0]
+}

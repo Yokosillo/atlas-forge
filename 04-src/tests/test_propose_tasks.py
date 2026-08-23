@@ -1,7 +1,7 @@
-"""Tests de T-FB022-US03-02B: generacion real de Tasks desde una User
+"""Tests de T-AF022-US03-02B: generacion real de Tasks desde una User
 Story.
 
-El fixture usa una US real del repo (US-FB022-02) para verificar que la
+El fixture usa una US real del repo (US-AF022-02) para verificar que la
 generacion produce contenido real con Tasks que pasan _is_independent_value.
 """
 
@@ -9,12 +9,12 @@ from pathlib import Path
 
 import pytest
 
-from brain.architect.review_user_story import (
+from atlas_forge.architect.review_user_story import (
     USGap,
     USReviewResult,
     review_user_story_for_gaps,
 )
-from brain.architect.propose_tasks import (
+from atlas_forge.architect.propose_tasks import (
     ProposedTask,
     ProposedTasks,
     _is_independent_value,
@@ -30,7 +30,7 @@ from brain.architect.propose_tasks import (
 
 def _fixture_review_ready() -> USReviewResult:
     return USReviewResult(
-        story_id="US-FB-999-01",
+        story_id="US-AF-999-01",
         has_gaps=False,
         gaps=[],
         ready_for_tasks=True,
@@ -39,7 +39,7 @@ def _fixture_review_ready() -> USReviewResult:
 
 def _fixture_review_with_gaps() -> USReviewResult:
     return USReviewResult(
-        story_id="US-FB-999-gap",
+        story_id="US-AF-999-gap",
         has_gaps=True,
         gaps=[USGap(section="Historia", description="Vacia.")],
         ready_for_tasks=False,
@@ -51,7 +51,7 @@ def _fixture_real_us_path() -> str:
         Path(__file__).resolve().parents[2]
         / "02-backlog"
         / "user-stories"
-        / "US-FB022-02-generador-epic-a-user-stories.md"
+        / "US-AF022-02-generador-epic-a-user-stories.md"
     )
 
 
@@ -61,7 +61,7 @@ def _fixture_real_us_path() -> str:
 class TestIsIndependentValue:
     def test_rejects_task_with_endpoint(self):
         task = ProposedTask(
-            id="T-001", title="Test", epic_id="FB-001", us_id="US-001",
+            id="T-001", title="Test", epic_id="AF-001", us_id="US-001",
             objective="Exponer un endpoint", description="Crear ruta",
             criteria=[], priority="Alta", difficulty="Media",
         )
@@ -69,7 +69,7 @@ class TestIsIndependentValue:
 
     def test_rejects_task_with_api(self):
         task = ProposedTask(
-            id="T-002", title="Test", epic_id="FB-001", us_id="US-001",
+            id="T-002", title="Test", epic_id="AF-001", us_id="US-001",
             objective="Construir API", description="Implementar",
             criteria=[], priority="Alta", difficulty="Media",
         )
@@ -77,7 +77,7 @@ class TestIsIndependentValue:
 
     def test_accepts_pure_domain_task(self):
         task = ProposedTask(
-            id="T-003", title="Test", epic_id="FB-001", us_id="US-001",
+            id="T-003", title="Test", epic_id="AF-001", us_id="US-001",
             objective="Implementar la logica central de validacion",
             description="Funcion pura sin dependencias externas",
             criteria=[], priority="Alta", difficulty="Media",
@@ -121,9 +121,9 @@ class TestProposeTasksFromUserStory:
     def test_produces_non_empty_tasks_for_ready_story(self, tmp_path: Path):
         review = _fixture_review_ready()
         path = tmp_path / "US-001.md"
-        path.write_text("## Historia\n\nConstruir cola de mensajes interna.\n\n## Criterios de aceptación\n\n- CR1: La cola encola y desencola.\n\n## Prioridad\n\nAlta\n\n## Dependencias\n\n**FB-999**\n\n## Estado\n\nTODO\n", encoding="utf-8")
+        path.write_text("## Historia\n\nConstruir cola de mensajes interna.\n\n## Criterios de aceptación\n\n- CR1: La cola encola y desencola.\n\n## Prioridad\n\nAlta\n\n## Dependencias\n\n**AF-999**\n\n## Estado\n\nTODO\n", encoding="utf-8")
 
-        result = propose_tasks_from_user_story(review, "FB-999", str(path))
+        result = propose_tasks_from_user_story(review, "AF-999", str(path))
         assert len(result.tasks) > 0, (
             f"Debe generar al menos una Task, generadas: {len(result.tasks)}"
         )
@@ -131,14 +131,14 @@ class TestProposeTasksFromUserStory:
     def test_each_task_has_required_fields(self, tmp_path: Path):
         review = _fixture_review_ready()
         path = tmp_path / "US-001.md"
-        path.write_text("## Historia\n\nImplementar cache de consultas sin exponerlo.\n\n## Criterios de aceptación\n\n- CR1: Acelera consultas.\n\n## Prioridad\n\nAlta\n\n## Dependencias\n\n**FB-999**\n\n## Estado\n\nTODO\n", encoding="utf-8")
+        path.write_text("## Historia\n\nImplementar cache de consultas sin exponerlo.\n\n## Criterios de aceptación\n\n- CR1: Acelera consultas.\n\n## Prioridad\n\nAlta\n\n## Dependencias\n\n**AF-999**\n\n## Estado\n\nTODO\n", encoding="utf-8")
 
-        result = propose_tasks_from_user_story(review, "FB-999", str(path))
+        result = propose_tasks_from_user_story(review, "AF-999", str(path))
         for task in result.tasks:
             assert task.id, f"Task {task} should have an id"
             assert task.title, f"Task {task} should have a title"
-            assert task.epic_id == "FB-999"
-            assert task.us_id == "US-FB-999-01"
+            assert task.epic_id == "AF-999"
+            assert task.us_id == "US-AF-999-01"
             assert task.objective, f"Task {task} should have an objective"
             assert task.description, f"Task {task} should have a description"
             assert len(task.criteria) >= 1, f"Task {task} should have criteria"
@@ -148,9 +148,9 @@ class TestProposeTasksFromUserStory:
     def test_no_task_has_independent_value(self, tmp_path: Path):
         review = _fixture_review_ready()
         path = tmp_path / "US-001.md"
-        path.write_text("## Historia\n\nImplementar cache interno sin exponerlo.\n\n## Criterios de aceptación\n\n- CR1: Funciona.\n\n## Prioridad\n\nAlta\n\n## Dependencias\n\n**FB-999**\n\n## Estado\n\nTODO\n", encoding="utf-8")
+        path.write_text("## Historia\n\nImplementar cache interno sin exponerlo.\n\n## Criterios de aceptación\n\n- CR1: Funciona.\n\n## Prioridad\n\nAlta\n\n## Dependencias\n\n**AF-999**\n\n## Estado\n\nTODO\n", encoding="utf-8")
 
-        result = propose_tasks_from_user_story(review, "FB-999", str(path))
+        result = propose_tasks_from_user_story(review, "AF-999", str(path))
         for task in result.tasks:
             assert not _is_independent_value(task), (
                 f"Task {task.id} tiene valor observable independiente: "
@@ -160,9 +160,9 @@ class TestProposeTasksFromUserStory:
     def test_tasks_have_sequential_ids(self, tmp_path: Path):
         review = _fixture_review_ready()
         path = tmp_path / "US-001.md"
-        path.write_text("## Historia\n\nImplementar cache de consultas sin exponerlo externamente.\n\n## Criterios de aceptación\n\n- CR1: El cache acelera consultas repetidas.\n\n## Prioridad\n\nAlta\n\n## Dependencias\n\n**FB-999**\n\n## Estado\n\nTODO\n", encoding="utf-8")
+        path.write_text("## Historia\n\nImplementar cache de consultas sin exponerlo externamente.\n\n## Criterios de aceptación\n\n- CR1: El cache acelera consultas repetidas.\n\n## Prioridad\n\nAlta\n\n## Dependencias\n\n**AF-999**\n\n## Estado\n\nTODO\n", encoding="utf-8")
 
-        result = propose_tasks_from_user_story(review, "FB-999", str(path))
+        result = propose_tasks_from_user_story(review, "AF-999", str(path))
         ids = [t.id for t in result.tasks]
         assert len(ids) >= 2, f"Expected at least 2 tasks, got {ids}"
 
@@ -171,7 +171,7 @@ class TestProposeTasksFromUserStory:
         path = tmp_path / "US-001.md"
         path.write_text("## Historia\n\nVacia.\n", encoding="utf-8")
 
-        result = propose_tasks_from_user_story(review, "FB-999", str(path))
+        result = propose_tasks_from_user_story(review, "AF-999", str(path))
         assert result.tasks == []
         assert len(result.notes) >= 1
         assert "huecos" in result.notes[0].lower()
@@ -183,7 +183,7 @@ class TestProposeTasksFromUserStory:
         path = tmp_path / "US-001.md"
         path.write_text("## Historia\n\nNada.\n", encoding="utf-8")
 
-        result = propose_tasks_from_user_story(review, "FB-999", str(path))
+        result = propose_tasks_from_user_story(review, "AF-999", str(path))
         assert result.tasks == []
         assert len(result.notes) >= 1
         assert "no esta lista" in result.notes[0].lower()
@@ -191,11 +191,11 @@ class TestProposeTasksFromUserStory:
     def test_llm_generate_overrides(self, tmp_path: Path):
         review = _fixture_review_ready()
         path = tmp_path / "US-001.md"
-        path.write_text("## Historia\n\nConstruir modulo.\n\n## Criterios de aceptación\n\n- CR1: Funciona.\n\n## Prioridad\n\nAlta\n\n## Dependencias\n\n**FB-999**\n\n## Estado\n\nTODO\n", encoding="utf-8")
+        path.write_text("## Historia\n\nConstruir modulo.\n\n## Criterios de aceptación\n\n- CR1: Funciona.\n\n## Prioridad\n\nAlta\n\n## Dependencias\n\n**AF-999**\n\n## Estado\n\nTODO\n", encoding="utf-8")
 
         fake_task = ProposedTask(
-            id="US-FB-999-01-LLM", title="LLM task",
-            epic_id="FB-999", us_id="US-FB-999-01",
+            id="US-AF-999-01-LLM", title="LLM task",
+            epic_id="AF-999", us_id="US-AF-999-01",
             objective="Generado por LLM",
             description="Propuesta LLM.",
             criteria=["Criterio LLM"],
@@ -207,19 +207,19 @@ class TestProposeTasksFromUserStory:
             return ProposedTasks(story_id=rev.story_id, epic_id=eid, tasks=[fake_task])
 
         result = propose_tasks_from_user_story(
-            review, "FB-999", str(path), llm_generate=fake_llm,
+            review, "AF-999", str(path), llm_generate=fake_llm,
         )
         assert len(result.tasks) == 1
-        assert result.tasks[0].id == "US-FB-999-01-LLM"
+        assert result.tasks[0].id == "US-AF-999-01-LLM"
 
 
 class TestProposeTasksRealUS:
-    def test_generates_tasks_from_real_us_fb022_02(self, tmp_path: Path):
+    def test_generates_tasks_from_real_us_af022_02(self, tmp_path: Path):
         us_content = (
-            "---\nid: US-FB022-02-test\ntype: user_story\ntitle: Arquitecto propone User Stories\n"
-            "state: TO_DO\ndependencies: []\nepic: FB-022\npriority: Alta\n---\n\n"
-            "# US-FB022-02 · Test\n\n"
-            "**Epic:** FB-022\n\n"
+            "---\nid: US-AF022-02-test\ntype: user_story\ntitle: Arquitecto propone User Stories\n"
+            "state: READY\ndependencies: []\nepic: AF-022\npriority: Alta\n---\n\n"
+            "# US-AF022-02 · Test\n\n"
+            "**Epic:** AF-022\n\n"
             "## Historia\n\n"
             "Como desarrollador, quiero que el Arquitecto proponga User Stories "
             "a partir de un Epic existente.\n\n"
@@ -232,7 +232,7 @@ class TestProposeTasksRealUS:
             "- Cada User Story se escribe siguiendo el formato estandar.\n"
             "- Las User Stories generadas respetan el alcance v1/v2.\n"
         )
-        path = tmp_path / "US-FB022-02-test.md"
+        path = tmp_path / "US-AF022-02-test.md"
         path.write_text(us_content, encoding="utf-8")
 
         review = review_user_story_for_gaps(str(path))
@@ -240,31 +240,31 @@ class TestProposeTasksRealUS:
             f"La US deberia estar lista, gaps: {review.gaps}"
         )
         result = propose_tasks_from_user_story(
-            review, "FB-022", str(path),
+            review, "AF-022", str(path),
         )
         assert len(result.tasks) > 0, (
-            f"US-FB022-02 real deberia generar al menos una Task, generadas: {len(result.tasks)}"
+            f"US-AF022-02 real deberia generar al menos una Task, generadas: {len(result.tasks)}"
         )
 
     def test_real_us_tasks_have_meaningful_content(self, tmp_path: Path):
         us_content = (
-            "---\nid: US-FB022-02-test\ntype: user_story\ntitle: Generar User Stories desde un Epic\n"
-            "state: TO_DO\ndependencies: []\nepic: FB-022\npriority: Alta\n---\n\n"
-            "# US-FB022-02 · Test\n\n"
-            "**Epic:** FB-022\n\n"
+            "---\nid: US-AF022-02-test\ntype: user_story\ntitle: Generar User Stories desde un Epic\n"
+            "state: READY\ndependencies: []\nepic: AF-022\npriority: Alta\n---\n\n"
+            "# US-AF022-02 · Test\n\n"
+            "**Epic:** AF-022\n\n"
             "## Historia\n\n"
             "Como usuario quiero generar User Stories desde un Epic.\n\n"
             "## Criterios de aceptación\n\n"
             "- CR1: El sistema genera US a partir de un Epic.\n"
             "- CR2: El resultado es verificable.\n"
         )
-        path = tmp_path / "US-FB022-02-test.md"
+        path = tmp_path / "US-AF022-02-test.md"
         path.write_text(us_content, encoding="utf-8")
 
         review = review_user_story_for_gaps(str(path))
         assert review.ready_for_tasks
         result = propose_tasks_from_user_story(
-            review, "FB-022", str(path),
+            review, "AF-022", str(path),
         )
         for task in result.tasks:
             assert len(task.objective) > 10, (
@@ -279,23 +279,23 @@ class TestProposeTasksRealUS:
 
     def test_real_us_tasks_pass_independent_value_check(self, tmp_path: Path):
         us_content = (
-            "---\nid: US-FB022-02-test\ntype: user_story\ntitle: Generar User Stories desde un Epic\n"
-            "state: TO_DO\ndependencies: []\nepic: FB-022\npriority: Alta\n---\n\n"
-            "# US-FB022-02 · Test\n\n"
-            "**Epic:** FB-022\n\n"
+            "---\nid: US-AF022-02-test\ntype: user_story\ntitle: Generar User Stories desde un Epic\n"
+            "state: READY\ndependencies: []\nepic: AF-022\npriority: Alta\n---\n\n"
+            "# US-AF022-02 · Test\n\n"
+            "**Epic:** AF-022\n\n"
             "## Historia\n\n"
             "Como usuario quiero generar User Stories desde un Epic.\n\n"
             "## Criterios de aceptación\n\n"
             "- CR1: El sistema genera US.\n"
             "- CR2: El resultado es verificable.\n"
         )
-        path = tmp_path / "US-FB022-02-test.md"
+        path = tmp_path / "US-AF022-02-test.md"
         path.write_text(us_content, encoding="utf-8")
 
         review = review_user_story_for_gaps(str(path))
         assert review.ready_for_tasks
         result = propose_tasks_from_user_story(
-            review, "FB-022", str(path),
+            review, "AF-022", str(path),
         )
         for task in result.tasks:
             assert not _is_independent_value(task), (

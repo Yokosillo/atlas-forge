@@ -1,6 +1,6 @@
 """Script de migracion de todo `02-backlog/` del formato Markdown antiguo
 (regex sobre convenciones de texto) al formato YAML frontmatter + Markdown
-(FB-027).
+(AF-027).
 
 Uso:
     python3 migrate_backlog.py [--dry-run] [--backlog-path 02-backlog/]
@@ -27,11 +27,11 @@ import yaml
 # ── patterns ────────────────────────────────────────────────────────────────
 
 _ID_PATTERN = re.compile(
-    r"(?:T|US)-FB\d{3,}(?:-US\d{2}[A-Z]?)?-\d{2}[A-Z]?"
+    r"(?:T|US)-AF\d{3,}(?:-US\d{2}[A-Z]?)?-\d{2}[A-Z]?"
 )
-_EPIC_ID_PATTERN = re.compile(r"FB-\d{3,}")
+_EPIC_ID_PATTERN = re.compile(r"AF-\d{3,}")
 _ALL_ID_SCAN = re.compile(
-    r"(?:T|US)-FB\d{3,}(?:-US\d{2}[A-Z]?)?-\d{2}[A-Z]?|FB-\d{3,}"
+    r"(?:T|US)-AF\d{3,}(?:-US\d{2}[A-Z]?)?-\d{2}[A-Z]?|AF-\d{3,}"
 )
 
 _ESTADO_HEADER = re.compile(r"^##\s*Estado\s*(?::\s*(.+))?$", re.IGNORECASE)
@@ -40,7 +40,7 @@ _DEPENDENCIAS_HEADER = re.compile(r"^##\s*Dependencias\s*$", re.IGNORECASE)
 _FASE_HEADER = re.compile(r"^##\s*Fase\s*(?::\s*(.+))?$", re.IGNORECASE)
 _SECTION_HEADER = re.compile(r"^##\s+")
 _BOLD_DEP_RE = re.compile(
-    r"\*\*((?:T|US)-FB\d{3,}(?:-US\d{2}[A-Z]?)?-\d{2}[A-Z]?|FB-\d{3,})\*\*"
+    r"\*\*((?:T|US)-AF\d{3,}(?:-US\d{2}[A-Z]?)?-\d{2}[A-Z]?|AF-\d{3,})\*\*"
 )
 
 _VALID_STATES = {"TODO", "IN_PROGRESS", "REVIEW", "DONE"}
@@ -64,7 +64,7 @@ def _item_id_from_stem(stem: str) -> str | None:
 def _item_type(item_id: str) -> str:
     if item_id.startswith("US-"):
         return "user_story"
-    if item_id.startswith("FB-"):
+    if item_id.startswith("AF-"):
         return "epic"
     return "task"
 
@@ -158,7 +158,7 @@ def _extract_dependencies(lines: list[str], own_id: str | None) -> tuple[list[st
                     if found_id != own_id and found_id not in deps:
                         deps.add(found_id)
 
-            backtick_ids = re.findall(r"`((?:T|US)-FB\d{3,}(?:-US\d{2}[A-Z]?)?-\d{2}[A-Z]?)`", stripped)
+            backtick_ids = re.findall(r"`((?:T|US)-AF\d{3,}(?:-US\d{2}[A-Z]?)?-\d{2}[A-Z]?)`", stripped)
             for found_id in backtick_ids:
                 if found_id != own_id:
                     deps.add(found_id)
@@ -239,7 +239,7 @@ def _extract_us_ref(lines: list[str]) -> str | None:
             value = stripped.removeprefix("**User Story:").strip()
             value = value.removeprefix("**").strip()
             value = value.rstrip("*").strip()
-            m = re.match(r"US-FB\d{3,}-\d{2}[A-Z]?", value)
+            m = re.match(r"US-AF\d{3,}-\d{2}[A-Z]?", value)
             return m.group(0) if m else None
     return None
 

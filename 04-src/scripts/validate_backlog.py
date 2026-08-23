@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """CLI de validacion de formato de backlog contra `validate_backlog_file_v2`
-(YAML frontmatter, FB-027) — dos modos:
+(YAML frontmatter, AF-027) — dos modos:
 
-## Modo staged (por defecto, T-FB022-US13-06)
+## Modo staged (por defecto, T-AF022-US13-06)
 
 Valida solo los ficheros de `02-backlog/{epics,user-stories,tasks}/*.md`
 que estan STAGED en el commit actual (`git diff --cached --name-only`) —
@@ -15,12 +15,12 @@ ambos deben pasar, ninguno exime al otro.
 Uso:
     python3 04-src/scripts/validate_backlog.py
 
-## Modo lote (--batch, T-FB022-US13-07)
+## Modo lote (--batch, T-AF022-US13-07)
 
 Valida TODOS los `.md` de un directorio arbitrario (no necesariamente
 `02-backlog/` de un proyecto, ni dentro de un repositorio git) — pensado
 para revisar de antemano un lote de migracion (backlog externo ya
-convertido al esquema de Factory Brain) antes de moverlo al repositorio
+convertido al esquema de Atlas Forge) antes de moverlo al repositorio
 real. Reporte agregado legible (total / validos / invalidos con su error
 exacto). Nunca escribe ni mueve nada — solo lectura y reporte.
 
@@ -38,7 +38,7 @@ import subprocess
 import sys
 from pathlib import Path
 
-from brain.backlog.validator_v2 import ValidationResultV2, validate_backlog_file_v2
+from atlas_forge.backlog.validator_v2 import ValidationResultV2, validate_backlog_file_v2
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 
@@ -47,7 +47,7 @@ _BACKLOG_SUBDIRS = ("epics", "user-stories", "tasks")
 
 def _staged_backlog_files() -> list[Path]:
     """Ficheros `.md` de `02-backlog/{epics,user-stories,tasks}/` staged
-    en el commit actual (criterio 3 de T-FB022-US13-06: no repasar los
+    en el commit actual (criterio 3 de T-AF022-US13-06: no repasar los
     ~400 ficheros existentes en cada commit sin necesidad)."""
     result = subprocess.run(
         ["git", "diff", "--cached", "--name-only", "--diff-filter=ACM"],
@@ -131,8 +131,8 @@ def main() -> int:
         metavar="DIRECTORIO",
         type=Path,
         default=None,
-        help="valida todos los .md de este directorio (modo lote, T-FB022-US13-07) "
-             "en vez del modo staged por defecto (T-FB022-US13-06)",
+        help="valida todos los .md de este directorio (modo lote, T-AF022-US13-07) "
+             "en vez del modo staged por defecto (T-AF022-US13-06)",
     )
     args = parser.parse_args()
 

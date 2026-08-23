@@ -2,7 +2,7 @@
 
 ## Runtimes
 
-Factory Brain does not run models directly: each launched agent is a **runtime instance** running in a **tmux session** of the dedicated `factory-brain` server (`tmux/manager.py`). The initial prompt is passed as an argument in the startup command itself (not "written" afterwards).
+Atlas Forge does not run models directly: each launched agent is a **runtime instance** running in a **tmux session** of the dedicated `atlas-forge` server (`tmux/manager.py`). The initial prompt is passed as an argument in the startup command itself (not "written" afterwards).
 
 ### Claude Code
 
@@ -37,7 +37,7 @@ codex -a never -s workspace-write [--model <model>] <prompt>
 
 ## Model selection
 
-Runtime and model are chosen **at launch time only**, for all three runtimes above — there is no on-the-fly model switch for a live agent. `brain/agent_model.py` exposes `get_active_model(agent_id)` (reads the model currently reported by the runtime's pane, `None` for a dead session or an unrecognized pattern) and `get_available_models()`/`get_available_model_entries()` (reads the `.factory-brain/models.yml` catalog). `resolve_runtime_for_model(model_id)` maps a catalog entry to its real launch type.
+Runtime and model are chosen **at launch time only**, for all three runtimes above — there is no on-the-fly model switch for a live agent. `atlas_forge/agent_model.py` exposes `get_active_model(agent_id)` (reads the model currently reported by the runtime's pane, `None` for a dead session or an unrecognized pattern) and `get_available_models()`/`get_available_model_entries()` (reads the `.atlas-forge/models.yml` catalog). `resolve_runtime_for_model(model_id)` maps a catalog entry to its real launch type.
 
 Exposed in the API: `GET /agents/{id}/model`, `GET /agents/{id}/available-models`.
 
@@ -47,7 +47,7 @@ Exposed in the API: `GET /agents/{id}/model`, `GET /agents/{id}/available-models
 
 - **Base URL**: `http://localhost:11434` (OpenAI-compatible `/v1/chat/completions` endpoint).
 - **Default model**: `qwen2.5-coder:14b`.
-- **Closed catalog of operations** (`brain/local_tools/scribe.py`):
+- **Closed catalog of operations** (`atlas_forge/local_tools/scribe.py`):
 
 | Operation | Use |
 |---|---|

@@ -3,20 +3,20 @@ import uuid
 import libtmux
 import pytest
 
-from brain.agents import AgentRuntimeNotFoundError, mark_unavailable, stop_agent
-from brain.core.session_lifecycle import activate, list_agents
-from brain.agents.launch import launch_agent
-from brain.dispatcher import JobCreationError, create_job
-from brain.models import Agent, DevelopmentSession
-from brain.runtime import is_runtime_alive
+from atlas_forge.agents import AgentRuntimeNotFoundError, mark_unavailable, stop_agent
+from atlas_forge.core.session_lifecycle import activate, list_agents
+from atlas_forge.agents.launch import launch_agent
+from atlas_forge.dispatcher import JobCreationError, create_job
+from atlas_forge.models import Agent, DevelopmentSession
+from atlas_forge.runtime import is_runtime_alive
 
 
 @pytest.fixture(autouse=True)
 def _no_real_runtime(monkeypatch):
     """Mismo patrón de aislamiento ya usado en test_launch_agent.py: nunca
     invocar los binarios reales de Claude Code/OpenCode en tests."""
-    import brain.runtime.claude_code as claude_code_module
-    import brain.runtime.opencode as opencode_module
+    import atlas_forge.runtime.claude_code as claude_code_module
+    import atlas_forge.runtime.opencode as opencode_module
 
     monkeypatch.setattr(claude_code_module, "DEFAULT_CLAUDE_CODE_COMMAND", "sleep")
     monkeypatch.setattr(claude_code_module, "DEFAULT_CLAUDE_CODE_ARGS", ["5"])
@@ -27,7 +27,7 @@ def _no_real_runtime(monkeypatch):
 
 @pytest.fixture
 def isolated_socket():
-    name = f"brain-test-{uuid.uuid4().hex[:8]}"
+    name = f"atlas_forge-test-{uuid.uuid4().hex[:8]}"
     try:
         yield name
     finally:
@@ -47,7 +47,7 @@ def test_stop_agent_kills_the_real_tmux_session_and_marks_stopped(
     isolated_socket: str, tmp_path
 ) -> None:
     # Rol no-Developer (Arquitecto): comportamiento clásico, sin cambios
-    # por T-FB024-US12-02 — pausa a `stopped`, permanece en `session.agents`.
+    # por T-AF024-US12-02 — pausa a `stopped`, permanece en `session.agents`.
     session = _active_session()
     agent, runtime_instance = launch_agent(
         "arquitecto", "claude-code", None, session, str(tmp_path), socket_name=isolated_socket
@@ -64,7 +64,7 @@ def test_stop_agent_kills_the_real_tmux_session_and_marks_stopped(
 def test_stop_agent_removes_developer_from_session_entirely(
     isolated_socket: str, tmp_path
 ) -> None:
-    # T-FB024-US12-02: para Developer, "detener" elimina el Agent por
+    # T-AF024-US12-02: para Developer, "detener" elimina el Agent por
     # completo de session.agents (no queda un `stopped` residual ocupando
     # cupo) — criterio de aceptación 1.
     session = _active_session()
@@ -116,7 +116,7 @@ def test_creating_a_job_for_a_stopped_agent_is_rejected_like_any_non_idle_agent(
     # Criterio de aceptación explícito: create_job ya rechaza agentes no
     # idle — verificar explícitamente que stopped cae en ese rechazo,
     # mismo mecanismo, sin lógica nueva en job_creation.py. Rol no-Developer
-    # (Arquitecto) a propósito: con Developer (T-FB024-US12-02), el agente
+    # (Arquitecto) a propósito: con Developer (T-AF024-US12-02), el agente
     # detenido ya no pertenece a la sesión, y este test dejaría de probar
     # el rechazo por "no idle" para probar el de "no pertenece" en su lugar.
     session = _active_session()

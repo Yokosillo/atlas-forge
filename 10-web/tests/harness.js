@@ -1,9 +1,9 @@
-/* Harness reutilizable de la suite Puppeteer (T-FB022-US15-03,
- * US-FB022-15 · "El Tester verifica la interfaz web real"): arranca un
- * `brain-api` real y completamente aislado (state_dir/socket tmux
+/* Harness reutilizable de la suite Puppeteer (T-AF022-US15-03,
+ * US-AF022-15 · "El Tester verifica la interfaz web real"): arranca un
+ * `atlas-forge-api` real y completamente aislado (state_dir/socket tmux
  * temporales, proyecto activo preseleccionado — mismo patrón ya usado
  * por varios Developer para verificar cambios de `10-web/` en esta
- * sesión, ver `07-informes/US-FB024-11/corregir-editor-modelo-filas-sinteticas.md`),
+ * sesión, ver `07-informes/US-AF024-11/corregir-editor-modelo-filas-sinteticas.md`),
  * navega esa web real con Chromium headless, y cierra todo limpiamente
  * al terminar. Nunca toca el proceso de producción (`:8000` real) ni
  * ninguna sesión tmux de agentes reales — el backend de cada test corre
@@ -27,7 +27,7 @@
  * `run_isolated_test_backend.py`). Solo hace falta cuando el escenario
  * necesita un estado que ningún endpoint HTTP permite crear hoy — p. ej.
  * `dependencies` en una User Story, campo que `CreateUserStoryRequest`
- * no acepta (T-FB036-US01-10) — y el test escribe el frontmatter
+ * no acepta (T-AF036-US01-10) — y el test escribe el frontmatter
  * directamente con `fs`, en vez de mockear nada del backend real.
  *
  * `withBackend` se encarga de: arrancar el backend aislado (subproceso
@@ -203,7 +203,7 @@ async function waitVisible(page, selector, options) {
 }
 
 /** Pausa determinista de `millis` — usado deliberadamente en el test del
- * bug de polling (T-FB024-US11-07): esperar un ciclo real de
+ * bug de polling (T-AF024-US11-07): esperar un ciclo real de
  * `POLL_INTERVAL_MILLIS` (3000ms en `app.js`) con el editor abierto es
  * el propio caso de prueba, no un `sleep` de conveniencia a evitar. */
 function sleep(millis) {

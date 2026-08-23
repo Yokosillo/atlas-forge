@@ -1,10 +1,10 @@
-/* T-FB036-US10-01 (US-FB036-10): exponer en la web "Proponer User
+/* T-AF036-US10-01 (US-AF036-10): exponer en la web "Proponer User
  * Stories" en el detalle de Epic → `POST /backlog/epic/{epic_id}/propose-stories`.
  *
- * DEPRECATED (T-FB008-US15-02, 2026-08-17): este fichero cubría también
+ * DEPRECATED (T-AF008-US15-02, 2026-08-17): este fichero cubría también
  * "Aterrizar en Tasks" (US→Tasks), que llamaba SIEMPRE de forma síncrona
  * al endpoint desde el navegador. Ese botón fue sustituido por "Progresar"
- * (marca `EN_DISEÑO`, el Dispatcher reparte el aterrizaje al Arquitecto
+ * (marca `TO_PLAN`, el Dispatcher reparte el aterrizaje al Arquitecto
  * libre) — los tests de ese flujo viejo se movieron/reescribieron en
  * `backlog_progresar_user_story.test.js`. Solo queda aquí "Proponer User
  * Stories" (Epic→US), que esta reorganización NO toca.
@@ -158,7 +158,7 @@ async function test_propose_stories_rejected_shows_verbatim_reason() {
     // Epic creada por el formulario real: solo tiene `## Objetivo`, sin
     // `## Alcance v1` — el pipeline determinista no genera ninguna US y la
     // autoauditoría la RECHAZA ("No se generó ninguna User Story.").
-    await _createEpicViaForm(page, "FB-920", "Epic sin alcance");
+    await _createEpicViaForm(page, "AF-920", "Epic sin alcance");
 
     await page.waitForFunction(
       () =>
@@ -182,7 +182,7 @@ async function test_propose_stories_rejected_shows_verbatim_reason() {
     // Nada se escribió a disco: el detalle sigue sin ninguna User Story.
     const hasUs = await page.evaluate(() =>
       Array.from(document.querySelectorAll(".backlog-us-line-title")).some((l) =>
-        l.textContent.includes("US-FB920")
+        l.textContent.includes("US-AF920")
       )
     );
     assert.strictEqual(hasUs, false, "No debe aparecer ninguna User Story cuando el pipeline no aprobó.");
@@ -199,16 +199,16 @@ async function test_propose_stories_approved_refreshes_epic_list() {
   await withBackend(async ({ page, baseUrl }) => {
     await page.goto(baseUrl + "/ui/");
     await _goToBacklogTab(page);
-    await _createEpicViaForm(page, "FB-922", "Epic con alcance");
+    await _createEpicViaForm(page, "AF-922", "Epic con alcance");
 
     const proposedStories = [
-      { id: "US-FB922-01", title: "Registrar un tipo de agente nuevo", epic_id: "FB-922",
+      { id: "US-AF922-01", title: "Registrar un tipo de agente nuevo", epic_id: "AF-922",
         description: "Registrar.", criteria: ["Criterio."], priority: "Alta" },
-      { id: "US-FB922-02", title: "Generar User Stories", epic_id: "FB-922",
+      { id: "US-AF922-02", title: "Generar User Stories", epic_id: "AF-922",
         description: "Generar.", criteria: ["Criterio."], priority: "Alta" },
     ];
     const proposeResponse = {
-      epic: "FB-922",
+      epic: "AF-922",
       num_stories: 2,
       stories: proposedStories,
       notes: [],
@@ -219,21 +219,21 @@ async function test_propose_stories_approved_refreshes_epic_list() {
 
     await page.setRequestInterception(true);
     page.on("request", (req) => {
-      if (req.method() === "POST" && /\/backlog\/epic\/FB-922\/propose-stories$/.test(req.url())) {
+      if (req.method() === "POST" && /\/backlog\/epic\/AF-922\/propose-stories$/.test(req.url())) {
         req.respond({ status: 200, contentType: "application/json", body: JSON.stringify(proposeResponse) });
         return;
       }
-      if (req.method() === "GET" && /\/backlog\/FB-922$/.test(req.url())) {
+      if (req.method() === "GET" && /\/backlog\/AF-922$/.test(req.url())) {
         req.respond({
           status: 200,
           contentType: "application/json",
           body: JSON.stringify({
-            id: "FB-922",
+            id: "AF-922",
             kind: "epic",
             objetivo: "Objetivo real de la Epic.",
             user_stories: [
-              { id: "US-FB922-01", state: "TO_DO", priority: "Alta", task_count: 0 },
-              { id: "US-FB922-02", state: "TO_DO", priority: "Alta", task_count: 0 },
+              { id: "US-AF922-01", state: "READY", priority: "Alta", task_count: 0 },
+              { id: "US-AF922-02", state: "READY", priority: "Alta", task_count: 0 },
             ],
           }),
         });
@@ -244,12 +244,12 @@ async function test_propose_stories_approved_refreshes_epic_list() {
 
     await _clickButtonByText(page, "Proponer User Stories");
 
-    // El refresco del detalle (GET /backlog/FB-922) muestra las US
+    // El refresco del detalle (GET /backlog/AF-922) muestra las US
     // propuestas en el MISMO documento, sin `page.goto`/`page.reload`.
     await page.waitForFunction(
       () =>
         Array.from(document.querySelectorAll(".backlog-us-line-title")).some((l) =>
-          l.textContent.includes("US-FB922-01")
+          l.textContent.includes("US-AF922-01")
         ),
       { timeout: 10000 }
     );

@@ -1,11 +1,11 @@
-/* T-FB036-US02-05 (US-FB036-02): botón "+ Nueva User Story" al final de
+/* T-AF036-US02-05 (US-AF036-02): botón "+ Nueva User Story" al final de
  * la lista de User Stories de una Epic expandida, consumiendo
- * `POST /backlog/epic/{epic_id}/us` (`T-FB036-US02-02`) — estados 5/8 y
+ * `POST /backlog/epic/{epic_id}/us` (`T-AF036-US02-02`) — estados 5/8 y
  * Transiciones T8/T10/T11 de
- * `07-informes/FB-036/especificacion-ux-backlog.md`.
+ * `07-informes/AF-036/especificacion-ux-backlog.md`.
  *
  * Flujo real end-to-end contra el backend real aislado: crea una Epic
- * real primero (vía `POST /backlog/epic`, ya cerrado en `T-FB036-US02-01`),
+ * real primero (vía `POST /backlog/epic`, ya cerrado en `T-AF036-US02-01`),
  * la expande, pulsa "+ Nueva User Story", confirma que `epic_id` está
  * fijado y no editable, crea la User Story y confirma que aparece en el
  * detalle expandido sin recargar la página. Un segundo test cubre el
@@ -61,7 +61,7 @@ async function test_new_user_story_button_opens_form_with_fixed_epic_id() {
   await withBackend(async ({ page, baseUrl }) => {
     await page.goto(baseUrl + "/ui/");
     await _goToBacklogTab(page);
-    await _createEpicViaForm(page, "FB-910", "Epic para User Stories");
+    await _createEpicViaForm(page, "AF-910", "Epic para User Stories");
 
     // "+ Nueva User Story" debe estar al final de la lista de User
     // Stories, dentro del detalle ya expandido de la Epic.
@@ -92,8 +92,8 @@ async function test_new_user_story_button_opens_form_with_fixed_epic_id() {
       const usForm = forms.find((f) => f.querySelector(".jobs-form-title").textContent === "Nueva User Story");
       if (!usForm) return false;
       const text = usForm.textContent;
-      const hasEpicIdText = text.includes("FB-910");
-      const epicIsInput = Array.from(usForm.querySelectorAll("input")).some((i) => i.value === "FB-910");
+      const hasEpicIdText = text.includes("AF-910");
+      const epicIsInput = Array.from(usForm.querySelectorAll("input")).some((i) => i.value === "AF-910");
       return hasEpicIdText && !epicIsInput;
     });
     assert.ok(epicShownNotEditable, "epic_id debe mostrarse fijado, sin ningún <input> editable con ese valor.");
@@ -104,7 +104,7 @@ async function test_create_real_user_story_appears_without_full_reload() {
   await withBackend(async ({ page, baseUrl }) => {
     await page.goto(baseUrl + "/ui/");
     await _goToBacklogTab(page);
-    await _createEpicViaForm(page, "FB-911", "Epic con Story nueva");
+    await _createEpicViaForm(page, "AF-911", "Epic con Story nueva");
 
     const clicked = await page.evaluate(() => {
       const buttons = Array.from(document.querySelectorAll(".backlog-new-epic-btn"));
@@ -126,7 +126,7 @@ async function test_create_real_user_story_appears_without_full_reload() {
       const inputs = usForm.querySelectorAll("input[type=text]");
       const textareas = usForm.querySelectorAll("textarea");
       if (inputs.length < 2 || textareas.length < 2) return false;
-      inputs[0].value = "US-FB911-01";
+      inputs[0].value = "US-AF911-01";
       inputs[0].dispatchEvent(new Event("input", { bubbles: true }));
       inputs[1].value = "US de prueba real";
       inputs[1].dispatchEvent(new Event("input", { bubbles: true }));
@@ -154,7 +154,7 @@ async function test_create_real_user_story_appears_without_full_reload() {
     await page.waitForFunction(
       () => {
         const lines = Array.from(document.querySelectorAll(".backlog-us-line-title"));
-        return lines.some((l) => l.textContent.includes("US-FB911-01"));
+        return lines.some((l) => l.textContent.includes("US-AF911-01"));
       },
       { timeout: 10000 }
     );
@@ -171,7 +171,7 @@ async function test_duplicate_user_story_id_shows_verbatim_error() {
   await withBackend(async ({ page, baseUrl }) => {
     await page.goto(baseUrl + "/ui/");
     await _goToBacklogTab(page);
-    await _createEpicViaForm(page, "FB-912", "Epic con Story duplicada");
+    await _createEpicViaForm(page, "AF-912", "Epic con Story duplicada");
 
     async function _openFormAndSubmit(id) {
       const clicked = await page.evaluate(() => {
@@ -207,18 +207,18 @@ async function test_duplicate_user_story_id_shows_verbatim_error() {
       });
     }
 
-    await _openFormAndSubmit("US-FB912-01");
+    await _openFormAndSubmit("US-AF912-01");
     await page.waitForFunction(
       () => {
         const lines = Array.from(document.querySelectorAll(".backlog-us-line-title"));
-        return lines.some((l) => l.textContent.includes("US-FB912-01"));
+        return lines.some((l) => l.textContent.includes("US-AF912-01"));
       },
       { timeout: 10000 }
     );
 
     // Segundo intento con el MISMO id — debe fallar con 409 verbatim, el
     // formulario permanece abierto.
-    await _openFormAndSubmit("US-FB912-01");
+    await _openFormAndSubmit("US-AF912-01");
     await page.waitForFunction(
       () => {
         const forms = Array.from(document.querySelectorAll(".jobs-form"));
@@ -239,11 +239,11 @@ async function test_cancel_new_user_story_form_makes_no_network_call() {
   await withBackend(async ({ page, baseUrl }) => {
     await page.goto(baseUrl + "/ui/");
     await _goToBacklogTab(page);
-    await _createEpicViaForm(page, "FB-913", "Epic para cancelar");
+    await _createEpicViaForm(page, "AF-913", "Epic para cancelar");
 
     let usPostSeen = false;
     page.on("request", (req) => {
-      if (req.method() === "POST" && req.url().includes("/backlog/epic/FB-913/us")) {
+      if (req.method() === "POST" && req.url().includes("/backlog/epic/AF-913/us")) {
         usPostSeen = true;
       }
     });
@@ -266,7 +266,7 @@ async function test_cancel_new_user_story_form_makes_no_network_call() {
       const inputs = usForm.querySelectorAll("input[type=text]");
       inputs[0].value = usId;
       inputs[0].dispatchEvent(new Event("input", { bubbles: true }));
-    }, "US-FB913-01");
+    }, "US-AF913-01");
 
     const cancelled = await page.evaluate(() => {
       const forms = Array.from(document.querySelectorAll(".jobs-form"));

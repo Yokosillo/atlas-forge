@@ -6,7 +6,7 @@ In the backlog-centric pipeline, agents are roles orchestrated by the product (A
 
 ## Registered roles
 
-Factory Brain uses a **centralized role registry** (`brain/agents/roles.py`) where each role declares: base prompt, governance file, prompt builder and registration function. Roles are registered at import-time when importing `brain.agents`.
+Atlas Forge uses a **centralized role registry** (`atlas_forge/agents/roles.py`) where each role declares: base prompt, governance file, prompt builder and registration function. Roles are registered at import-time when importing `atlas_forge.agents`.
 
 | Role | Governance | Behavior |
 |---|---|---|
@@ -19,7 +19,7 @@ Factory Brain uses a **centralized role registry** (`brain/agents/roles.py`) whe
 
 ## Prompts: two layers (base role + project governance)
 
-The initial prompt of an agent is built in two layers, both decided by Factory Brain (never by the agent):
+The initial prompt of an agent is built in two layers, both decided by Atlas Forge (never by the agent):
 
 1. **Base role** (code): responsibility and limits + generic reporting protocol.
 2. **Project-specific governance**: if the active project declares `00-gobierno/<role>.md` + `00-gobierno/METODOLOGIA.md`, an explicit instruction is added telling the agent to read them. A project without that convention does not degrade behavior (it just lacks the extra layer).
@@ -76,5 +76,5 @@ stateDiagram-v2
 
 ## Planned (not implemented)
 
-- **Stuck-agent detection and automatic recovery** (FB-023): a human-triggered "review if stuck" action exists in the web (dispatches a real Job asking the Architect to judge the agent's pane) — automatic background detection is not implemented.
-- **Agent capability declaration** (US-FB005-03): blocked until the Capability Engine (FB-010).
+- **Stuck-agent detection and automatic recovery** (AF-023): a human-triggered "review if stuck" action exists in the web (dispatches a real Job asking the Architect to judge the agent's pane) — automatic background detection is not implemented.
+- **Agent capability declaration** (US-AF005-03): blocked until the Capability Engine (AF-010).

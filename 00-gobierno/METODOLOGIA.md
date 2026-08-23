@@ -1,8 +1,8 @@
-# Metodología de desarrollo de Factory Brain
+# Metodología de desarrollo de Atlas Forge
 
 ## Propósito
 
-Factory Brain es una factoría de software gobernada por backlog. El sistema separa decisiones de producto, diseño, implementación, verificación y operación para mantener trazabilidad y evitar que un agente convierta una decisión implícita en código.
+Atlas Forge es una factoría de software gobernada por backlog. El sistema separa decisiones de producto, diseño, implementación, verificación y operación para mantener trazabilidad y evitar que un agente convierta una decisión implícita en código.
 
 Esta es la capa de **invariantes**. Los detalles del pipeline, del Dispatcher, de los validadores y de cada rol están en documentos especializados.
 

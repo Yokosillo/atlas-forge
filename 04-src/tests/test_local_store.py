@@ -1,15 +1,15 @@
 from pathlib import Path
 
-from brain.models import Project
-from brain.storage import load_active_project, save_active_project
+from atlas_forge.models import Project
+from atlas_forge.storage import load_active_project, save_active_project
 
 
 def _make_project() -> Project:
     return Project(
         id="p1",
-        name="factory-brain",
-        path="/home/dev/factory-brain",
-        repository="git@github.com:example/factory-brain.git",
+        name="atlas-forge",
+        path="/home/dev/atlas-forge",
+        repository="git@github.com:example/atlas-forge.git",
         workspace_id="ws-1",
     )
 

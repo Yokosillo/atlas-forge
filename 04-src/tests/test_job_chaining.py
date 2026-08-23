@@ -4,10 +4,10 @@ from pathlib import Path
 import libtmux
 import pytest
 
-from brain.core.session_lifecycle import activate, assign_agent
-from brain.dispatcher import JobCreationError, create_job, dispatch_job
-from brain.models import Agent, DevelopmentSession, Job, Runtime
-from brain.runtime import start_runtime, stop_runtime
+from atlas_forge.core.session_lifecycle import activate, assign_agent
+from atlas_forge.dispatcher import JobCreationError, create_job, dispatch_job
+from atlas_forge.models import Agent, DevelopmentSession, Job, Runtime
+from atlas_forge.runtime import start_runtime, stop_runtime
 
 _COOPERATIVE_AGENT_SCRIPT = str(
     Path(__file__).parent / "fixtures" / "cooperative_agent_sim.sh"
@@ -20,7 +20,7 @@ def isolated_socket():
     interferir con sesiones tmux reales del entorno (nunca lanzar los
     binarios reales de Claude Code/OpenCode en tests). Se garantiza la
     limpieza del servidor incluso si el test falla a medio camino."""
-    name = f"brain-test-{uuid.uuid4().hex[:8]}"
+    name = f"atlas_forge-test-{uuid.uuid4().hex[:8]}"
     try:
         yield name
     finally:
@@ -73,7 +73,7 @@ def test_create_job_with_completed_previous_job_includes_its_result_verbatim() -
 
 
 def test_create_job_rejects_chaining_developer_result_into_another_developer() -> None:
-    """T-FB008-US07-01, criterio 1: encadenar Developer→Developer se
+    """T-AF008-US07-01, criterio 1: encadenar Developer→Developer se
     rechaza con mensaje explícito, sin crear el Job."""
     developer = Agent(
         id="a-dev", name="Developer", role="developer", prompt="p", runtime_id="r1"
@@ -91,7 +91,7 @@ def test_create_job_rejects_chaining_developer_result_into_another_developer() -
 
 
 def test_create_job_allows_chaining_developer_result_into_critic() -> None:
-    """T-FB008-US07-01, criterio 2: encadenar Developer→Critic sigue
+    """T-AF008-US07-01, criterio 2: encadenar Developer→Critic sigue
     funcionando exactamente igual que antes de esta Task."""
     developer = Agent(
         id="a-dev", name="Developer", role="developer", prompt="p", runtime_id="r1"
@@ -115,7 +115,7 @@ def test_create_job_allows_chaining_developer_result_into_critic() -> None:
 
 
 def test_create_job_allows_chaining_critic_result_into_any_role() -> None:
-    """T-FB008-US07-01, criterio 3: encadenar Critic→cualquier rol no se ve
+    """T-AF008-US07-01, criterio 3: encadenar Critic→cualquier rol no se ve
     afectado por esta Task (no hay regla explícita que lo restrinja)."""
     critic = Agent(
         id="a-critic", name="Critic", role="critic", prompt="p", runtime_id="r2"

@@ -2,13 +2,13 @@ import threading
 
 import pytest
 
-from brain.api.plan_registry import (
+from atlas_forge.api.plan_registry import (
     _reset_registry_for_tests,
     get_plan,
     get_plan_lock,
     register_plan,
 )
-from brain.models import JobPlan
+from atlas_forge.models import JobPlan
 
 
 @pytest.fixture(autouse=True)
@@ -19,7 +19,7 @@ def _clean_registry():
 
 
 def test_register_plan_returns_a_stable_id_that_resolves_back_to_the_same_plan() -> None:
-    plan = JobPlan(goal="FB999-US01")
+    plan = JobPlan(goal="AF999-US01")
 
     plan_id = register_plan(plan)
 
@@ -31,8 +31,8 @@ def test_get_plan_returns_none_for_unknown_id() -> None:
 
 
 def test_two_registered_plans_get_distinct_ids() -> None:
-    plan_a = JobPlan(goal="FB999-US01")
-    plan_b = JobPlan(goal="FB999-US02")
+    plan_a = JobPlan(goal="AF999-US01")
+    plan_b = JobPlan(goal="AF999-US02")
 
     id_a = register_plan(plan_a)
     id_b = register_plan(plan_b)
@@ -43,7 +43,7 @@ def test_two_registered_plans_get_distinct_ids() -> None:
 
 
 def test_get_plan_lock_returns_the_same_lock_object_for_the_same_plan_id() -> None:
-    # T-FB016-US01-08: la exclusión mutua real depende de que dos hilos
+    # T-AF016-US01-08: la exclusión mutua real depende de que dos hilos
     # que piden el lock del MISMO plan_id obtengan el mismo objeto Lock
     # — si cada llamada devolviera uno nuevo, no habría exclusión alguna.
     lock_first_call = get_plan_lock("plan-1")

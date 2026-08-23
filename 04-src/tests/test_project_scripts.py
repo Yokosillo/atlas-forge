@@ -1,6 +1,6 @@
-"""Tests de T-FB001-US03-01: catalogación de scripts particulares del
+"""Tests de T-AF001-US03-01: catalogación de scripts particulares del
 proyecto activo — `discover_project_scripts(project_path) -> list[ScriptEntry]`,
-leyendo el manifiesto real `.factory-brain/scripts.yml` (nunca un mock del
+leyendo el manifiesto real `.atlas-forge/scripts.yml` (nunca un mock del
 parseo YAML: se escribe el fichero real a disco y se lee con el parser
 real, mismo criterio de "comportamiento real" ya aplicado en el resto del
 proyecto)."""
@@ -9,8 +9,8 @@ from pathlib import Path
 
 import pytest
 
-from brain.models import ScriptEntry
-from brain.workspace.project_scripts import (
+from atlas_forge.models import ScriptEntry
+from atlas_forge.workspace.project_scripts import (
     MANIFEST_RELATIVE_PATH,
     MalformedScriptManifestError,
     discover_project_scripts,

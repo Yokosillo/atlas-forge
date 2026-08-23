@@ -3,16 +3,16 @@ import uuid
 import libtmux
 import pytest
 
-from brain.agents import UX_PROMPT, UX_ROLE, register_ux
-from brain.core import activate
-from brain.models import DevelopmentSession, Runtime
+from atlas_forge.agents import UX_PROMPT, UX_ROLE, register_ux
+from atlas_forge.core import activate
+from atlas_forge.models import DevelopmentSession, Runtime
 
 
 @pytest.fixture
 def isolated_socket():
     """Mismo criterio que `test_developer_agent.py`: aislar en un servidor
     tmux propio, nunca lanzar el binario real de Claude Code/OpenCode."""
-    name = f"brain-test-{uuid.uuid4().hex[:8]}"
+    name = f"atlas_forge-test-{uuid.uuid4().hex[:8]}"
     yield name
     try:
         libtmux.Server(socket_name=name).kill()
@@ -58,7 +58,7 @@ def test_registering_ux_twice_reuses_the_same_instance(isolated_socket: str, tmp
 
 
 def test_ux_prompt_includes_project_governance_when_declared(tmp_path) -> None:
-    from brain.agents.ux import build_ux_prompt
+    from atlas_forge.agents.ux import build_ux_prompt
 
     governance_dir = tmp_path / "00-gobierno"
     governance_dir.mkdir()

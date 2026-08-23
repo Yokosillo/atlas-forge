@@ -4,9 +4,9 @@ from pathlib import Path
 import libtmux
 import pytest
 
-from brain.dispatcher import JobReportTimeoutError, dispatch_job
-from brain.models import Agent, Job, Runtime
-from brain.runtime import RuntimeInstance, start_runtime, stop_runtime
+from atlas_forge.dispatcher import JobReportTimeoutError, dispatch_job
+from atlas_forge.models import Agent, Job, Runtime
+from atlas_forge.runtime import RuntimeInstance, start_runtime, stop_runtime
 
 _COOPERATIVE_AGENT_SCRIPT = str(
     Path(__file__).parent / "fixtures" / "cooperative_agent_sim.sh"
@@ -19,7 +19,7 @@ def isolated_socket():
     interferir con sesiones tmux reales del entorno (nunca lanzar los
     binarios reales de Claude Code/OpenCode en tests). Se garantiza la
     limpieza del servidor incluso si el test falla a medio camino."""
-    name = f"brain-test-{uuid.uuid4().hex[:8]}"
+    name = f"atlas_forge-test-{uuid.uuid4().hex[:8]}"
     try:
         yield name
     finally:
@@ -72,7 +72,7 @@ def test_dispatch_job_success_registers_result_and_returns_agent_to_idle(
     assert "line one of the cooperative result" in job.result
     assert "line two of the cooperative result" in job.result
     # El marcador de fin no forma parte del resultado registrado.
-    assert "___FACTORY_BRAIN_JOB_DONE___" not in job.result
+    assert "___ATLAS_FORGE_JOB_DONE___" not in job.result
     assert agent.status == "idle"
 
     stop_runtime(runtime_instance, socket_name=isolated_socket)
@@ -137,9 +137,9 @@ def test_dispatch_job_no_report_marks_job_failed_by_timeout_and_agent_idle(
 
 
 def test_wait_for_report_raises_directly_on_timeout() -> None:
-    from brain.dispatcher.job_dispatch import _wait_for_report
+    from atlas_forge.dispatcher.job_dispatch import _wait_for_report
 
-    non_existent_file = Path("/tmp/factory-brain-test-never-exists-12345.txt")
+    non_existent_file = Path("/tmp/atlas-forge-test-never-exists-12345.txt")
 
     with pytest.raises(JobReportTimeoutError):
         _wait_for_report(
@@ -153,16 +153,16 @@ def test_wait_for_report_raises_directly_on_timeout() -> None:
 def test_transient_read_failure_is_retried_and_marker_still_wins(
     tmp_path, monkeypatch
 ) -> None:
-    """T-FB008-US01-05, criterio 1: 'Un fallo simulado de lectura puntual
+    """T-AF008-US01-05, criterio 1: 'Un fallo simulado de lectura puntual
     del fichero de marcador (p. ej. archivo bloqueado momentáneamente) no
     produce JobReportTimeoutError si el marcador aparece correctamente en el
     reintento inmediato.' La primera lectura del fichero lanza un
     `PermissionError` simulado (bloqueo puntual); el reintento inmediato la
     lee bien y devuelve el resultado — sin timeout, sin error."""
-    from brain.dispatcher.job_dispatch import _wait_for_report
+    from atlas_forge.dispatcher.job_dispatch import _wait_for_report
 
     report_file = tmp_path / "marker.txt"
-    report_file.write_text("result here\n___FACTORY_BRAIN_JOB_DONE___\n")
+    report_file.write_text("result here\n___ATLAS_FORGE_JOB_DONE___\n")
 
     real_read_text = Path.read_text
     calls = {"n": 0}
@@ -188,12 +188,12 @@ def test_transient_read_failure_is_retried_and_marker_still_wins(
 
 
 def test_reading_that_keeps_failing_is_bounded_not_infinite(tmp_path, monkeypatch) -> None:
-    """T-FB008-US01-05, punto 2: 'añadir un reintento acotado (1-2 intentos,
+    """T-AF008-US01-05, punto 2: 'añadir un reintento acotado (1-2 intentos,
     no un bucle indefinido)'. Un fichero que SIEMPRE falla al leer es un
     fallo real (no transitorio): tras el intento inicial + los reintentos
     acotados, `_read_report_with_retry` devuelve `None` (no se queda
     reintentando para siempre) y el poll continúa hasta el timeout."""
-    import brain.dispatcher.job_dispatch as dispatch_module
+    import atlas_forge.dispatcher.job_dispatch as dispatch_module
 
     report_file = tmp_path / "always_fails.txt"
     report_file.write_text("whatever")
@@ -213,7 +213,7 @@ def test_reading_that_keeps_failing_is_bounded_not_infinite(tmp_path, monkeypatc
 
 
 def test_agent_never_reporting_times_out_in_the_same_order_of_time(tmp_path) -> None:
-    """T-FB008-US01-05, criterio 2: 'Un agente que efectivamente no reporta
+    """T-AF008-US01-05, criterio 2: 'Un agente que efectivamente no reporta
     nunca sigue produciendo JobReportTimeoutError en el mismo orden de tiempo
     que hoy.' Un fichero que nunca aparece (ausencia, no error de lectura) NO
     dispara reintentos, así que el timeout se percibe en ~mismo tiempo (los
@@ -221,7 +221,7 @@ def test_agent_never_reporting_times_out_in_the_same_order_of_time(tmp_path) -> 
     el tiempo total transcurrido no supera sustancialmente el timeout pedido."""
     import time as time_mod
 
-    from brain.dispatcher.job_dispatch import _wait_for_report
+    from atlas_forge.dispatcher.job_dispatch import _wait_for_report
 
     non_existent_file = tmp_path / "never.txt"
     started = time_mod.monotonic()
@@ -240,13 +240,13 @@ def test_agent_never_reporting_times_out_in_the_same_order_of_time(tmp_path) -> 
 def test_dispatch_job_recovers_from_a_transient_read_failure(
     isolated_socket: str, tmp_path, monkeypatch
 ) -> None:
-    """T-FB008-US01-05, criterio 1 end-to-end con tmux real: durante un
+    """T-AF008-US01-05, criterio 1 end-to-end con tmux real: durante un
     despacho real (agente cooperativo), la primera lectura del fichero de
     marcador de ESTE Job falla una vez (bloqueo puntual simulado) y se
     reintenta con éxito — el Job termina `completed`, nunca `failed` por
     timeout. Solo se simula el fallo para el fichero de reporte (uuid
-    `factory-brain-job-*`), nunca para otras lecturas."""
-    report_pattern = "factory-brain-job-"
+    `atlas-forge-job-*`), nunca para otras lecturas."""
+    report_pattern = "atlas-forge-job-"
     real_read_text = Path.read_text
     calls = {"n": 0}
 

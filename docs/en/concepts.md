@@ -1,10 +1,10 @@
 # Concepts
 
-Factory Brain's domain model. Terminology used throughout the documentation, the API and the interfaces.
+Atlas Forge's domain model. Terminology used throughout the documentation, the API and the interfaces.
 
 ## Project
 
-A Git repository of the workspace. It is the **main unit of work**: Factory Brain never operates on arbitrary directories. The active project is chosen at startup and persisted to disk.
+A Git repository of the workspace. It is the **main unit of work**: Atlas Forge never operates on arbitrary directories. The active project is chosen at startup and persisted to disk.
 
 - Discovery: `os.walk` of the workspace looking for `.git` directories (5s cache TTL).
 - `Project`: `{id (path), name, path, repository, workspace_id}`.
@@ -17,7 +17,7 @@ The root where repositories are discovered (e.g. `factoria-software/`). A worksp
 
 A live working environment over a project. States: `created` → `active` → `closed`. When you choose a project its session starts; when you change project, not-stopped agents are stopped and the previous one is closed.
 
-The session keeps: the active project, launched agents, the Job history and context. **It lives in the memory of the `brain-api` process** (not persisted to disk).
+The session keeps: the active project, launched agents, the Job history and context. **It lives in the memory of the `atlas-forge-api` process** (not persisted to disk).
 
 ## Agent
 
@@ -50,8 +50,8 @@ A local deterministic tool (not a conversational agent) that summarizes/indexes 
 
 ## Script
 
-- **Generic** (bundled with Factory Brain, 7): `commit`, `push`, `changed_files`, `diff_stat`, `language_stats`, `backlog_status`, `run_tests`.
-- **Project-specific** (of the project, `.factory-brain/scripts.yml`): e.g. `deploy-web`.
+- **Generic** (bundled with Atlas Forge, 7): `commit`, `push`, `changed_files`, `diff_stat`, `language_stats`, `backlog_status`, `run_tests`.
+- **Project-specific** (of the project, `.atlas-forge/scripts.yml`): e.g. `deploy-web`.
 
 ## Backlog
 
@@ -62,7 +62,7 @@ The set of Epics, User Stories and Tasks of the active project (`02-backlog/`), 
 ```mermaid
 sequenceDiagram
     participant U as User
-    participant B as brain-api
+    participant B as atlas-forge-api
     participant A as Architect
     participant D as Developer
     participant T as Tester

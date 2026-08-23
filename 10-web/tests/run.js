@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-/* Runner de la suite Puppeteer (T-FB022-US15-03): descubre todo
+/* Runner de la suite Puppeteer (T-AF022-US15-03): descubre todo
  * `10-web/tests/*.test.js`, ejecuta cada test de forma secuencial
  * (nunca en paralelo — cada uno arranca su propio backend/socket tmux
  * aislado, pero correr varios Chromium headless a la vez en la misma VM

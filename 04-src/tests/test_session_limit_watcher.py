@@ -1,7 +1,7 @@
-"""Test de integración real (T-FB024-US21-01, criterio de aceptación
+"""Test de integración real (T-AF024-US21-01, criterio de aceptación
 explícito: "simular un pane con el patrón de límite y hora ya pasada,
 confirmar que el siguiente ciclo del watcher hace el ping"):
-`brain.agents.session_limit_watcher.run_session_limit_cycle` contra una
+`atlas_forge.agents.session_limit_watcher.run_session_limit_cycle` contra una
 sesión tmux real (sin runtime real de Claude Code — mismo patrón de
 aislamiento ya usado por `test_agent_liveness.py`/
 `test_dispatch_queue_worker.py`: `DEFAULT_CLAUDE_CODE_COMMAND` parcheado a
@@ -13,11 +13,11 @@ from datetime import datetime, timedelta, timezone
 import libtmux
 import pytest
 
-from brain.agents.launch import launch_agent
-from brain.agents.session_limit_watcher import PING_MESSAGE, run_session_limit_cycle
-from brain.core.session_lifecycle import activate
-from brain.models import DevelopmentSession
-from brain.tmux.manager import capture_pane_lines, run_command
+from atlas_forge.agents.launch import launch_agent
+from atlas_forge.agents.session_limit_watcher import PING_MESSAGE, run_session_limit_cycle
+from atlas_forge.core.session_lifecycle import activate
+from atlas_forge.models import DevelopmentSession
+from atlas_forge.tmux.manager import capture_pane_lines, run_command
 
 
 @pytest.fixture(autouse=True)
@@ -25,8 +25,8 @@ def _no_real_runtime(monkeypatch):
     """Mismo patrón de aislamiento que `test_agent_liveness.py`: nunca
     invocar el binario real de Claude Code en tests. `sleep 300` deja la
     sesión viva el tiempo suficiente para todo el test sin terminar sola."""
-    import brain.runtime.claude_code as claude_code_module
-    import brain.runtime.opencode as opencode_module
+    import atlas_forge.runtime.claude_code as claude_code_module
+    import atlas_forge.runtime.opencode as opencode_module
 
     monkeypatch.setattr(claude_code_module, "DEFAULT_CLAUDE_CODE_COMMAND", "sleep")
     monkeypatch.setattr(claude_code_module, "DEFAULT_CLAUDE_CODE_ARGS", ["300"])
@@ -36,7 +36,7 @@ def _no_real_runtime(monkeypatch):
 
 @pytest.fixture
 def isolated_socket():
-    name = f"brain-test-{uuid.uuid4().hex[:8]}"
+    name = f"atlas_forge-test-{uuid.uuid4().hex[:8]}"
     try:
         yield name
     finally:

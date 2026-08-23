@@ -1,10 +1,10 @@
 # Conceptos
 
-El modelo de dominio de Factory Brain. Terminología usada en toda la documentación, la API y las interfaces.
+El modelo de dominio de Atlas Forge. Terminología usada en toda la documentación, la API y las interfaces.
 
 ## Proyecto
 
-Un repositorio Git del workspace. Es la **unidad principal de trabajo**: Factory Brain nunca opera sobre directorios arbitrarios. El proyecto activo se elige al arrancar y se persiste en disco.
+Un repositorio Git del workspace. Es la **unidad principal de trabajo**: Atlas Forge nunca opera sobre directorios arbitrarios. El proyecto activo se elige al arrancar y se persiste en disco.
 
 - Descubrimiento: `os.walk` del workspace buscando directorios `.git` (TTL de caché 5s).
 - `Project`: `{id (path), name, path, repository, workspace_id}`.
@@ -17,7 +17,7 @@ La raíz donde se descubren los repositorios (p. ej. `factoria-software/`). Un w
 
 Un entorno de trabajo vivo sobre un proyecto. Estados: `created` → `active` → `closed`. Cuando eliges un proyecto, su sesión arranca; cuando cambias de proyecto, se detienen los agentes no detenidos y se cierra el anterior.
 
-La sesión mantiene: el proyecto activo, los agentes lanzados, el historial de Jobs y el contexto. **Vive en la memoria del proceso `brain-api`** (no persistido en disco).
+La sesión mantiene: el proyecto activo, los agentes lanzados, el historial de Jobs y el contexto. **Vive en la memoria del proceso `atlas-forge-api`** (no persistido en disco).
 
 ## Agente
 
@@ -50,8 +50,8 @@ Una herramienta local determinista (no un agente conversacional) que resume/inde
 
 ## Script
 
-- **Genéricos** (incluidos con Factory Brain, 7): `commit`, `push`, `changed_files`, `diff_stat`, `language_stats`, `backlog_status`, `run_tests`.
-- **Específicos de proyecto** (del proyecto, `.factory-brain/scripts.yml`): p. ej. `deploy-web`.
+- **Genéricos** (incluidos con Atlas Forge, 7): `commit`, `push`, `changed_files`, `diff_stat`, `language_stats`, `backlog_status`, `run_tests`.
+- **Específicos de proyecto** (del proyecto, `.atlas-forge/scripts.yml`): p. ej. `deploy-web`.
 
 ## Backlog
 
@@ -62,7 +62,7 @@ El conjunto de Epics, User Stories y Tasks del proyecto activo (`02-backlog/`), 
 ```mermaid
 sequenceDiagram
     participant U as Usuario
-    participant B as brain-api
+    participant B as atlas-forge-api
     participant A as Arquitecto
     participant D as Developer
     participant T as Tester

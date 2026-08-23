@@ -6,7 +6,7 @@ En el pipeline centrado en el backlog, los agentes son roles orquestados por el 
 
 ## Roles registrados
 
-Factory Brain usa un **registro de roles centralizado** (`brain/agents/roles.py`) donde cada rol declara: prompt base, archivo de gobernanza, constructor de prompt y función de registro. Los roles se registran en tiempo de importación al importar `brain.agents`.
+Atlas Forge usa un **registro de roles centralizado** (`atlas_forge/agents/roles.py`) donde cada rol declara: prompt base, archivo de gobernanza, constructor de prompt y función de registro. Los roles se registran en tiempo de importación al importar `atlas_forge.agents`.
 
 | Rol | Gobernanza | Comportamiento |
 |---|---|---|
@@ -19,7 +19,7 @@ Factory Brain usa un **registro de roles centralizado** (`brain/agents/roles.py`
 
 ## Prompts: dos capas (rol base + gobernanza de proyecto)
 
-El prompt inicial de un agente se construye en dos capas, ambas decididas por Factory Brain (nunca por el agente):
+El prompt inicial de un agente se construye en dos capas, ambas decididas por Atlas Forge (nunca por el agente):
 
 1. **Rol base** (código): responsabilidad y límites + protocolo de reporte genérico.
 2. **Gobernanza específica del proyecto**: si el proyecto activo declara `00-gobierno/<role>.md` + `00-gobierno/METODOLOGIA.md`, se añade una instrucción explícita que dice al agente que las lea. Un proyecto sin esa convención no degrada el comportamiento (solo carece de la capa extra).
@@ -76,5 +76,5 @@ stateDiagram-v2
 
 ## Planificado (no implementado)
 
-- **Detección de agentes atascados y recuperación automática** (FB-023): existe una acción disparada por humanos de "revisar si está atascado" en la web (despacha un Job real pidiendo al Arquitecto que juzgue el pane del agente) — la detección automática en segundo plano no está implementada.
-- **Declaración de capacidades de agente** (US-FB005-03): bloqueada hasta el Capability Engine (FB-010).
+- **Detección de agentes atascados y recuperación automática** (AF-023): existe una acción disparada por humanos de "revisar si está atascado" en la web (despacha un Job real pidiendo al Arquitecto que juzgue el pane del agente) — la detección automática en segundo plano no está implementada.
+- **Declaración de capacidades de agente** (US-AF005-03): bloqueada hasta el Capability Engine (AF-010).

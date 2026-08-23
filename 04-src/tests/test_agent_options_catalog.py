@@ -1,9 +1,9 @@
-"""Tests de T-FB022-US11-01: catalogo rol x modelo."""
+"""Tests de T-AF022-US11-01: catalogo rol x modelo."""
 
 from unittest.mock import patch
 
-from brain.agents import ARQUITECTO_ROLE, DEVELOPER_ROLE
-from brain.agents.agent_options import AgentLaunchOption, list_available_agent_options
+from atlas_forge.agents import ARQUITECTO_ROLE, DEVELOPER_ROLE
+from atlas_forge.agents.agent_options import AgentLaunchOption, list_available_agent_options
 
 
 def _mock_model_entries() -> list[dict]:
@@ -20,9 +20,9 @@ def _mock_preferences_all_enabled() -> dict:
 class TestCatalogRolModelo:
     def test_catalog_is_rol_x_model_not_rol_x_runtime(self) -> None:
         with (
-            patch("brain.agents.agent_options.get_available_model_entries",
+            patch("atlas_forge.agents.agent_options.get_available_model_entries",
                   return_value=_mock_model_entries()),
-            patch("brain.agents.agent_options.load_model_preferences",
+            patch("atlas_forge.agents.agent_options.load_model_preferences",
                   return_value=_mock_preferences_all_enabled()),
         ):
             options = list_available_agent_options()
@@ -37,9 +37,9 @@ class TestCatalogRolModelo:
 
     def test_runtime_is_resolved_internally(self) -> None:
         with (
-            patch("brain.agents.agent_options.get_available_model_entries",
+            patch("atlas_forge.agents.agent_options.get_available_model_entries",
                   return_value=_mock_model_entries()),
-            patch("brain.agents.agent_options.load_model_preferences",
+            patch("atlas_forge.agents.agent_options.load_model_preferences",
                   return_value=_mock_preferences_all_enabled()),
         ):
             options = list_available_agent_options()
@@ -53,9 +53,9 @@ class TestCatalogRolModelo:
 
     def test_all_roles_work(self) -> None:
         with (
-            patch("brain.agents.agent_options.get_available_model_entries",
+            patch("atlas_forge.agents.agent_options.get_available_model_entries",
                   return_value=_mock_model_entries()),
-            patch("brain.agents.agent_options.load_model_preferences",
+            patch("atlas_forge.agents.agent_options.load_model_preferences",
                   return_value=_mock_preferences_all_enabled()),
         ):
             options = list_available_agent_options()
@@ -64,9 +64,9 @@ class TestCatalogRolModelo:
 
     def test_disabled_models_not_included(self) -> None:
         with (
-            patch("brain.agents.agent_options.get_available_model_entries",
+            patch("atlas_forge.agents.agent_options.get_available_model_entries",
                   return_value=_mock_model_entries()),
-            patch("brain.agents.agent_options.load_model_preferences",
+            patch("atlas_forge.agents.agent_options.load_model_preferences",
                   return_value={"enabled_model_ids": ["deepseek-pro"], "default_model_by_role": {}}),
         ):
             options = list_available_agent_options()
@@ -77,9 +77,9 @@ class TestCatalogRolModelo:
 
     def test_empty_enabled_ids_means_all_enabled(self) -> None:
         with (
-            patch("brain.agents.agent_options.get_available_model_entries",
+            patch("atlas_forge.agents.agent_options.get_available_model_entries",
                   return_value=_mock_model_entries()),
-            patch("brain.agents.agent_options.load_model_preferences",
+            patch("atlas_forge.agents.agent_options.load_model_preferences",
                   return_value=_mock_preferences_all_enabled()),
         ):
             options = list_available_agent_options()

@@ -1,6 +1,6 @@
 from pathlib import Path
 
-from brain.workspace import (
+from atlas_forge.workspace import (
     ProjectRecovered,
     ProjectSelectionRequired,
     ProjectSelectionRequiredAfterInvalid,

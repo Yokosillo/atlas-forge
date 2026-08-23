@@ -1,9 +1,9 @@
 import pytest
 
-from brain.core.session_lifecycle import activate, assign_agent
-from brain.dispatcher import JobCreationError, create_and_record_job, list_jobs_for_session
-from brain.dispatcher.job_history_registry import _reset_registry_for_tests
-from brain.models import Agent, DevelopmentSession
+from atlas_forge.core.session_lifecycle import activate, assign_agent
+from atlas_forge.dispatcher import JobCreationError, create_and_record_job, list_jobs_for_session
+from atlas_forge.dispatcher.job_history_registry import _reset_registry_for_tests
+from atlas_forge.models import Agent, DevelopmentSession
 
 
 @pytest.fixture(autouse=True)

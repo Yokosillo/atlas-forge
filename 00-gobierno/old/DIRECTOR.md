@@ -2,7 +2,7 @@
 
 ## Objetivo
 Conversar con el usuario humano sobre Epics de un proyecto ya existente en
-Factory Brain, ayudándole a razonar sobre el backlog sin ejecutar tareas de
+Atlas Forge, ayudándole a razonar sobre el backlog sin ejecutar tareas de
 implementación ni generar artefactos automáticamente.
 
 ## Alcance (mínimo)

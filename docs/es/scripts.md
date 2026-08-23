@@ -1,15 +1,15 @@
 # Scripts
 
-Factory Brain cataloga y ejecuta scripts desde la interfaz, distinguiendo dos fuentes:
+Atlas Forge cataloga y ejecuta scripts desde la interfaz, distinguiendo dos fuentes:
 
-- **Genéricos**: catálogo fijo incluido con Factory Brain, disponible en cualquier proyecto del workspace.
-- **Específicos de proyecto**: declarados por el proyecto activo en `.factory-brain/scripts.yml`.
+- **Genéricos**: catálogo fijo incluido con Atlas Forge, disponible en cualquier proyecto del workspace.
+- **Específicos de proyecto**: declarados por el proyecto activo en `.atlas-forge/scripts.yml`.
 
 Ambos se ejecutan sobre el proyecto activo con el mismo mecanismo (`run_subprocess`, timeout de 30s) y se exponen juntos en `GET /scripts`.
 
 ## Scripts genéricos
 
-Catálogo fijo (`brain/workspace/generic_scripts.py`, 7 identificadores):
+Catálogo fijo (`atlas_forge/workspace/generic_scripts.py`, 7 identificadores):
 
 | id | Nombre | Qué hace |
 |---|---|---|
@@ -38,14 +38,14 @@ curl -X POST http://<host>:8000/scripts/run_tests/run
 
 ## Scripts específicos de proyecto
 
-Declarados en `.factory-brain/scripts.yml` del proyecto activo:
+Declarados en `.atlas-forge/scripts.yml` del proyecto activo:
 
 ```yaml
 scripts:
   - id: deploy-web
     name: "Deploy web (restart + verification)"
     command: >-
-      sudo systemctl restart factory-brain-api.service && ...
+      sudo systemctl restart atlas-forge-api.service && ...
     description: "..."
 ```
 

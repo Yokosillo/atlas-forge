@@ -5,13 +5,13 @@ import libtmux
 import pytest
 from fastapi.testclient import TestClient
 
-import brain.api.routes as routes_module
-from brain.api import create_app
-from brain.core import resolve_startup_session
-from brain.core.session_registry import _reset_registry_for_tests
-from brain.agents.launch import launch_agent
-from brain.runtime import is_runtime_alive
-from brain.workspace import discover_projects, select_active_project
+import atlas_forge.api.routes as routes_module
+from atlas_forge.api import create_app
+from atlas_forge.core import resolve_startup_session
+from atlas_forge.core.session_registry import _reset_registry_for_tests
+from atlas_forge.agents.launch import launch_agent
+from atlas_forge.runtime import is_runtime_alive
+from atlas_forge.workspace import discover_projects, select_active_project
 
 
 @pytest.fixture(autouse=True)
@@ -23,8 +23,8 @@ def _clean_registry():
 
 @pytest.fixture(autouse=True)
 def _no_real_runtime(monkeypatch):
-    import brain.runtime.claude_code as claude_code_module
-    import brain.runtime.opencode as opencode_module
+    import atlas_forge.runtime.claude_code as claude_code_module
+    import atlas_forge.runtime.opencode as opencode_module
 
     monkeypatch.setattr(claude_code_module, "DEFAULT_CLAUDE_CODE_COMMAND", "sleep")
     monkeypatch.setattr(claude_code_module, "DEFAULT_CLAUDE_CODE_ARGS", ["5"])
@@ -35,7 +35,7 @@ def _no_real_runtime(monkeypatch):
 
 @pytest.fixture
 def isolated_socket(monkeypatch):
-    name = f"brain-test-{uuid.uuid4().hex[:8]}"
+    name = f"atlas_forge-test-{uuid.uuid4().hex[:8]}"
     monkeypatch.setattr(routes_module, "_SOCKET_NAME", name)
     try:
         yield name
@@ -74,7 +74,7 @@ def test_post_agent_stop_reflects_in_get_agents_immediately(
     cambio en GET /agents inmediatamente después.
 
     Rol no-Developer (Arquitecto) a propósito: con Developer
-    (T-FB024-US12-02), detener elimina el agente por completo — ver
+    (T-AF024-US12-02), detener elimina el agente por completo — ver
     `test_post_agent_stop_removes_a_developer_entirely` más abajo para ese
     caso específico."""
     _project, session = _active_project_and_session(tmp_path, monkeypatch)
@@ -103,6 +103,7 @@ def test_post_agent_stop_reflects_in_get_agents_immediately(
             "session_name": runtime_instance.session_name,
             "last_command_at": None,
             "limited_until": None,
+            "supervision": "detenido",
         }
     ]
 
@@ -110,7 +111,7 @@ def test_post_agent_stop_reflects_in_get_agents_immediately(
 def test_post_agent_stop_removes_a_developer_entirely(
     tmp_path: Path, isolated_socket: str, monkeypatch
 ) -> None:
-    """T-FB024-US12-02: para Developer, POST /agents/{agent_id}/stop
+    """T-AF024-US12-02: para Developer, POST /agents/{agent_id}/stop
     elimina el Agent por completo — GET /agents deja de listarlo, a
     diferencia del resto de roles (ver test de arriba)."""
     _project, session = _active_project_and_session(tmp_path, monkeypatch)

@@ -1,10 +1,10 @@
 """Tests de `GET /projects`/`POST /project`: descubrir repositorios y
 seleccionar uno como proyecto activo, dando el foco de sesión de
 desarrollo del proceso al proyecto seleccionado — incluyendo el
-criterio de aceptación explícito de FB-029 (T-FB029-US01-02) sobre qué
+criterio de aceptación explícito de AF-029 (T-AF029-US01-02) sobre qué
 pasa con los agentes de la sesión anterior (nada: siguen vivos en su
 propia sesión, ya no se detienen; comportamiento anterior de
-T-FB016-US01-11, ver nota en `02-backlog/epics/FB-016-api-backend.md`)."""
+T-AF016-US01-11, ver nota en `02-backlog/epics/AF-016-api-backend.md`)."""
 
 import uuid
 from pathlib import Path
@@ -13,11 +13,11 @@ import libtmux
 import pytest
 from fastapi.testclient import TestClient
 
-import brain.api.routes as routes_module
-from brain.api import create_app
-from brain.core.session_registry import _reset_registry_for_tests
-from brain.runtime import get_runtime_instance_for_agent, is_runtime_alive
-from brain.workspace import discover_projects
+import atlas_forge.api.routes as routes_module
+from atlas_forge.api import create_app
+from atlas_forge.core.session_registry import _reset_registry_for_tests
+from atlas_forge.runtime import get_runtime_instance_for_agent, is_runtime_alive
+from atlas_forge.workspace import discover_projects
 
 
 @pytest.fixture(autouse=True)
@@ -29,8 +29,8 @@ def _clean_registry():
 
 @pytest.fixture(autouse=True)
 def _no_real_runtime(monkeypatch):
-    import brain.runtime.claude_code as claude_code_module
-    import brain.runtime.opencode as opencode_module
+    import atlas_forge.runtime.claude_code as claude_code_module
+    import atlas_forge.runtime.opencode as opencode_module
 
     monkeypatch.setattr(claude_code_module, "DEFAULT_CLAUDE_CODE_COMMAND", "sleep")
     monkeypatch.setattr(claude_code_module, "DEFAULT_CLAUDE_CODE_ARGS", ["5"])
@@ -41,7 +41,7 @@ def _no_real_runtime(monkeypatch):
 
 @pytest.fixture
 def isolated_socket(monkeypatch):
-    name = f"brain-test-{uuid.uuid4().hex[:8]}"
+    name = f"atlas_forge-test-{uuid.uuid4().hex[:8]}"
     monkeypatch.setattr(routes_module, "_SOCKET_NAME", name)
     try:
         yield name
@@ -157,9 +157,9 @@ def test_post_project_with_unknown_project_id_returns_400(isolated_workspace) ->
 def test_post_project_keeps_agents_from_the_previous_session_alive_real_tmux(
     isolated_workspace, isolated_socket: str
 ) -> None:
-    """Criterio de aceptación explícito de FB-029 (T-FB029-US01-02),
+    """Criterio de aceptación explícito de AF-029 (T-AF029-US01-02),
     invierte `test_post_project_stops_agents_from_the_previous_session_real_tmux`
-    (comportamiento anterior de T-FB016-US01-11): el agente de un proyecto
+    (comportamiento anterior de T-AF016-US01-11): el agente de un proyecto
     que pierde el foco sigue con su proceso tmux real vivo, y vuelve a ser
     alcanzable desde GET /agents en cuanto su proyecto recupera el foco —
     ya no se detiene ni queda huérfano, porque cada proyecto conserva su

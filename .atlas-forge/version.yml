@@ -1,0 +1,18 @@
+# Esquema de versiones de Atlas Forge (US-AF024-24).
+#
+# Cada User Story del backlog puede declarar a que version va (`version:` en su
+# frontmatter). Las US en `state: DONE` pertenecen a versiones cerradas; las
+# US no-DONE se asignan a la version abierta o a posteriores.
+#
+# Campos:
+#   current_closed : ultima version cerrada y entregada (null si aun no se ha
+#                    cerrado ninguna).
+#   open           : version abierta en desarrollo (a la que se asigna trabajo nuevo).
+#   future         : versiones posteriores planificadas, en orden (open+1, open+2, ...).
+#
+# Se actualiza con 04-src/scripts/close_version.py cuando se cierra una version.
+current_closed: null
+open: "0.9"
+future:
+  - "0.9.1"
+  - "0.9.2"

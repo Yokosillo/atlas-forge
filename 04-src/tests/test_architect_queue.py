@@ -1,5 +1,5 @@
-"""Tests de T-FB030-US02-01: cola append-only de cierres de Task por
-proyecto (`brain.dispatcher.architect_queue`)."""
+"""Tests de T-AF030-US02-01: cola append-only de cierres de Task por
+proyecto (`atlas_forge.dispatcher.architect_queue`)."""
 
 import json
 import shutil
@@ -9,7 +9,7 @@ from pathlib import Path
 
 import pytest
 
-from brain.dispatcher.architect_queue import (
+from atlas_forge.dispatcher.architect_queue import (
     append_to_architect_queue,
     architect_queue_path,
     launch_architect_queue_watcher,
@@ -26,8 +26,8 @@ def test_append_creates_the_file_and_directory_if_they_do_not_exist(
         project_root,
         "some-project",
         agente="developer",
-        task_id="T-FB030-US02-01",
-        informe="07-informes/US-FB030-02/job-1.md",
+        task_id="T-AF030-US02-01",
+        informe="07-informes/US-AF030-02/job-1.md",
     )
 
     assert path.is_file()
@@ -75,8 +75,8 @@ def test_entry_includes_agente_task_id_informe_and_ts(tmp_path: Path) -> None:
         project_root,
         "proj",
         agente="arquitecto",
-        task_id="T-FB030-US02-02",
-        informe="07-informes/US-FB030-02/job-2.md",
+        task_id="T-AF030-US02-02",
+        informe="07-informes/US-AF030-02/job-2.md",
         ts="2026-08-14T12:00:00+00:00",
     )
 
@@ -84,8 +84,8 @@ def test_entry_includes_agente_task_id_informe_and_ts(tmp_path: Path) -> None:
     assert len(entries) == 1
     assert entries[0] == {
         "agente": "arquitecto",
-        "task_id": "T-FB030-US02-02",
-        "informe": "07-informes/US-FB030-02/job-2.md",
+        "task_id": "T-AF030-US02-02",
+        "informe": "07-informes/US-AF030-02/job-2.md",
         "ts": "2026-08-14T12:00:00+00:00",
     }
 
@@ -161,7 +161,7 @@ def _write_from_subprocess(project_root: str, index: int) -> None:
     """Target de `multiprocessing.Process` — debe ser importable a nivel de
     módulo (no una closure/lambda) para que `spawn`/`fork` puedan
     localizarla en el proceso hijo."""
-    from brain.dispatcher.architect_queue import append_to_architect_queue
+    from atlas_forge.dispatcher.architect_queue import append_to_architect_queue
 
     append_to_architect_queue(
         project_root,
@@ -204,7 +204,7 @@ def test_concurrent_writes_from_multiple_processes_lose_no_line(
         json.loads(line)
 
 
-# T-FB030-US03-04: lanzamiento automático de architect_queue_watcher.sh
+# T-AF030-US03-04: lanzamiento automático de architect_queue_watcher.sh
 # (antes solo lanzable a mano). `tmux`/`inotifywait` reales, sin mocks —
 # el propio incidente motivador (07-informes/incidente-arquitecto-perdido-
 # tras-reinicio-2026-08-16.md) fue indetectable solo con lectura de
@@ -299,8 +299,8 @@ def test_watcher_pushes_to_the_real_architect_tmux_session_when_a_task_closes(
                 project_root,
                 project_name,
                 agente="developer",
-                task_id="T-FB030-US03-04",
-                informe="07-informes/FB030-US03/FB030-US03.md#T-FB030-US03-04",
+                task_id="T-AF030-US03-04",
+                informe="07-informes/AF030-US03/AF030-US03.md#T-AF030-US03-04",
             )
 
             deadline = time.monotonic() + 10

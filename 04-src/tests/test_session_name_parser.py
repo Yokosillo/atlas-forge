@@ -1,7 +1,7 @@
 import pytest
 
-from brain.models import Runtime
-from brain.runtime.generic import ParsedSessionName, parse_session_name, session_name_for
+from atlas_forge.models import Runtime
+from atlas_forge.runtime.generic import ParsedSessionName, parse_session_name, session_name_for
 
 
 def _test_runtime() -> Runtime:
@@ -52,16 +52,16 @@ def test_round_trip_preserves_project_name_with_internal_digits_and_hyphens() ->
     Developer, que solo puede ocupar el segmento INMEDIATAMENTE después
     del rol."""
     runtime = _test_runtime()
-    project_path = "/workspace/PROD-006-factory-brain"
+    project_path = "/workspace/PROD-006-atlas-forge"
 
     arq_name = session_name_for(runtime, _FakeArquitecto(), project_path)
     assert parse_session_name(arq_name) == ParsedSessionName(
-        role="arquitecto", project_name="prod-006-factory-brain", instance=None
+        role="arquitecto", project_name="prod-006-atlas-forge", instance=None
     )
 
     dev_name = session_name_for(runtime, _FakeDeveloper(1), project_path)
     assert parse_session_name(dev_name) == ParsedSessionName(
-        role="developer", project_name="prod-006-factory-brain", instance=1
+        role="developer", project_name="prod-006-atlas-forge", instance=1
     )
 
 
@@ -79,7 +79,7 @@ def test_round_trip_two_different_projects_produce_distinct_parseable_names() ->
 
 
 def test_opaque_legacy_scheme_returns_none() -> None:
-    # Esquema anterior a FB-030: f"{runtime.id}-{agent.id}", agent.id es un
+    # Esquema anterior a AF-030: f"{runtime.id}-{agent.id}", agent.id es un
     # UUID — "claude-code" no es un rol registrado, así que no matchea.
     legacy_name = "claude-code-9e2e1b8e-8a6e-48d3-8301-6da3cdcc8423"
     assert parse_session_name(legacy_name) is None

@@ -5,12 +5,12 @@ from unittest.mock import patch
 import libtmux
 import pytest
 
-from brain.dispatcher import dispatch_job, get_consecutive_job_count
-from brain.dispatcher.job_count_registry import _reset_registry_for_tests
-from brain.dispatcher.scribe_trigger import DEFAULT_SIZE_THRESHOLD_CHARACTERS
-from brain.local_tools import ScribeUnavailableError
-from brain.models import Agent, Job, Runtime
-from brain.runtime import start_runtime, stop_runtime
+from atlas_forge.dispatcher import dispatch_job, get_consecutive_job_count
+from atlas_forge.dispatcher.job_count_registry import _reset_registry_for_tests
+from atlas_forge.dispatcher.scribe_trigger import DEFAULT_SIZE_THRESHOLD_CHARACTERS
+from atlas_forge.local_tools import ScribeUnavailableError
+from atlas_forge.models import Agent, Job, Runtime
+from atlas_forge.runtime import start_runtime, stop_runtime
 
 _COOPERATIVE_AGENT_SCRIPT = str(
     Path(__file__).parent / "fixtures" / "cooperative_agent_sim.sh"
@@ -19,7 +19,7 @@ _COOPERATIVE_AGENT_SCRIPT = str(
 
 @pytest.fixture(autouse=True)
 def _reset_job_count_registry():
-    # Registro nuevo en memoria de proceso (T-FB008-US03-02) — se
+    # Registro nuevo en memoria de proceso (T-AF008-US03-02) — se
     # resetea antes/después de cada test para no depender del orden de
     # ejecución, mismo patrón que `session_registry`/`_SessionRegistry`.
     _reset_registry_for_tests()
@@ -32,7 +32,7 @@ def isolated_socket():
     """Aísla los tests de esta Task en su propio servidor tmux, con
     limpieza garantizada incluso si el test falla a medio camino — mismo
     patrón que test_job_dispatch.py."""
-    name = f"brain-test-{uuid.uuid4().hex[:8]}"
+    name = f"atlas_forge-test-{uuid.uuid4().hex[:8]}"
     try:
         yield name
     finally:
@@ -83,7 +83,7 @@ def test_job_that_triggers_by_size_invokes_scribe_and_agent_receives_delimited_c
     large_description = "x" * (DEFAULT_SIZE_THRESHOLD_CHARACTERS + 1)
     job = _make_job(large_description)
 
-    with patch("brain.dispatcher.job_dispatch.summarize_document") as mock_summarize:
+    with patch("atlas_forge.dispatcher.job_dispatch.summarize_document") as mock_summarize:
         mock_summarize.return_value = "a concise summary of the long content"
         dispatch_job(job, agent, runtime_instance, socket_name=isolated_socket)
 
@@ -107,7 +107,7 @@ def test_job_that_does_not_trigger_is_dispatched_without_scribe(
     small_description = "implement a small feature"
     job = _make_job(small_description)
 
-    with patch("brain.dispatcher.job_dispatch.summarize_document") as mock_summarize:
+    with patch("atlas_forge.dispatcher.job_dispatch.summarize_document") as mock_summarize:
         dispatch_job(job, agent, runtime_instance, socket_name=isolated_socket)
 
     mock_summarize.assert_not_called()
@@ -129,7 +129,7 @@ def test_scribe_unavailable_error_does_not_block_dispatch(
     large_description = "x" * (DEFAULT_SIZE_THRESHOLD_CHARACTERS + 1)
     job = _make_job(large_description)
 
-    with patch("brain.dispatcher.job_dispatch.summarize_document") as mock_summarize:
+    with patch("atlas_forge.dispatcher.job_dispatch.summarize_document") as mock_summarize:
         mock_summarize.side_effect = ScribeUnavailableError(
             "El modelo local de Scribe no está disponible en "
             "'http://localhost:11434' (modelo 'qwen2.5-coder:14b'): "
@@ -156,15 +156,15 @@ def test_scribe_unavailable_note_is_documented_not_silent() -> None:
     # Complementa el test anterior verificando directamente el contenido
     # de la instrucción resuelta (sin pasar por tmux) — la circunstancia
     # de que Scribe no estaba disponible se documenta explícitamente, no
-    # se silencia (T-FB014-US01-02, criterio de aceptación 3 de la
+    # se silencia (T-AF014-US01-02, criterio de aceptación 3 de la
     # Descripción de esta Task).
-    from brain.dispatcher.job_dispatch import _resolve_job_description
+    from atlas_forge.dispatcher.job_dispatch import _resolve_job_description
 
     agent = _make_agent()
     large_description = "x" * (DEFAULT_SIZE_THRESHOLD_CHARACTERS + 1)
     job = _make_job(large_description)
 
-    with patch("brain.dispatcher.job_dispatch.summarize_document") as mock_summarize:
+    with patch("atlas_forge.dispatcher.job_dispatch.summarize_document") as mock_summarize:
         mock_summarize.side_effect = ScribeUnavailableError("connection refused")
         resolved_description = _resolve_job_description(job, agent)
 
@@ -185,7 +185,7 @@ def test_second_job_on_same_agent_does_not_carry_over_scribe_context(
     large_description = "x" * (DEFAULT_SIZE_THRESHOLD_CHARACTERS + 1)
     first_job = _make_job(large_description)
 
-    with patch("brain.dispatcher.job_dispatch.summarize_document") as mock_summarize:
+    with patch("atlas_forge.dispatcher.job_dispatch.summarize_document") as mock_summarize:
         mock_summarize.return_value = "summary of the first job"
         dispatch_job(first_job, agent, runtime_instance, socket_name=isolated_socket)
 
@@ -196,7 +196,7 @@ def test_second_job_on_same_agent_does_not_carry_over_scribe_context(
     # consecutivos se reseteó tras el disparo del primero — no debería
     # disparar tampoco por conteo.
     second_job = _make_job("a small unrelated task")
-    with patch("brain.dispatcher.job_dispatch.summarize_document") as mock_summarize:
+    with patch("atlas_forge.dispatcher.job_dispatch.summarize_document") as mock_summarize:
         dispatch_job(second_job, agent, runtime_instance, socket_name=isolated_socket)
         mock_summarize.assert_not_called()
 
@@ -209,13 +209,13 @@ def test_second_job_on_same_agent_does_not_carry_over_scribe_context(
 def test_scribe_invocation_only_uses_the_cataloged_operation_no_free_prompt() -> None:
     # Test que confirma que Scribe sigue limitado a sus operaciones ya
     # catalogadas: este mecanismo invoca `summarize_document` (única
-    # operación de Scribe usada aquí, T-FB008-US03-01), que no acepta
+    # operación de Scribe usada aquí, T-AF008-US03-01), que no acepta
     # ningún parámetro de prompt libre — ver también
     # `test_summarize_document_does_not_accept_arbitrary_prompt_parameter`
     # en test_scribe.py, verificado ahí sobre la propia función de Scribe.
     import inspect
 
-    from brain.local_tools import summarize_document
+    from atlas_forge.local_tools import summarize_document
 
     signature = inspect.signature(summarize_document)
     assert "prompt" not in signature.parameters
@@ -228,7 +228,7 @@ def test_job_count_registry_tracks_consecutive_dispatches_per_session_and_agent(
     # Verifica el registro nuevo (job_count_registry) de forma aislada:
     # incrementa por (session_id, agent_id), no se mezcla entre agentes o
     # sesiones distintas.
-    from brain.dispatcher.job_count_registry import record_job_dispatch
+    from atlas_forge.dispatcher.job_count_registry import record_job_dispatch
 
     assert get_consecutive_job_count("s1", "a1") == 0
     record_job_dispatch("s1", "a1")

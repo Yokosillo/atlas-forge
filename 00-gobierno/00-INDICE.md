@@ -1,6 +1,6 @@
-# Gobierno de Factory Brain
+# Gobierno de Atlas Forge
 
-Este directorio define el modelo de gobierno, operación y comportamiento de los agentes de Factory Brain.
+Este directorio define el modelo de gobierno, operación y comportamiento de los agentes de Atlas Forge.
 
 ## Regla de lectura
 
@@ -21,7 +21,7 @@ Cada agente recibe el contexto común y, después, únicamente los documentos pr
 | `ROLES.md` | Matriz de responsabilidades | Todos los agentes |
 | `SEGURIDAD.md` | Secretos, comunicación entre agentes y límites operativos | Todos los agentes |
 | `PROTOCOLO_REORIENTACION.md` | Cambios de dirección de producto | Arquitecto, usuario |
-| `OPERACION.md` | Operación humana de brain-api | Operador humano |
+| `OPERACION.md` | Operación humana de atlas-forge-api | Operador humano |
 | `ARQUITECTO.md` | Gobierno específico del Arquitecto | Arquitecto |
 | `DEVELOPER.md` | Gobierno específico del Developer | Developer |
 | `TESTER.md` | Gobierno específico del Tester | Tester |

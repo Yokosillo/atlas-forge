@@ -1,4 +1,4 @@
-"""Tests de T-FB001-US03-02: ejecutar un script catalogado del proyecto
+"""Tests de T-AF001-US03-02: ejecutar un script catalogado del proyecto
 como subproceso real — nunca mockeando `subprocess.run` ni el comando en
 sí (mismo criterio de "comportamiento real" ya aplicado en el resto del
 proyecto, ver `test_project_scripts.py`): se escribe un manifiesto real a
@@ -7,7 +7,7 @@ nunca un binario externo con efectos)."""
 
 from pathlib import Path
 
-from brain.workspace.project_scripts import MANIFEST_RELATIVE_PATH, run_project_script
+from atlas_forge.workspace.project_scripts import MANIFEST_RELATIVE_PATH, run_project_script
 
 
 def _write_manifest(project_path: Path, content: str) -> None:

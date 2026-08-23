@@ -1,4 +1,4 @@
-"""Tests de T-FB005-US01-03: `start_runtime` debe enviar `agent.prompt`
+"""Tests de T-AF005-US01-03: `start_runtime` debe enviar `agent.prompt`
 al arrancar el runtime, como argumento del propio comando de arranque
 (nunca tecleado después) — verificado con un doble de runtime real
 (nunca el binario real de Claude Code/OpenCode), capturando el pane de
@@ -11,16 +11,16 @@ import uuid
 import libtmux
 import pytest
 
-from brain.models import Runtime
-from brain.runtime import start_runtime, stop_runtime
-from brain.runtime.claude_code import build_prompt_args as build_claude_code_prompt_args
-from brain.runtime.opencode import build_prompt_args as build_opencode_prompt_args
-from brain.tmux.manager import capture_pane_lines
+from atlas_forge.models import Runtime
+from atlas_forge.runtime import start_runtime, stop_runtime
+from atlas_forge.runtime.claude_code import build_prompt_args as build_claude_code_prompt_args
+from atlas_forge.runtime.opencode import build_prompt_args as build_opencode_prompt_args
+from atlas_forge.tmux.manager import capture_pane_lines
 
 
 @pytest.fixture
 def isolated_socket():
-    name = f"brain-test-{uuid.uuid4().hex[:8]}"
+    name = f"atlas_forge-test-{uuid.uuid4().hex[:8]}"
     yield name
     try:
         libtmux.Server(socket_name=name).kill()
@@ -47,7 +47,7 @@ def _echoing_test_runtime(runtime_type: str) -> Runtime:
     # visible en el pane capturado — es literalmente lo que este test
     # necesita observar. `runtime.type` es lo único que determina si
     # `start_runtime` añade argumentos de prompt (ver
-    # `_prompt_args_builder_by_type`, `brain/runtime/generic.py`), así que
+    # `_prompt_args_builder_by_type`, `atlas_forge/runtime/generic.py`), así que
     # se prueba con los dos tipos reales registrados.
     return Runtime(
         id=f"{runtime_type}-echo-test",
@@ -61,7 +61,7 @@ def _echoing_test_runtime(runtime_type: str) -> Runtime:
 def test_start_runtime_sends_the_agent_prompt_as_part_of_the_launch_command_for_claude_code(
     isolated_socket: str, tmp_path
 ) -> None:
-    prompt = "Eres el agente Critic de Factory Brain, lee 00-gobierno/CRITICO.md"
+    prompt = "Eres el agente Critic de Atlas Forge, lee 00-gobierno/CRITICO.md"
     agent = _FakeAgent(prompt=prompt)
     runtime = _echoing_test_runtime("claude-code")
 
@@ -83,7 +83,7 @@ def test_start_runtime_sends_the_agent_prompt_as_part_of_the_launch_command_for_
 def test_start_runtime_sends_the_agent_prompt_as_part_of_the_launch_command_for_opencode(
     isolated_socket: str, tmp_path
 ) -> None:
-    prompt = "Eres el agente Developer de Factory Brain, lee 00-gobierno/developer.md"
+    prompt = "Eres el agente Developer de Atlas Forge, lee 00-gobierno/developer.md"
     agent = _FakeAgent(prompt=prompt)
     runtime = _echoing_test_runtime("opencode")
 

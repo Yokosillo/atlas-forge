@@ -1,4 +1,4 @@
-/* T-FB005-US07-02 (US-FB005-07): el lanzamiento de un agente desde la
+/* T-AF005-US07-02 (US-AF005-07): el lanzamiento de un agente desde la
  * pantalla Agentes (pestaña `roles`, el camino operativo real — la fila
  * sintética "Developer-N" pulsa su botón "Lanzar") debe enviar a
  * `POST /agents` un `runtime_type` EXPLÍCITO, nunca dejar que el backend
@@ -101,7 +101,7 @@ async function test_operative_launch_sends_explicit_runtime() {
       req.continue();
     });
 
-    // T-FB005-US07-03: el lanzamiento exige elegir runtime primero — el
+    // T-AF005-US07-03: el lanzamiento exige elegir runtime primero — el
     // botón "Lanzar" está deshabilitado hasta que se elija uno. Se elige
     // OpenCode en el selector de la fila y entonces se lanza.
     const runtimeSelected = await _selectRuntimeForRow(page, "Developer-1", "opencode");
@@ -123,7 +123,7 @@ async function test_operative_launch_sends_explicit_runtime() {
     );
     // El rol siempre va presente.
     assert.strictEqual(payload.role, "developer");
-    // T-FB005-US01-08 (2026-08-18): al lanzar desde la fila "Developer-1"
+    // T-AF005-US01-08 (2026-08-18): al lanzar desde la fila "Developer-1"
     // se envía el número de slot — el agente nace con ESE nombre, no con
     // el que el conteo del backend decida.
     assert.strictEqual(

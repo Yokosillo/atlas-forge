@@ -5,11 +5,11 @@ from unittest.mock import patch
 import libtmux
 import pytest
 
-from brain.core.session_lifecycle import activate, assign_agent
-from brain.dispatcher import get_plan_progress, run_job_plan
-from brain.local_tools import ScribeUnavailableError
-from brain.models import Agent, DevelopmentSession, Runtime
-from brain.runtime import register_runtime_instance_for_agent, start_runtime, stop_runtime
+from atlas_forge.core.session_lifecycle import activate, assign_agent
+from atlas_forge.dispatcher import get_plan_progress, run_job_plan
+from atlas_forge.local_tools import ScribeUnavailableError
+from atlas_forge.models import Agent, DevelopmentSession, Runtime
+from atlas_forge.runtime import register_runtime_instance_for_agent, start_runtime, stop_runtime
 
 _COOPERATIVE_AGENT_SCRIPT = str(
     Path(__file__).parent / "fixtures" / "cooperative_agent_sim.sh"
@@ -21,7 +21,7 @@ def isolated_socket():
     """Mismo patrón de aislamiento ya usado en el resto de tests de
     despacho real (test_job_dispatch.py, test_job_plan_dispatch.py):
     servidor tmux propio por test, nunca el binario real de un runtime."""
-    name = f"brain-test-{uuid.uuid4().hex[:8]}"
+    name = f"atlas_forge-test-{uuid.uuid4().hex[:8]}"
     try:
         yield name
     finally:
@@ -39,9 +39,9 @@ def _write_task(
         f"id: T-{story_id}-{correlative}\n"
         "type: task\n"
         f"title: {title}\n"
-        "epic: FB-999\n"
+        "epic: AF-999\n"
         f"user_story: {story_id}\n"
-        "state: TO_DO\n"
+        "state: READY\n"
         "dependencies: []\n"
         "priority: Crítica\n"
         "---\n\n"
@@ -84,7 +84,7 @@ def _launch_cooperative_developer(isolated_socket: str, tmp_path: Path) -> Agent
 def test_run_job_plan_end_to_end_mixed_steps_all_succeed(
     isolated_socket: str, tmp_path: Path
 ) -> None:
-    story_id = "FB999-US01"
+    story_id = "AF999-US01"
     tasks_dir = tmp_path / "tasks"
     tasks_dir.mkdir()
     _write_task(
@@ -120,7 +120,7 @@ def test_run_job_plan_end_to_end_mixed_steps_all_succeed(
         # entorno de test — se mockea para el camino feliz, igual que en
         # test_job_plan_dispatch.py (nunca se invoca Ollama real en tests).
         with patch(
-            "brain.dispatcher.job_plan_dispatch.summarize_document",
+            "atlas_forge.dispatcher.job_plan_dispatch.summarize_document",
             return_value="resumen ok",
         ):
             plan = run_job_plan(
@@ -150,7 +150,7 @@ def test_run_job_plan_end_to_end_mixed_steps_all_succeed(
 def test_run_job_plan_end_to_end_rejected_plan_dispatches_nothing(
     tmp_path: Path,
 ) -> None:
-    story_id = "FB999-US01"
+    story_id = "AF999-US01"
     tasks_dir = tmp_path / "tasks"
     tasks_dir.mkdir()
     _write_task(
@@ -177,7 +177,7 @@ def test_run_job_plan_end_to_end_rejected_plan_dispatches_nothing(
 def test_run_job_plan_end_to_end_intermediate_step_failure_blocks_the_rest(
     isolated_socket: str, tmp_path: Path
 ) -> None:
-    story_id = "FB999-US01"
+    story_id = "AF999-US01"
     tasks_dir = tmp_path / "tasks"
     tasks_dir.mkdir()
     _write_task(
@@ -217,7 +217,7 @@ def test_run_job_plan_end_to_end_intermediate_step_failure_blocks_the_rest(
 
     try:
         with patch(
-            "brain.dispatcher.job_plan_dispatch.summarize_document",
+            "atlas_forge.dispatcher.job_plan_dispatch.summarize_document",
             side_effect=ScribeUnavailableError("Ollama no disponible"),
         ):
             plan = run_job_plan(

@@ -1,12 +1,12 @@
-"""Tests de T-FB037-US02-01: log persistente del resultado de
-`reconcile_session_agents` (`brain.core.reconciliation_log`) — mismo
+"""Tests de T-AF037-US02-01: log persistente del resultado de
+`reconcile_session_agents` (`atlas_forge.core.reconciliation_log`) — mismo
 patrón que `test_architect_queue.py` (misma ubicación `.claude/state/`,
 mismo JSONL append-only)."""
 
 import json
 from pathlib import Path
 
-from brain.core.reconciliation_log import (
+from atlas_forge.core.reconciliation_log import (
     append_reconciliation_log,
     reconciliation_log_path,
 )
@@ -74,7 +74,7 @@ def test_each_line_is_a_standalone_valid_json_object_not_a_single_array(
     assert second["recognized"] == 1
     assert second["reconciled_count"] == 0
     assert second["ignored_count"] == 2
-    # Criterio de aceptación 2 de US-FB037-02: distingue explícitamente
+    # Criterio de aceptación 2 de US-AF037-02: distingue explícitamente
     # ignoradas de reenganchadas, con motivo — cada entrada de `ignored`
     # trae su propio `reason`, no un conteo agregado sin detalle.
     reasons = {entry["reason"] for entry in second["ignored"]}
@@ -88,7 +88,7 @@ def test_sanitizes_project_name_for_the_directory_same_as_architect_queue(
     proyecto con espacios/mayúsculas produce el mismo directorio que
     `sanitize_session_name_part` calcularía para la sesión tmux del
     Arquitecto de ese proyecto, para que ambos logs vivan juntos."""
-    from brain.dispatcher.architect_queue import architect_queue_path
+    from atlas_forge.dispatcher.architect_queue import architect_queue_path
 
     project_root = tmp_path / "Mi Proyecto Real"
 

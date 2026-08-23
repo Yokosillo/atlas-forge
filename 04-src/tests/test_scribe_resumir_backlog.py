@@ -1,6 +1,6 @@
-"""Tests del subcomando `brain scribe resumir-backlog` (T-FB018-US02-03,
-US-FB018-02 · capa opcional de síntesis en prosa sobre el JSON ya calculado
-de `brain backlog-status`).
+"""Tests del subcomando `atlas_forge scribe resumir-backlog` (T-AF018-US02-03,
+US-AF018-02 · capa opcional de síntesis en prosa sobre el JSON ya calculado
+de `atlas_forge backlog-status`).
 
 ## Estrategia
 
@@ -14,7 +14,7 @@ test fija cifras del estado actual del backlog (cambia constantemente): el
 resumen se compara contra el propio informe calculado en el test.
 
 Se verifica además el criterio 3: la ausencia de Scribe/Ollama no rompe ni
-bloquea `brain backlog-status` — el subcomando de síntesis degrada
+bloquea `atlas_forge backlog-status` — el subcomando de síntesis degrada
 explícitamente con un código de salida no cero y un mensaje claro."""
 
 import contextlib
@@ -26,8 +26,8 @@ from unittest.mock import patch
 
 import pytest
 
-from brain.cli.scribe_resumir_backlog import run_resumir_backlog
-from brain.local_tools import ScribeUnavailableError
+from atlas_forge.cli.scribe_resumir_backlog import run_resumir_backlog
+from atlas_forge.local_tools import ScribeUnavailableError
 
 REAL_BACKLOG_PATH = (
     Path(__file__).resolve().parents[1].parent / "02-backlog"
@@ -59,7 +59,7 @@ def test_pipeline_produces_prose_coherent_with_the_real_backlog_data() -> None:
     un resumen en prosa. El modelo se simula de forma fiel: redacta un
     resumen que refleja exactamente los datos de entrada, y el test verifica
     que las cifras del resumen coinciden con el informe calculado."""
-    from brain.backlog import build_backlog_report
+    from atlas_forge.backlog import build_backlog_report
 
     report = build_backlog_report(REAL_BACKLOG_PATH)
     report_json = json.dumps(report, ensure_ascii=False, indent=2)
@@ -74,7 +74,7 @@ def test_pipeline_produces_prose_coherent_with_the_real_backlog_data() -> None:
     )
 
     with patch(
-        "brain.cli.scribe_resumir_backlog.resumir_estado_backlog",
+        "atlas_forge.cli.scribe_resumir_backlog.resumir_estado_backlog",
         return_value=summary,
     ):
         code, stdout, stderr = _run_cli([], report_json)
@@ -94,10 +94,10 @@ def test_pipeline_produces_prose_coherent_with_the_real_backlog_data() -> None:
 
 def test_subcommand_reads_the_json_report_from_stdin() -> None:
     """Criterio 2: el subcomando recibe el JSON ya calculado (pipeline
-    `brain backlog-status --json | brain scribe resumir-backlog`) y lo pasa
+    `atlas_forge backlog-status --json | atlas_forge scribe resumir-backlog`) y lo pasa
     a Scribe como única entrada."""
     with patch(
-        "brain.cli.scribe_resumir_backlog.resumir_estado_backlog",
+        "atlas_forge.cli.scribe_resumir_backlog.resumir_estado_backlog",
         return_value="resumen en prosa",
     ) as mock_resumir:
         code, stdout, _ = _run_cli([], '{"total": {"items": 3}, "empty": false}')
@@ -111,9 +111,9 @@ def test_subcommand_degrades_explicitly_when_scribe_is_unavailable() -> None:
     """Criterio 3: si Scribe/Ollama no está disponible
     (`ScribeUnavailableError`), el subcomando informa claramente por stderr y
     devuelve un código de salida NO cero — nunca un traceback ni un colgado,
-    y nunca rompe a `brain backlog-status`."""
+    y nunca rompe a `atlas_forge backlog-status`."""
     with patch(
-        "brain.cli.scribe_resumir_backlog.resumir_estado_backlog",
+        "atlas_forge.cli.scribe_resumir_backlog.resumir_estado_backlog",
         side_effect=ScribeUnavailableError("Ollama no disponible"),
     ):
         code, stdout, stderr = _run_cli([], '{"empty": true}')
@@ -147,7 +147,7 @@ def test_subcommand_rejects_non_json_stdin_with_an_explicit_message() -> None:
 
 
 def test_backlog_status_does_not_depend_on_scribe() -> None:
-    """Criterio 3: `brain backlog-status` no invoca a Scribe en ningún
+    """Criterio 3: `atlas_forge backlog-status` no invoca a Scribe en ningún
     punto — la síntesis es una capa añadida, nunca una dependencia dura. Se
     verifica ejecutando `backlog-status` (humana y `--json`) con el cliente
     HTTP de Scribe apuntando a un servidor que rechaza la conexión (como si
@@ -159,10 +159,10 @@ def test_backlog_status_does_not_depend_on_scribe() -> None:
 
     import requests
 
-    from brain.cli.backlog_status import run_backlog_status
+    from atlas_forge.cli.backlog_status import run_backlog_status
 
     with patch(
-        "brain.local_tools.scribe.requests.post",
+        "atlas_forge.local_tools.scribe.requests.post",
         side_effect=requests.ConnectionError("connection refused"),
     ):
         for extra in ([], ["--json"]):

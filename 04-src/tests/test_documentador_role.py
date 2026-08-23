@@ -1,10 +1,10 @@
-"""Tests para el rol Documentador (T-FB024-US20-01)."""
+"""Tests para el rol Documentador (T-AF024-US20-01)."""
 
 import re
 from pathlib import Path
 
-from brain.agents import DOCUMENTADOR_ROLE, DOCUMENTADOR_PROMPT, build_documentador_prompt
-from brain.agents.roles import get_role, list_roles
+from atlas_forge.agents import DOCUMENTADOR_ROLE, DOCUMENTADOR_PROMPT, build_documentador_prompt
+from atlas_forge.agents.roles import get_role, list_roles
 
 _GOVERNANCE_PATH = (
     Path(__file__).resolve().parents[2] / "00-gobierno" / "DOCUMENTADOR.md"
@@ -35,12 +35,12 @@ def test_documentador_role_constant():
 
 def test_documentador_prompt_is_base_prompt():
     """DOCUMENTADOR_PROMPT es la versión base sin governance."""
-    assert DOCUMENTADOR_PROMPT.startswith("Eres el agente Documentador de Factory Brain")
+    assert DOCUMENTADOR_PROMPT.startswith("Eres el agente Documentador de Atlas Forge")
 
 
 def test_documentador_has_register_function():
     """El rol documentador tiene función de registro asignada."""
-    from brain.agents import register_documentador
+    from atlas_forge.agents import register_documentador
     assert callable(register_documentador)
 
 
@@ -49,7 +49,7 @@ def test_documentador_role_with_reuse_pattern():
     no register_agent (nueva instancia cada vez) — mismo criterio que
     Tester (actúa puntualmente por encargo, no mantiene conversación
     entre Jobs sucesivos)."""
-    from brain.agents.documentador import register_documentador
+    from atlas_forge.agents.documentador import register_documentador
     import inspect
     source = inspect.getsource(register_documentador)
     assert "register_agent_with_reuse" in source

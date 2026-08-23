@@ -1,10 +1,10 @@
-"""Tests unitarios para `brain.actions.transversal` (FB-025 Hilo 3)."""
+"""Tests unitarios para `atlas_forge.actions.transversal` (AF-025 Hilo 3)."""
 import uuid
 
 import pytest
 
-import brain.actions.transversal as transversal_module
-from brain.actions.transversal import (
+import atlas_forge.actions.transversal as transversal_module
+from atlas_forge.actions.transversal import (
     ACCIONES_DISPONIBLES,
     ActionType,
     _ACTION_DESCRIPTIONS,
@@ -12,11 +12,11 @@ from brain.actions.transversal import (
     _persist_action_report,
     dispatch_action,
 )
-from brain.agents.arquitecto import ARQUITECTO_ROLE
-from brain.agents.auditor_oss import AUDITOR_OSS_ROLE
-from brain.agents.documentador import DOCUMENTADOR_ROLE
-from brain.agents.ux import UX_ROLE
-from brain.models import Agent, DevelopmentSession, Job
+from atlas_forge.agents.arquitecto import ARQUITECTO_ROLE
+from atlas_forge.agents.auditor_oss import AUDITOR_OSS_ROLE
+from atlas_forge.agents.documentador import DOCUMENTADOR_ROLE
+from atlas_forge.agents.ux import UX_ROLE
+from atlas_forge.models import Agent, DevelopmentSession, Job
 
 
 class TestActionDefinitions:
@@ -38,13 +38,13 @@ class TestActionDefinitions:
             assert len(desc) > 50, f"descripción de '{action_id}' demasiado corta ({len(desc)} chars)"
 
     def test_story_id_map(self):
-        assert _STORY_ID_MAP.get("documentar") == "US-FB025-01"
-        assert _STORY_ID_MAP.get("analizar-arquitectura") == "US-FB025-02"
-        assert _STORY_ID_MAP.get("sugerir-ideas") == "US-FB025-03"
-        assert _STORY_ID_MAP.get("testear") == "US-FB025-04"
-        assert _STORY_ID_MAP.get("auditar-ux") == "US-FB025-06"
-        assert _STORY_ID_MAP.get("auditar-oss") == "US-FB025-08"
-        assert _STORY_ID_MAP.get("indexar") == "US-FB025-07"
+        assert _STORY_ID_MAP.get("documentar") == "US-AF025-01"
+        assert _STORY_ID_MAP.get("analizar-arquitectura") == "US-AF025-02"
+        assert _STORY_ID_MAP.get("sugerir-ideas") == "US-AF025-03"
+        assert _STORY_ID_MAP.get("testear") == "US-AF025-04"
+        assert _STORY_ID_MAP.get("auditar-ux") == "US-AF025-06"
+        assert _STORY_ID_MAP.get("auditar-oss") == "US-AF025-08"
+        assert _STORY_ID_MAP.get("indexar") == "US-AF025-07"
 
 
 class TestPersistActionReport:
@@ -64,7 +64,7 @@ class TestPersistActionReport:
         assert "Test result" in content
 
     def test_persist_two_executions_no_overwrite(self, tmp_path):
-        import brain.actions.transversal as tmod
+        import atlas_forge.actions.transversal as tmod
         orig = tmod._default_reports_root
         try:
             tmod._default_reports_root = lambda: tmp_path / "07-informes"
@@ -91,13 +91,13 @@ class TestPersistActionReport:
             assert path2.exists()
             assert path1 != path2
 
-            md_files = list((tmp_path / "07-informes" / "US-FB025-02").glob("*.md"))
+            md_files = list((tmp_path / "07-informes" / "US-AF025-02").glob("*.md"))
             assert len(md_files) >= 2
         finally:
             tmod._default_reports_root = orig
 
     def test_persist_uses_correct_story_dir(self, tmp_path):
-        import brain.actions.transversal as tmod
+        import atlas_forge.actions.transversal as tmod
         orig = tmod._default_reports_root
         try:
             tmod._default_reports_root = lambda: tmp_path / "07-informes"
@@ -110,7 +110,7 @@ class TestPersistActionReport:
                 result="res",
             )
             _persist_action_report("sugerir-ideas", job)
-            story_dir = tmp_path / "07-informes" / "US-FB025-03"
+            story_dir = tmp_path / "07-informes" / "US-AF025-03"
             assert story_dir.is_dir()
             assert any(story_dir.glob("*.md"))
         finally:
@@ -118,7 +118,7 @@ class TestPersistActionReport:
 
 
 class TestAuditarUxDispatchesToUxAgent:
-    """T-FB024-US13-03: `auditar-ux` despacha un Job normal a la instancia
+    """T-AF024-US13-03: `auditar-ux` despacha un Job normal a la instancia
     de UX ya lanzada (mismo mecanismo genérico que `documentar` usa con
     Arquitecto vía `_dispatch_agent_action`), en vez del
     `subprocess.run(["opencode", "run", "--auto", ...])` headless previo."""
@@ -225,7 +225,7 @@ class TestAuditarUxDispatchesToUxAgent:
 
 
 class TestDocumentarDispatchesToDocumentadorAgent:
-    """T-FB024-US20-01: `documentar` despacha un Job a la instancia de
+    """T-AF024-US20-01: `documentar` despacha un Job a la instancia de
     Documentador ya lanzada, NO al Arquitecto (comportamiento anterior a
     esta Task) — mismo mecanismo genérico
     `_dispatch_agent_action`/`_find_agent_by_role` que ya usa

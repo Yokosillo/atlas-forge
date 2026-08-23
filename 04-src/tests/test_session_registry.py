@@ -2,13 +2,13 @@ from pathlib import Path
 
 import pytest
 
-from brain.core import (
+from atlas_forge.core import (
     get_current_session,
     resolve_startup_session,
     shutdown_current_session,
 )
-from brain.core.session_registry import _reset_registry_for_tests, focus_project_session
-from brain.workspace import discover_projects, select_active_project
+from atlas_forge.core.session_registry import _reset_registry_for_tests, focus_project_session
+from atlas_forge.workspace import discover_projects, select_active_project
 
 
 @pytest.fixture(autouse=True)

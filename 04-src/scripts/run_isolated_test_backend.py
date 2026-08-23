@@ -1,11 +1,11 @@
-"""Arranca un `brain-api` real y completamente aislado, para que la suite
-Puppeteer de `10-web/tests/` (T-FB022-US15-03, US-FB022-15) pueda navegar
+"""Arranca un `atlas-forge-api` real y completamente aislado, para que la suite
+Puppeteer de `10-web/tests/` (T-AF022-US15-03, US-AF022-15) pueda navegar
 contra un backend HTTP real sin tocar producción.
 
 Reutiliza el patrón de aislamiento ya usado por varios Developer para
 verificar cambios de `10-web/` en esta sesión (`state_dir`/socket tmux
 temporales, proyecto activo preseleccionado — ver
-`07-informes/US-FB024-11/corregir-editor-modelo-filas-sinteticas.md`),
+`07-informes/US-AF024-11/corregir-editor-modelo-filas-sinteticas.md`),
 formalizado aquí en `tests/fixtures/backend_server.py::running_backend`
 (mismo mecanismo, ya usado por varios `test_*.py` de la suite pytest):
 `uvicorn.Server` real en un hilo, `_SOCKET_NAME`/`_WORKSPACE_ROOT`/
@@ -81,14 +81,14 @@ def main() -> None:
 
     from fixtures.backend_server import running_backend  # noqa: E402
 
-    tmp_dir = tempfile.TemporaryDirectory(prefix="brain-puppeteer-")
+    tmp_dir = tempfile.TemporaryDirectory(prefix="atlas_forge-puppeteer-")
     tmp_path = Path(tmp_dir.name)
     workspace_root = tmp_path / "workspace"
     project_path = workspace_root / args.seed_project_name
     (project_path / ".git").mkdir(parents=True)
     state_dir = tmp_path / "state"
 
-    from brain.workspace import discover_projects, select_active_project
+    from atlas_forge.workspace import discover_projects, select_active_project
 
     discovered = discover_projects(workspace_root)
     project = next(p for p in discovered if p.name == args.seed_project_name)
@@ -96,7 +96,7 @@ def main() -> None:
 
     roles_to_launch = [r.strip() for r in args.launch_agent_roles.split(",") if r.strip()]
     if roles_to_launch:
-        import brain.runtime.claude_code as claude_code_module
+        import atlas_forge.runtime.claude_code as claude_code_module
 
         cooperative_script = str(
             Path(__file__).resolve().parents[1] / "tests" / "fixtures" / "cooperative_agent_sim.sh"
@@ -120,9 +120,9 @@ def main() -> None:
                 # se lee de ahí (no `DEFAULT_SOCKET_NAME`, el real de
                 # producción) para que los agentes de esta ejecución vivan
                 # en el mismo socket aislado que el propio backend sirve.
-                import brain.api.routes as routes_module
-                from brain.agents.launch import launch_agent
-                from brain.core import resolve_startup_session
+                import atlas_forge.api.routes as routes_module
+                from atlas_forge.agents.launch import launch_agent
+                from atlas_forge.core import resolve_startup_session
 
                 isolated_socket = routes_module._SOCKET_NAME
                 session = resolve_startup_session(
@@ -138,7 +138,7 @@ def main() -> None:
             # del proyecto activo en disco. `harness.js` ya captura solo
             # el primer token con `/READY (\S+)/`, así que añadir este
             # segundo campo no rompe ningún test existente — los tests
-            # que lo necesiten (p. ej. T-FB036-US01-10, escribir el
+            # que lo necesiten (p. ej. T-AF036-US01-10, escribir el
             # frontmatter de una User Story con `dependencies` reales,
             # campo que ningún endpoint HTTP acepta hoy) pueden leerlo;
             # el resto lo ignora igual que ignoraba cualquier resto de

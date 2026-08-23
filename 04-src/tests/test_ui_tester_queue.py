@@ -1,4 +1,4 @@
-"""Tests de T-FB022-US15-04 (US-FB022-15): disparo automático de un Job
+"""Tests de T-AF022-US15-04 (US-AF022-15): disparo automático de un Job
 de Tester de UI al cerrar con veredicto aprobado una User Story cuyo
 alcance toca `10-web/`.
 
@@ -16,23 +16,23 @@ from unittest.mock import patch
 
 import pytest
 
-from brain.agents.tester import TESTER_ROLE
-from brain.core.session_lifecycle import activate, assign_agent
-from brain.dispatcher.architect_verdict_queue import (
+from atlas_forge.agents.tester import TESTER_ROLE
+from atlas_forge.core.session_lifecycle import activate, assign_agent
+from atlas_forge.dispatcher.architect_verdict_queue import (
     _do_dispatch_verdict,
     _maybe_enqueue_ui_tester,
     _instance as _verdict_queue_instance,
     enqueue_architect_verdict,
 )
-from brain.dispatcher.ui_tester_queue import (
+from atlas_forge.dispatcher.ui_tester_queue import (
     _instance as _ui_tester_queue_instance,
     enqueue_ui_tester_job,
     get_ui_tester_queue_status,
 )
-from brain.models import Agent, DevelopmentSession
+from atlas_forge.models import Agent, DevelopmentSession
 
 _WEB_REPORT = "# Informe\n\n**`10-web/app.js`**: cambios en el panel.\n"
-_BACKEND_REPORT = "# Informe\n\n**`04-src/src/brain/api/routes.py`**: cambios.\n"
+_BACKEND_REPORT = "# Informe\n\n**`04-src/src/atlas_forge/api/routes.py`**: cambios.\n"
 
 _VERDICT_APPROVED = "ESTADO: APROBADO\nJUSTIFICACIÓN:\nOK.\nSIGUIENTE_PROMPT_PARA_WORKER:\n(ninguno)\n"
 _VERDICT_REJECTED = "ESTADO: RECHAZADO\nJUSTIFICACIÓN:\nFalta X.\nSIGUIENTE_PROMPT_PARA_WORKER:\nCorrige X.\n"
@@ -54,13 +54,13 @@ def _reset_queues():
 
 def test_maybe_enqueue_ui_tester_enqueues_when_approved_and_touches_web():
     with patch(
-        "brain.dispatcher.ui_tester_queue.enqueue_ui_tester_job"
+        "atlas_forge.dispatcher.ui_tester_queue.enqueue_ui_tester_job"
     ) as mock_enqueue:
         _maybe_enqueue_ui_tester(
-            "US-FB999-01", _VERDICT_APPROVED, [_WEB_REPORT], None, "default", None
+            "US-AF999-01", _VERDICT_APPROVED, [_WEB_REPORT], None, "default", None
         )
 
-    mock_enqueue.assert_called_once_with("US-FB999-01", None, "default", None)
+    mock_enqueue.assert_called_once_with("US-AF999-01", None, "default", None)
 
 
 def test_maybe_enqueue_ui_tester_enqueues_when_approved_with_notes_and_touches_web():
@@ -68,10 +68,10 @@ def test_maybe_enqueue_ui_tester_enqueues_when_approved_with_notes_and_touches_w
         "ESTADO: APROBADO", "ESTADO: APROBADO_CON_OBSERVACIONES"
     )
     with patch(
-        "brain.dispatcher.ui_tester_queue.enqueue_ui_tester_job"
+        "atlas_forge.dispatcher.ui_tester_queue.enqueue_ui_tester_job"
     ) as mock_enqueue:
         _maybe_enqueue_ui_tester(
-            "US-FB999-01", verdict_with_notes, [_WEB_REPORT], None, "default", None
+            "US-AF999-01", verdict_with_notes, [_WEB_REPORT], None, "default", None
         )
 
     mock_enqueue.assert_called_once()
@@ -79,10 +79,10 @@ def test_maybe_enqueue_ui_tester_enqueues_when_approved_with_notes_and_touches_w
 
 def test_maybe_enqueue_ui_tester_does_nothing_when_rejected():
     with patch(
-        "brain.dispatcher.ui_tester_queue.enqueue_ui_tester_job"
+        "atlas_forge.dispatcher.ui_tester_queue.enqueue_ui_tester_job"
     ) as mock_enqueue:
         _maybe_enqueue_ui_tester(
-            "US-FB999-01", _VERDICT_REJECTED, [_WEB_REPORT], None, "default", None
+            "US-AF999-01", _VERDICT_REJECTED, [_WEB_REPORT], None, "default", None
         )
 
     mock_enqueue.assert_not_called()
@@ -92,10 +92,10 @@ def test_maybe_enqueue_ui_tester_does_nothing_when_story_does_not_touch_web():
     # Criterio de aceptación 3: una US que no toca 10-web/ (solo backend)
     # no dispara ningún Job de Tester de UI innecesario.
     with patch(
-        "brain.dispatcher.ui_tester_queue.enqueue_ui_tester_job"
+        "atlas_forge.dispatcher.ui_tester_queue.enqueue_ui_tester_job"
     ) as mock_enqueue:
         _maybe_enqueue_ui_tester(
-            "US-FB999-01", _VERDICT_APPROVED, [_BACKEND_REPORT], None, "default", None
+            "US-AF999-01", _VERDICT_APPROVED, [_BACKEND_REPORT], None, "default", None
         )
 
     mock_enqueue.assert_not_called()
@@ -103,9 +103,9 @@ def test_maybe_enqueue_ui_tester_does_nothing_when_story_does_not_touch_web():
 
 def test_maybe_enqueue_ui_tester_does_nothing_with_empty_verdict_output():
     with patch(
-        "brain.dispatcher.ui_tester_queue.enqueue_ui_tester_job"
+        "atlas_forge.dispatcher.ui_tester_queue.enqueue_ui_tester_job"
     ) as mock_enqueue:
-        _maybe_enqueue_ui_tester("US-FB999-01", "", [_WEB_REPORT], None, "default", None)
+        _maybe_enqueue_ui_tester("US-AF999-01", "", [_WEB_REPORT], None, "default", None)
 
     mock_enqueue.assert_not_called()
 
@@ -127,21 +127,21 @@ def test_ui_tester_queue_enqueue_does_not_block():
         step_event.wait()
 
     with patch(
-        "brain.dispatcher.ui_tester_queue._do_dispatch_ui_tester",
+        "atlas_forge.dispatcher.ui_tester_queue._do_dispatch_ui_tester",
         side_effect=blocking_dispatch,
     ):
-        enqueue_ui_tester_job("US-FB999-01", None, "default")
+        enqueue_ui_tester_job("US-AF999-01", None, "default")
         time.sleep(0.1)
 
         start = time.monotonic()
-        enqueue_ui_tester_job("US-FB999-02", None, "default")
+        enqueue_ui_tester_job("US-AF999-02", None, "default")
         elapsed = time.monotonic() - start
 
         assert elapsed < 0.5, f"enqueue_ui_tester_job bloqueó {elapsed:.2f}s"
 
         status = get_ui_tester_queue_status()
-        assert status["active"] == "US-FB999-01"
-        assert "US-FB999-02" in status["waiting"]
+        assert status["active"] == "US-AF999-01"
+        assert "US-AF999-02" in status["waiting"]
 
         step_event.set()
         for _ in range(50):
@@ -161,21 +161,21 @@ def test_do_dispatch_ui_tester_does_nothing_without_a_tester_agent():
     """Sin agente Tester lanzado en la sesión, el Job se descarta en
     silencio — mismo comportamiento que `_do_dispatch_verdict` sin
     Arquitecto lanzado."""
-    from brain.dispatcher.ui_tester_queue import _do_dispatch_ui_tester
+    from atlas_forge.dispatcher.ui_tester_queue import _do_dispatch_ui_tester
 
     session = DevelopmentSession(id="s1", project_id="p1")
     activate(session)
 
     with patch(
-        "brain.runtime.agent_runtime_registry.get_runtime_instance_for_agent",
+        "atlas_forge.runtime.agent_runtime_registry.get_runtime_instance_for_agent",
     ) as mock_get_runtime:
-        _do_dispatch_ui_tester("US-FB999-01", session, "default")
+        _do_dispatch_ui_tester("US-AF999-01", session, "default")
 
     mock_get_runtime.assert_not_called()
 
 
 def test_do_dispatch_ui_tester_finds_agent_by_tester_role():
-    from brain.dispatcher.ui_tester_queue import _do_dispatch_ui_tester
+    from atlas_forge.dispatcher.ui_tester_queue import _do_dispatch_ui_tester
 
     session = DevelopmentSession(id="s1", project_id="p1")
     activate(session)
@@ -183,10 +183,10 @@ def test_do_dispatch_ui_tester_finds_agent_by_tester_role():
     assign_agent(session, tester)
 
     with patch(
-        "brain.runtime.agent_runtime_registry.get_runtime_instance_for_agent",
+        "atlas_forge.runtime.agent_runtime_registry.get_runtime_instance_for_agent",
         return_value=None,
     ) as mock_get_runtime:
-        _do_dispatch_ui_tester("US-FB999-01", session, "default")
+        _do_dispatch_ui_tester("US-AF999-01", session, "default")
 
     mock_get_runtime.assert_called_once_with(tester.id)
 
@@ -200,7 +200,7 @@ def test_do_dispatch_ui_tester_finds_agent_by_tester_role():
 
 @pytest.fixture(autouse=True)
 def _no_real_runtime(monkeypatch):
-    import brain.runtime.claude_code as claude_code_module
+    import atlas_forge.runtime.claude_code as claude_code_module
 
     monkeypatch.setattr(claude_code_module, "DEFAULT_CLAUDE_CODE_COMMAND", "sleep")
     monkeypatch.setattr(claude_code_module, "DEFAULT_CLAUDE_CODE_ARGS", ["5"])
@@ -212,7 +212,7 @@ def isolated_socket():
 
     import libtmux
 
-    name = f"brain-test-{uuid.uuid4().hex[:8]}"
+    name = f"atlas_forge-test-{uuid.uuid4().hex[:8]}"
     try:
         yield name
     finally:
@@ -226,8 +226,8 @@ _COOPERATIVE_AGENT_SCRIPT = str(Path(__file__).parent / "fixtures" / "cooperativ
 
 
 def _launch_cooperative_agent(role, tmp_path, session, isolated_socket, monkeypatch, extra_env=""):
-    import brain.runtime.claude_code as claude_code_module
-    from brain.agents.launch import launch_agent
+    import atlas_forge.runtime.claude_code as claude_code_module
+    from atlas_forge.agents.launch import launch_agent
 
     monkeypatch.setattr(
         claude_code_module, "DEFAULT_CLAUDE_CODE_COMMAND", f"{extra_env} bash".strip()
@@ -259,18 +259,18 @@ def test_end_to_end_approved_verdict_on_a_web_touching_story_dispatches_a_real_u
     )
 
     reports_root = tmp_path / "informes"
-    story_dir = reports_root / "US-FB999-01"
+    story_dir = reports_root / "US-AF999-01"
     story_dir.mkdir(parents=True)
     (story_dir / "job-1.md").write_text(_WEB_REPORT, encoding="utf-8")
 
     tasks_dir = tmp_path / "backlog" / "tasks"
     tasks_dir.mkdir(parents=True)
 
-    enqueue_architect_verdict("US-FB999-01", session, isolated_socket, reports_root)
+    enqueue_architect_verdict("US-AF999-01", session, isolated_socket, reports_root)
 
     for _ in range(100):
         status = get_ui_tester_queue_status()
-        if status["active"] == "US-FB999-01" or "US-FB999-01" in status["waiting"]:
+        if status["active"] == "US-AF999-01" or "US-AF999-01" in status["waiting"]:
             break
         time.sleep(0.05)
     else:
@@ -310,11 +310,11 @@ def test_end_to_end_approved_verdict_on_a_non_web_story_does_not_dispatch_ui_tes
     )
 
     reports_root = tmp_path / "informes"
-    story_dir = reports_root / "US-FB999-02"
+    story_dir = reports_root / "US-AF999-02"
     story_dir.mkdir(parents=True)
     (story_dir / "job-1.md").write_text(_BACKEND_REPORT, encoding="utf-8")
 
-    enqueue_architect_verdict("US-FB999-02", session, isolated_socket, reports_root)
+    enqueue_architect_verdict("US-AF999-02", session, isolated_socket, reports_root)
 
     for _ in range(100):
         status = _verdict_queue_instance.get_status()

@@ -1,6 +1,6 @@
 # API
 
-Factory Brain expone su dominio a través de una **API HTTP/WebSocket** (FastAPI) que consumen todos los clientes. Referencia completa generada contra el código real en `04-src/src/brain/api/`.
+Atlas Forge expone su dominio a través de una **API HTTP/WebSocket** (FastAPI) que consumen todos los clientes. Referencia completa generada contra el código real en `04-src/src/atlas_forge/api/`.
 
 ## Generalidades
 
@@ -189,7 +189,7 @@ Cancela un Job **en vuelo** (`running`). Espera la transición real del hilo del
 Informe estructurado del backlog del proyecto activo (`02-backlog/`): conteos por Epic (con `unblock_degree` y `fase`), ítems LISTA/BLOQUEADA, cadena de máximo apalancamiento, errores de parseo.
 
 ### `GET /backlog/{item_id}`
-Detalle de un ítem. Los IDs del tipo `FB-xxx` se resuelven como Epic; cualquier otra cosa como Task/User Story. Incluye objetivo/historia, criterios de aceptación, dependencias (con su estado) y, para User Stories, sus Tasks y (FB-024-US09) historial de ejecución. 404 con un motivo de parseo si el fichero existe pero no pudo parsearse.
+Detalle de un ítem. Los IDs del tipo `AF-xxx` se resuelven como Epic; cualquier otra cosa como Task/User Story. Incluye objetivo/historia, criterios de aceptación, dependencias (con su estado) y, para User Stories, sus Tasks y (AF-024-US09) historial de ejecución. 404 con un motivo de parseo si el fichero existe pero no pudo parsearse.
 
 ### `POST /backlog/{story_id}/launch-development` → 201
 Ruta de Job aislado (sin encolar las Tasks en `TO_DEVELOP`): construye el Job a partir de la story real + Tasks pendientes (`READY`) y lo despacha al agente indicado. 400 si la Story no tiene Tasks pendientes. Publica `job_status`.
@@ -241,7 +241,7 @@ Para `backlog_status`: `data` es el informe parseado y `prose` el resumen opcion
 ## Acciones transversales de proyecto
 
 ### `POST /project/actions/{action_id}`
-Despacha una acción completa de proyecto (bloqueante). `action_id` ∈ `documentar | analizar-arquitectura | sugerir-ideas | testear | auditar-ux | indexar`. Persiste el informe en `07-informes/US-FB025-*/` sin sobrescribir. 400 para una acción desconocida; 404 sin sesión activa (acciones de agente).
+Despacha una acción completa de proyecto (bloqueante). `action_id` ∈ `documentar | analizar-arquitectura | sugerir-ideas | testear | auditar-ux | indexar`. Persiste el informe en `07-informes/US-AF025-*/` sin sobrescribir. 400 para una acción desconocida; 404 sin sesión activa (acciones de agente).
 
 ## WebSockets
 

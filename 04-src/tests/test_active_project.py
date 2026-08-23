@@ -2,9 +2,9 @@ import pytest
 
 from pathlib import Path
 
-from brain.models import Project
-from brain.storage import load_active_project
-from brain.workspace import (
+from atlas_forge.models import Project
+from atlas_forge.storage import load_active_project
+from atlas_forge.workspace import (
     ProjectNotDiscoveredError,
     get_active_project,
     select_active_project,

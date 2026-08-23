@@ -5,7 +5,7 @@
 # Cada paso queda registrado en logs/watch.log.
 set -u
 
-STATE_DIR="/home/secure_ai_atlas/factoria-software/10-PRODUCTOS/PROD-006-factory-brain/.claude/state"
+STATE_DIR="/home/secure_ai_atlas/factoria-software/10-PRODUCTOS/PROD-006-atlas-forge/.claude/state"
 CRITIC_OUTPUT="$STATE_DIR/critic_output.txt"
 WORKER_SESSION="006-developer"
 LOG_DIR="$STATE_DIR/logs"

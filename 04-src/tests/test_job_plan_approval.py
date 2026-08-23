@@ -1,12 +1,12 @@
 import pytest
 
-from brain.dispatcher import InvalidJobPlanTransitionError, present_plan_for_approval
-from brain.models import JobPlan, JobPlanStep
+from atlas_forge.dispatcher import InvalidJobPlanTransitionError, present_plan_for_approval
+from atlas_forge.models import JobPlan, JobPlanStep
 
 
 def _make_plan(status: str = "proposed") -> JobPlan:
     return JobPlan(
-        goal="FB999-US01",
+        goal="AF999-US01",
         steps=[
             JobPlanStep(description="paso 1", mechanism="agent", agent_role="developer"),
             JobPlanStep(description="paso 2", mechanism="script"),
@@ -73,7 +73,7 @@ def test_no_public_function_approves_an_individual_step() -> None:
     # Criterio de aceptación explícito: no debe existir ninguna función
     # pública en el módulo de aprobación que opere sobre un JobPlanStep
     # individual, solo sobre el JobPlan completo.
-    import brain.dispatcher.job_plan_approval as approval_module
+    import atlas_forge.dispatcher.job_plan_approval as approval_module
 
     public_names = [name for name in dir(approval_module) if not name.startswith("_")]
     step_level_names = [name for name in public_names if "step" in name.lower()]

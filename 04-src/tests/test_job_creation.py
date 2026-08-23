@@ -1,9 +1,9 @@
 import pytest
 
-from brain.agents.lifecycle import mark_working
-from brain.core.session_lifecycle import activate, assign_agent
-from brain.dispatcher import JobCreationError, create_job
-from brain.models import Agent, DevelopmentSession
+from atlas_forge.agents.lifecycle import mark_working
+from atlas_forge.core.session_lifecycle import activate, assign_agent
+from atlas_forge.dispatcher import JobCreationError, create_job
+from atlas_forge.models import Agent, DevelopmentSession
 
 
 def _make_agent(status: str = "idle") -> Agent:

@@ -2,7 +2,7 @@
 
 ## Runtimes
 
-Factory Brain no ejecuta modelos directamente: cada agente lanzado es una **instancia de runtime** ejecutándose en una **sesión de tmux** del servidor dedicado `factory-brain` (`tmux/manager.py`). El prompt inicial se pasa como argumento en el propio comando de arranque (no se "escribe" después).
+Atlas Forge no ejecuta modelos directamente: cada agente lanzado es una **instancia de runtime** ejecutándose en una **sesión de tmux** del servidor dedicado `atlas-forge` (`tmux/manager.py`). El prompt inicial se pasa como argumento en el propio comando de arranque (no se "escribe" después).
 
 ### Claude Code
 
@@ -37,7 +37,7 @@ codex -a never -s workspace-write [--model <model>] <prompt>
 
 ## Selección de modelo
 
-Runtime y modelo se eligen **solo en el momento del lanzamiento**, para los tres runtimes anteriores — no hay cambio de modelo en caliente para un agente vivo. `brain/agent_model.py` expone `get_active_model(agent_id)` (lee el modelo que reporta actualmente el pane del runtime, `None` para una sesión muerta o un patrón no reconocido) y `get_available_models()`/`get_available_model_entries()` (leen el catálogo `.factory-brain/models.yml`). `resolve_runtime_for_model(model_id)` mapea una entrada del catálogo a su tipo de lanzamiento real.
+Runtime y modelo se eligen **solo en el momento del lanzamiento**, para los tres runtimes anteriores — no hay cambio de modelo en caliente para un agente vivo. `atlas_forge/agent_model.py` expone `get_active_model(agent_id)` (lee el modelo que reporta actualmente el pane del runtime, `None` para una sesión muerta o un patrón no reconocido) y `get_available_models()`/`get_available_model_entries()` (leen el catálogo `.atlas-forge/models.yml`). `resolve_runtime_for_model(model_id)` mapea una entrada del catálogo a su tipo de lanzamiento real.
 
 Expuesto en la API: `GET /agents/{id}/model`, `GET /agents/{id}/available-models`.
 
@@ -47,7 +47,7 @@ Expuesto en la API: `GET /agents/{id}/model`, `GET /agents/{id}/available-models
 
 - **URL base**: `http://localhost:11434` (endpoint compatible OpenAI `/v1/chat/completions`).
 - **Modelo por defecto**: `qwen2.5-coder:14b`.
-- **Catálogo cerrado de operaciones** (`brain/local_tools/scribe.py`):
+- **Catálogo cerrado de operaciones** (`atlas_forge/local_tools/scribe.py`):
 
 | Operación | Uso |
 |---|---|

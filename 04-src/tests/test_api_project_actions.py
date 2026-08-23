@@ -1,5 +1,5 @@
-"""Tests para el endpoint `POST /project/actions/{action_id}` (FB-025 Hilo 3)
-y la lógica de dominio en `brain.actions.transversal`.
+"""Tests para el endpoint `POST /project/actions/{action_id}` (AF-025 Hilo 3)
+y la lógica de dominio en `atlas_forge.actions.transversal`.
 """
 import os
 import tempfile
@@ -7,7 +7,7 @@ import tempfile
 import pytest
 from fastapi.testclient import TestClient
 
-from brain.api.app import create_app
+from atlas_forge.api.app import create_app
 
 
 @pytest.fixture

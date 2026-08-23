@@ -1,4 +1,4 @@
-from brain.dispatcher import (
+from atlas_forge.dispatcher import (
     DEFAULT_JOB_COUNT_THRESHOLD,
     DEFAULT_SIZE_THRESHOLD_CHARACTERS,
     compose_job_instruction_with_scribe_context,

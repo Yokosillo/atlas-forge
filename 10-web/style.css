@@ -1,8 +1,8 @@
-/* Factory Brain — interfaz web (FB-021).
+/* Atlas Forge — interfaz web (AF-021).
    Base mínima de estilos. El resto de Tasks de la Epic reutilizan estas
    reglas base en vez de fijar tamaños por su cuenta.
 
-   T-FB021-US01-01: tamaño mínimo de área clicable. Equivalente web del
+   T-AF021-US01-01: tamaño mínimo de área clicable. Equivalente web del
    criterio de "objetivos de toque de al menos 48dp" ya exigido en la app
    Android: elementos interactivos (botones, enlaces de navegación) ofrecen
    una zona de toque/pulsación de al menos 48px de alto (y 48px de ancho
@@ -54,7 +54,7 @@ body {
 }
 
 /* ------------------------------------------------------------------ */
-/* FB-021 · Navegación y contexto (T-FB021-US02-03)                    */
+/* AF-021 · Navegación y contexto (T-AF021-US02-03)                    */
 /* ------------------------------------------------------------------ */
 
 .context-bar {
@@ -92,7 +92,7 @@ body {
 }
 
 /* ------------------------------------------------------------------ */
-/* FB-021 · Sección Agentes (T-FB021-US03-01)                          */
+/* AF-021 · Sección Agentes (T-AF021-US03-01)                          */
 /* ------------------------------------------------------------------ */
 
 /* Paleta de estado (misma que `colorForAgentStatus`, Android):
@@ -172,7 +172,7 @@ body {
   margin: 0 2px;
 }
 
-/* T-FB005-US07-03: selector de runtime ANTES de lanzar (elección
+/* T-AF005-US07-03: selector de runtime ANTES de lanzar (elección
    obligatoria y explícita para un agente no lanzado). */
 .agent-runtime-label {
   color: #444;
@@ -203,6 +203,15 @@ body {
 .agent-limited-until {
   font-size: 13px;
   color: #6A1B9A;
+  font-weight: 600;
+  margin-top: 2px;
+}
+
+/* T-AF024-US11-16: aviso de conexión perdida en el detalle de un agente
+   caído (`unavailable`) — mismo rojo del estado `unavailable`. */
+.agent-unavailable-note {
+  font-size: 13px;
+  color: #D32F2F;
   font-weight: 600;
   margin-top: 2px;
 }
@@ -251,10 +260,10 @@ body {
 }
 
 /* ------------------------------------------------------------------ */
-/* FB-021 · Acciones por agente (T-FB021-US03-02)                      */
+/* AF-021 · Acciones por agente (T-AF021-US03-02)                      */
 /* ------------------------------------------------------------------ */
 
-/* Bloque de acciones dentro de agent-card (T-FB024-US11-13): botones
+/* Bloque de acciones dentro de agent-card (T-AF024-US11-13): botones
    APILADOS verticalmente (uno debajo de otro), bloque alineado a la
    derecha de la tarjeta — no en fila horizontal. agent-card ya es
    flex/wrap con agent-info en flex:1 (crece) y este bloque con
@@ -285,6 +294,18 @@ body {
   border: 1px solid #b3261e;
   color: #b3261e;
   background: #fff6f5;
+}
+
+/* T-AF024-US11-16: botón "Liberar" de un agente caído (`unavailable`) —
+   acción de recuperación, tinte ámbar distintivo (ni el rojo destructivo de
+   "Detener" ni el neutral de "Lanzar"). */
+.agent-actions .agent-release {
+  max-width: 100%;
+  white-space: normal;
+  line-height: 1.25;
+  border: 1px solid #b26a00;
+  color: #8a4b00;
+  background: #fff7e6;
 }
 
 .agent-model-select-row,
@@ -322,7 +343,7 @@ body {
 }
 
 /* ------------------------------------------------------------------ */
-/* FB-021 · Sección Jobs (T-FB021-US04-01)                             */
+/* AF-021 · Sección Jobs (T-AF021-US04-01)                             */
 /* ------------------------------------------------------------------ */
 
 .ws-status-note {
@@ -371,7 +392,7 @@ body {
   background: #fff6f5;
 }
 
-/* Histórico (T-FB021-US04-02): tarjeta expandible con detalle completo
+/* Histórico (T-AF021-US04-02): tarjeta expandible con detalle completo
    y acción de encadenamiento solo para Jobs `completed`. */
 .job-line {
   cursor: pointer;
@@ -500,7 +521,7 @@ body {
 }
 
 /* ------------------------------------------------------------------ */
-/* FB-021 · Sección Plan (T-FB021-US05-01)                             */
+/* AF-021 · Sección Plan (T-AF021-US05-01)                             */
 /* ------------------------------------------------------------------ */
 
 .plans-form {
@@ -565,7 +586,7 @@ body {
   white-space: pre-wrap;
 }
 
-/* T-FB008-US04-08 · Motivo real de un paso fallido, mismo color que
+/* T-AF008-US04-08 · Motivo real de un paso fallido, mismo color que
    .agent-error del resto de la pantalla. */
 .plan-step-error {
   font-size: 13px;
@@ -588,7 +609,7 @@ body {
   line-height: 1.25;
 }
 
-/* "Aprobar plan" en estado de CONFIRMACIÓN pendiente (T-FB021-US05-04):
+/* "Aprobar plan" en estado de CONFIRMACIÓN pendiente (T-AF021-US05-04):
    primer clic -> la etiqueta del MISMO botón pasa a "¿Aprobar plan
    completo?... Confirmar aprobación". Antes, ese cambio de estado no tenía
    ninguna señal visual además del texto — el usuario pulsaba una vez y no
@@ -607,7 +628,7 @@ body {
   background: #e8f5e9;
 }
 
-/* "Cancelar plan" (T-FB021-US05-02): comparte el patrón "el aviso crece en
+/* "Cancelar plan" (T-AF021-US05-02): comparte el patrón "el aviso crece en
    la etiqueta" con "Cancelar Job"/"Detener", pero es UNA ACCIÓN DISTINTA,
    de alcance distinto (detiene el despacho de un plan, no un Job suelto ni
    un agente). Por eso su identidad visual es distinta de `.plan-approve`:
@@ -623,7 +644,7 @@ body {
   background: #fff6f5;
 }
 
-/* Histórico de planes (T-FB021-US05-02): tarjeta expandible con el detalle
+/* Histórico de planes (T-AF021-US05-02): tarjeta expandible con el detalle
    completo del plan consultado vía `GET /plans/{id}` (mismo patrón de
    cabecera clicable que el histórico de Jobs, US04-02). */
 .plans-history-title {
@@ -664,7 +685,7 @@ body {
 }
 
 /* ------------------------------------------------------------------ */
-/* FB-021 · Sección Scripts (T-FB021-US06-01)                          */
+/* AF-021 · Sección Scripts (T-AF021-US06-01)                          */
 /* ------------------------------------------------------------------ */
 
 .scripts-title {
@@ -779,7 +800,7 @@ body {
   padding: 8px;
 }
 
-/* Backlog (T-FB020-US04-01): reutiliza deliberadamente `.job-card`/
+/* Backlog (T-AF020-US04-01): reutiliza deliberadamente `.job-card`/
    `.job-line`/`.job-hint`/`.job-detail*`/`.jobs-form`/`.field-label`/
    `.launch-select`/`.stale-note`/`.agent-error`/`.section-note` (mismas
    reglas genéricas ya usadas por Jobs/Plan) — solo el botón "Lanzar
@@ -789,7 +810,7 @@ body {
   margin-top: 4px;
 }
 
-/* T-FB036-US01-08: línea de resumen de cada tarjeta de Epic — id+título
+/* T-AF036-US01-08: línea de resumen de cada tarjeta de Epic — id+título
    a la izquierda, conteos de estado alineados a la derecha, en la misma
    línea. `.job-line` en sí no se toca (se reutiliza en Jobs con texto
    plano) — el layout flex vive en esta clase adicional, solo aplicada
@@ -814,7 +835,7 @@ body {
   text-align: right;
 }
 
-/* T-FB036-US01-09: fila de User Story dentro del detalle de Epic — id/
+/* T-AF036-US01-09: fila de User Story dentro del detalle de Epic — id/
    estado a la izquierda, indicador de número de Tasks a la derecha,
    misma línea. Mismo patrón flex que `.backlog-epic-line`. */
 .backlog-us-line {
@@ -827,6 +848,16 @@ body {
 .backlog-us-line-title {
   flex: 1 1 auto;
   min-width: 0;
+}
+/* T-AF036-US13-03: fase + fecha de última transición en el encabezado de
+   US/Task — texto secundario, atenuado para no competir con el id/estado. */
+.backlog-us-line-meta,
+.backlog-task-line-meta {
+  flex: 0 0 auto;
+  font-size: 12px;
+  color: #616161;
+  font-weight: 400;
+  white-space: nowrap;
 }
 .backlog-us-line-taskcount {
   flex: 0 0 auto;
@@ -845,7 +876,7 @@ body {
   color: #2e7d32;
 }
 
-/* T-FB036-US08-01: controles de prioridad/estado en la línea de título de
+/* T-AF036-US08-01: controles de prioridad/estado en la línea de título de
    una User Story/Task, sin desplegar el detalle. `flex: 0 0 auto` para no
    competir con `.backlog-us-line-title`/`-taskcount` por el espacio de la
    línea. */
@@ -855,25 +886,42 @@ body {
   gap: 6px;
   align-items: center;
 }
+/* T-AF036-US16-03: botones de la pantalla Backlog con altura reducida
+ * (~28px, misma decisión ya tomada en la pantalla Agentes —
+ * US-AF024-11-13, `.agent-actions button`). Los botones del Backlog
+ * heredan el `min-height: 48px` global de accesibilidad; aquí se
+ * compactan SOLO dentro de `.backlog-body`, sin afectar al resto de la
+ * web (los `select` de prioridad/estado y las tarjetas conservan su
+ * layout). Los botones de navegación `.section-tab` no viven en
+ * `.backlog-body` y no se tocan. */
+.backlog-body button,
+.backlog-body input[type="button"],
+.backlog-body input[type="submit"],
+.backlog-body a[role="button"],
+.backlog-body summary {
+  min-height: 28px;
+  min-width: 28px;
+}
+
 .backlog-edit-priority,
 .backlog-edit-state {
   font-size: 12px;
   padding: 2px 4px;
 }
 
-/* T-FB008-US14-01: EN_DESARROLLO distinguible visualmente del resto de
-   estados — color propio (azul/morado), no confundible con
-   TODO/IN_PROGRESS/REVIEW/DONE (mismo criterio de distinción visual
-   propio ya usado/planeado para POSTERGADA en US-FB036-09). */
-.backlog-edit-state--en-desarrollo {
+/* T-AF008-US14-01: TO_DEVELOP (AF-040; antes EN_DESARROLLO) distinguible
+   visualmente del resto de estados — color propio (azul/morado), no
+   confundible con READY/IN_PROGRESS/IN_REVIEW/DONE. */
+.backlog-edit-state--to-develop {
   background: #ede7f6;
   border-color: #7e57c2;
   color: #4527a0;
   font-weight: 600;
 }
 
-/* T-FB008-US15-01/-02 (2026-08-17): NO_TASKS/EN_DISEÑO, cada uno con su
-   propio color, no confundibles entre sí ni con EN_DESARROLLO/POSTERGADA. */
+/* T-AF008-US15-01/-02 (2026-08-17): NO_TASKS/TO_PLAN (AF-040; antes
+   EN_DISEÑO), cada uno con su propio color, no confundibles entre sí ni
+   con TO_DEVELOP. */
 .backlog-edit-state--no-tasks {
   background: #eceff1;
   border-color: #78909c;
@@ -881,14 +929,41 @@ body {
   font-weight: 600;
 }
 
-.backlog-edit-state--en-diseno {
+.backlog-edit-state--to-plan {
   background: #fff3e0;
   border-color: #fb8c00;
   color: #e65100;
   font-weight: 600;
 }
 
-/* Seccion Modelos (T-FB022-US10-02). */
+/* T-AF036-US09-01: OUT_OF_SCOPE (US postergada, AF-040; antes
+   FUERA_ROADMAP) en el selector de estado — color atenuado + tachado,
+   inconfundible con TO_DEVELOP/NO_TASKS/TO_PLAN ni con el trabajo
+   pendiente activo. */
+.backlog-edit-state--out-of-scope {
+  background: #f5f5f5;
+  border-color: #bdbdbd;
+  color: #757575;
+  font-weight: 600;
+  font-style: italic;
+  text-decoration: line-through;
+}
+
+/* T-AF036-US09-01: tarjeta/fila de una User Story/Task en estado
+   "fuera de roadmap" — atenuada y con el título en color desaturado, con
+   la etiqueta "Fuera de roadmap" visible en el propio texto de la línea
+   (puesta en el DOM por `stateDisplayLabel`, no por CSS). */
+.backlog-fuera-roadmap {
+  opacity: 0.72;
+}
+.backlog-fuera-roadmap .backlog-us-line-title,
+.backlog-fuera-roadmap .backlog-task-line-title {
+  color: #607d8b;
+  font-style: italic;
+  font-weight: 600;
+}
+
+/* Seccion Modelos (T-AF022-US10-02). */
 .model-row {
   margin: 6px 0;
 }
@@ -909,7 +984,7 @@ body {
   font-weight: 500;
 }
 
-/* FB-024 · Diferenciacion visual DONE/TODO en Backlog (T-FB024-US01-01).
+/* AF-024 · Diferenciacion visual DONE/TODO en Backlog (T-AF024-US01-01).
    Una Epic/US con TODO=0 se atenua; con TODO>0 se muestra con peso normal. */
 .backlog-epic-done {
   opacity: 0.45;
@@ -918,7 +993,7 @@ body {
   opacity: 1;
 }
 
-/* T-FB024-US01-02 · Badge de trabajo pendiente en la pestana Backlog */
+/* T-AF024-US01-02 · Badge de trabajo pendiente en la pestana Backlog */
 .backlog-pending-badge {
   display: inline-block;
   background: #ef6c00;
@@ -932,7 +1007,7 @@ body {
   vertical-align: middle;
 }
 
-/* T-FB036-US01-03 · Barra de progreso real (% DONE), principal de cada
+/* T-AF036-US01-03 · Barra de progreso real (% DONE), principal de cada
    tarjeta de Epic — sustituye a la barra de desbloqueo como barra
    principal (esa pasa a secundaria, ver más abajo). */
 .backlog-progress-bar {
@@ -948,8 +1023,8 @@ body {
   transition: width 0.2s;
 }
 
-/* T-FB024-US07-02 · Barra de desbloqueo (`unblock_degree`), degradada a
-   SECUNDARIA por T-FB036-US01-03 — más fina que la de progreso, siempre
+/* T-AF024-US07-02 · Barra de desbloqueo (`unblock_degree`), degradada a
+   SECUNDARIA por T-AF036-US01-03 — más fina que la de progreso, siempre
    con etiqueta explícita "Desbloqueo: N%" para no confundirse con
    progreso real. */
 .backlog-heat-bar {
@@ -969,7 +1044,7 @@ body {
   color: #777;
   margin-top: 2px;
 }
-/* Fase grouping (T-FB024-US07-03) */
+/* Fase grouping (T-AF024-US07-03) */
 .backlog-fase-group {
   margin: 12px 0 4px;
 }
@@ -986,7 +1061,7 @@ body {
   font-size: 13px;
 }
 
-/* T-FB036-US01-01 · Barra de controles: buscador + filtro de estado +
+/* T-AF036-US01-01 · Barra de controles: buscador + filtro de estado +
    filtro de prioridad, sobre el listado raíz de la pantalla Backlog. */
 .backlog-filter-bar {
   display: flex;
@@ -1029,7 +1104,7 @@ body {
   padding: 8px 0;
 }
 
-/* T-FB036-US01-02 · Panel "Próximo foco" (cadena de máximo desbloqueo),
+/* T-AF036-US01-02 · Panel "Próximo foco" (cadena de máximo desbloqueo),
    sobre el listado raíz de la pantalla Backlog. */
 .backlog-focus-panel {
   border: 1px solid #999;
@@ -1058,7 +1133,7 @@ body {
   overflow-wrap: break-word;
   word-break: break-word;
 }
-/* T-FB036-US01-10: cada ID de la cadena es clicable — mismo patrón
+/* T-AF036-US01-10: cada ID de la cadena es clicable — mismo patrón
    visual que `.plan-history-line` (color de enlace + subrayado al
    pasar el ratón), para que se distinga de inmediato como interactivo
    frente al resto de texto plano del panel. */
@@ -1075,7 +1150,7 @@ body {
   color: #666;
 }
 
-/* T-FB008-US10-03 · Panel de la cola de despacho, reutiliza
+/* T-AF008-US10-03 · Panel de la cola de despacho, reutiliza
    `.backlog-focus-panel`/`.backlog-focus-header`/`-title`/`-toggle`
    (mismo contenedor colapsable que "Próximo foco") — solo las filas
    individuales necesitan reglas propias. */
@@ -1092,6 +1167,15 @@ body {
   border-top: none;
   margin-top: 4px;
 }
+/* T-AF036-US12-02: las filas con tarea resoluble son enlaces a la tarea en
+ * el listado del Backlog — cursor/estilo de enlace para indicar navegación. */
+.backlog-queue-row-link {
+  cursor: pointer;
+}
+.backlog-queue-row-link:hover .backlog-queue-row-title {
+  text-decoration: underline;
+  color: #1a73e8;
+}
 .backlog-queue-row-title {
   flex: 1 1 auto;
   min-width: 0;
@@ -1103,10 +1187,17 @@ body {
   font-weight: 600;
   text-align: right;
 }
+/* T-AF036-US17-03: fechas de las transiciones de la entrada de cola
+   (encolada / despachada / terminada) — línea propia, legible y discreta. */
+.backlog-queue-row-dates {
+  flex: 1 1 100%;
+  font-size: 12px;
+  color: #666;
+}
 
-/* T-FB036-US01-04 · Badge "N bloqueadas" por Epic, y separador plegable
+/* T-AF036-US01-04 · Badge "N bloqueadas" por Epic, y separador plegable
    de Epics terminadas.
-   El <button> conserva el área de toque mínima de 48px (T-FB021-US01-01)
+   El <button> conserva el área de toque mínima de 48px (T-AF021-US01-01)
    pero queda transparente: el chip visual compacto vive en el <span>
    interior, para que el bloque no se vea desproporcionado en la tarjeta.
    El motivo de cada bloqueo (IDs de las dependencias pendientes) se
@@ -1146,7 +1237,7 @@ body {
   cursor: pointer;
 }
 
-/* FB-025 · Acciones transversales de proyecto (Hilo 3). */
+/* AF-025 · Acciones transversales de proyecto (Hilo 3). */
 
 .accion-card {
   border: 1px solid #ddd;
@@ -1189,10 +1280,30 @@ body {
   cursor: default;
 }
 
+/* T-AF036-US07-02: `flex-wrap` añadido para que en ventanas estrechas
+   (móvil/panel lateral) los botones que no quepan pasen a la línea
+   siguiente en vez de desbordar el contenedor. */
 .accion-controls {
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
   gap: 8px;
+}
+
+/* T-AF036-US07-02: dentro de la fila única de acciones del detalle de la
+   User Story, el botón "+ Nueva Task" (`.backlog-new-epic-btn`) adopta el
+   mismo patrón visual/altura que `.accion-run` para que los tres controles
+   se vean alineados en una fila con igual alto. Fuera de `.accion-controls`
+   (botones "+ Nueva Epic"/"+ Nueva User Story") conserva su aspecto. */
+.accion-controls .backlog-new-epic-btn {
+  background: #20232a;
+  color: #fff;
+  border: none;
+  border-radius: 6px;
+  padding: 6px 16px;
+  cursor: pointer;
+  font-weight: 600;
+  font-size: 14px;
 }
 
 .accion-num-agents {
@@ -1214,6 +1325,76 @@ body {
 .accion-result-title {
   margin: 0 0 8px;
   font-size: 15px;
+}
+
+/* T-AF036-US05-01: texto crudo de la sección "Alcance v1 (mínimo)" y
+   lista de huecos del detector de cobertura — legibles y con su propio
+   fondo, fuera de la fila de botones. */
+.accion-result-code {
+  margin: 0 0 12px;
+  padding: 8px 10px;
+  background: #f2f2f2;
+  border: 1px solid #e0e0e0;
+  border-radius: 6px;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.accion-result-gaps {
+  margin: 0 0 12px;
+  padding-left: 20px;
+}
+
+.accion-result-gaps li {
+  margin-bottom: 4px;
+  font-size: 14px;
+}
+
+/* T-AF036-US06-01: bloque "Informe de cierre" del detalle de una User
+   Story — solo lectura, bajo el bloque de Tasks. El contenido es texto
+   literal con saltos de línea preservados (sin renderer Markdown) y los
+   enlaces por Task cerrada saltan a su sección dentro del mismo bloque. */
+.us-closing-report {
+  margin-top: 16px;
+  padding-top: 8px;
+  border-top: 1px solid #e0e0e0;
+}
+
+.us-closing-report-task-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 10px;
+}
+
+.us-closing-report-task-link {
+  font-size: 13px;
+  padding: 2px 8px;
+  border: 1px solid #b0c4de;
+  border-radius: 4px;
+  color: #1a5276;
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.us-closing-report-task-link:hover {
+  background: #eaf2f8;
+}
+
+.us-closing-report-content {
+  padding: 10px 12px;
+  background: #fbfbfb;
+  border: 1px solid #e5e5e5;
+  border-radius: 6px;
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.us-closing-report-task-heading {
+  font-weight: 700;
+  margin: 8px 0 4px;
 }
 
 .accion-exit-success {
@@ -1265,7 +1446,7 @@ body {
 }
 
 /* ------------------------------------------------------------------ */
-/* FB-028 · Barra de estado del Arquitecto (US-FB028-01)               */
+/* AF-028 · Barra de estado del Arquitecto (US-AF028-01)               */
 /* ------------------------------------------------------------------ */
 
 .arquitecto-bar {
@@ -1316,6 +1497,17 @@ body {
   border-radius: 4px;
 }
 
+/* Chip de runtime en la barra del Arquitecto (2026-08-18): mismo estilo
+ * que .arq-model pero con tinte distinto para distinguir Runtime de
+ * Modelo de un vistazo. */
+.arq-runtime {
+  font-size: 13px;
+  color: #33475b;
+  background: #e7eef4;
+  padding: 2px 8px;
+  border-radius: 4px;
+}
+
 .arq-model-none {
   color: #999;
   font-style: italic;
@@ -1342,7 +1534,7 @@ body {
 }
 
 /* ------------------------------------------------------------------ */
-/* FB-028 · Pestaña Arquitecto (US-FB028-02)                           */
+/* AF-028 · Pestaña Arquitecto (US-AF028-02)                           */
 /* ------------------------------------------------------------------ */
 
 .arq-section-header {
@@ -1355,7 +1547,7 @@ body {
 }
 
 /* ------------------------------------------------------------------ */
-/* FB-024 · Pantalla Agentes (US-FB024-11): instancias vivas por rol  */
+/* AF-024 · Pantalla Agentes (US-AF024-11): instancias vivas por rol  */
 /* ------------------------------------------------------------------ */
 
 /* Título de cada grupo de rol (Arquitecto / Developer) en la pantalla
@@ -1367,7 +1559,7 @@ body {
 }
 
 /* Razón visible cuando "Lanzar nuevo Developer" está deshabilitado por
-   haber alcanzado el límite de instancias vivas (US-FB024-11, criterio 3). */
+   haber alcanzado el límite de instancias vivas (US-AF024-11, criterio 3). */
 .devlaunch-reason {
   margin-top: 6px;
 }

@@ -2,7 +2,7 @@
 
 ## Objetivo
 
-Las pruebas de Factory Brain deben demostrar comportamiento, no solo existencia de código.
+Las pruebas de Atlas Forge deben demostrar comportamiento, no solo existencia de código.
 
 La pregunta fundamental es:
 

@@ -2,7 +2,7 @@
 
 ## Objetivo
 
-Convertir el estado real de Factory Brain en documentación pública profesional.
+Convertir el estado real de Atlas Forge en documentación pública profesional.
 
 No documentar como existente aquello que solo está planeado.
 
@@ -10,7 +10,7 @@ No documentar como existente aquello que solo está planeado.
 
 Orden:
 
-1. `02-backlog/` — distinguir DONE de TO_DO.
+1. `02-backlog/` — distinguir DONE de READY.
 2. `07-informes/` — evidencia de implementación.
 3. `docs/` — documentación pública, única fuente.
 4. código — solo para confirmar detalles concretos.

@@ -4,22 +4,22 @@ import uuid
 import libtmux
 import pytest
 
-from brain.agents import get_agent_state, register_agent
-from brain.core import activate, list_agents
-from brain.models import DevelopmentSession, Runtime
-from brain.runtime import is_runtime_alive
+from atlas_forge.agents import get_agent_state, register_agent
+from atlas_forge.core import activate, list_agents
+from atlas_forge.models import DevelopmentSession, Runtime
+from atlas_forge.runtime import is_runtime_alive
 
 
 @pytest.fixture
 def isolated_socket():
     """Aísla los tests de esta Task en su propio servidor tmux, para no
     interferir con sesiones tmux reales del entorno (misma precaución que
-    en las Tasks de FB-004: nunca lanzar binarios reales de runtime en
+    en las Tasks de AF-004: nunca lanzar binarios reales de runtime en
     tests). Se pasa explícitamente como `socket_name` a `register_agent`
     en vez de depender de un default de módulo (que se congela en tiempo
     de definición y no es interceptable con monkeypatch — lección ya
-    aplicada en T-FB004-US01-02)."""
-    name = f"brain-test-{uuid.uuid4().hex[:8]}"
+    aplicada en T-AF004-US01-02)."""
+    name = f"atlas_forge-test-{uuid.uuid4().hex[:8]}"
     yield name
     try:
         libtmux.Server(socket_name=name).kill()
@@ -29,7 +29,7 @@ def isolated_socket():
 
 def _test_runtime() -> Runtime:
     # Comando de prueba inocuo (`sleep`), NO un binario real de runtime
-    # (claude/opencode). Misma precaución ya aplicada en las Tasks de FB-004.
+    # (claude/opencode). Misma precaución ya aplicada en las Tasks de AF-004.
     return Runtime(
         id="test-runtime",
         name="Test Runtime",
@@ -88,7 +88,7 @@ def test_register_agent_does_not_assume_a_concrete_role(
 ) -> None:
     # El mecanismo genérico acepta cualquier role/prompt como parámetro,
     # sin fijar Developer/Critic — la especialización concreta vive en
-    # Tasks posteriores (T-FB005-US01-02, T-FB005-US02-01).
+    # Tasks posteriores (T-AF005-US01-02, T-AF005-US02-01).
     session = _active_session()
     runtime = _test_runtime()
 

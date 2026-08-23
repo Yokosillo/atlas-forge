@@ -1,9 +1,9 @@
-"""Tests de T-FB005-US01-05: el rol de Arquitecto/Developer se construye en
-DOS capas, ambas decididas por Factory Brain antes de arrancar el agente:
+"""Tests de T-AF005-US01-05: el rol de Arquitecto/Developer se construye en
+DOS capas, ambas decididas por Atlas Forge antes de arrancar el agente:
 
 1. Rol base (`ARQUITECTO_PROMPT`/`DEVELOPER_PROMPT`): responsabilidad y
    límites + protocolo de reporte. Para Developer: Resultado/Resumen/
-   Siguiente paso sugerido. Para Arquitecto (T-FB022-US05-01, antes
+   Siguiente paso sugerido. Para Arquitecto (T-AF022-US05-01, antes
    Critic): formato estructurado de veredicto (ESTADO/JUSTIFICACIÓN/
    SIGUIENTE_PROMPT_PARA_WORKER).
 2. Gobierno específico del proyecto (`project_governance_instruction`):
@@ -21,7 +21,7 @@ from pathlib import Path
 import libtmux
 import pytest
 
-from brain.agents import (
+from atlas_forge.agents import (
     ARQUITECTO_PROMPT,
     ARQUITECTO_ROLE,
     DEVELOPER_PROMPT,
@@ -33,19 +33,19 @@ from brain.agents import (
     register_arquitecto,
     register_developer,
 )
-from brain.agents.governance import (
+from atlas_forge.agents.governance import (
     GOVERNANCE_DIRNAME,
     METODOLOGIA_FILENAME,
     project_identity_instruction,
 )
-from brain.agents.roles import get_governance_filename_for_role
-from brain.core import activate
-from brain.models import DevelopmentSession, Runtime
+from atlas_forge.agents.roles import get_governance_filename_for_role
+from atlas_forge.core import activate
+from atlas_forge.models import DevelopmentSession, Runtime
 
 
 @pytest.fixture
 def isolated_socket():
-    name = f"brain-test-{uuid.uuid4().hex[:8]}"
+    name = f"atlas_forge-test-{uuid.uuid4().hex[:8]}"
     yield name
     try:
         libtmux.Server(socket_name=name).kill()
@@ -81,7 +81,7 @@ def _create_governance_project(tmp_path, role: str) -> str:
 
 
 # ---------------------------------------------------------------------------
-# La decisión es de Factory Brain, en Python, por existencia en disco
+# La decisión es de Atlas Forge, en Python, por existencia en disco
 # ---------------------------------------------------------------------------
 
 
@@ -135,12 +135,12 @@ def test_governance_instruction_mentions_the_role_specific_file(tmp_path) -> Non
 
 
 def test_decision_is_taken_in_python_using_path_exists(monkeypatch) -> None:
-    """Criterio explícito: la comprobación de existencia la hace Factory
-    Brain con `Path.exists()` — aquí mockeado — NO una condición textual
+    """Criterio explícito: la comprobación de existencia la hace Atlas Forge
+    Atlas Forge con `Path.exists()` — aquí mockeado — NO una condición textual
     dentro del prompt que el agente deba autoevaluar. El mismo
     `project_path` produce instrucción o no según lo que `exists()`
     devuelva, sin que el texto del prompt cambie de lógica."""
-    import brain.agents.governance as governance
+    import atlas_forge.agents.governance as governance
 
     class _FakePath:
         def __init__(self, exists: bool) -> None:
@@ -164,7 +164,7 @@ def test_decision_is_taken_in_python_using_path_exists(monkeypatch) -> None:
 
 
 # ---------------------------------------------------------------------------
-# T-FB005-US01-07: identidad del proyecto activo, siempre presente
+# T-AF005-US01-07: identidad del proyecto activo, siempre presente
 # ---------------------------------------------------------------------------
 
 
@@ -231,8 +231,8 @@ def test_base_prompts_contain_the_generic_reporting_protocol() -> None:
 
 
 def test_arquitecto_prompt_without_governance_is_exactly_the_base_role(tmp_path) -> None:
-    """T-FB005-US01-07: el prompt sin gobierno ya no es exactamente el rol
-    base a secas — la capa de identidad del proyecto (T-FB005-US01-07,
+    """T-AF005-US01-07: el prompt sin gobierno ya no es exactamente el rol
+    base a secas — la capa de identidad del proyecto (T-AF005-US01-07,
     siempre presente, sin condición) se añade igual con o sin gobierno."""
     assert build_arquitecto_prompt(str(tmp_path)) == (
         ARQUITECTO_PROMPT + project_identity_instruction(str(tmp_path))
@@ -257,7 +257,7 @@ def test_arquitecto_prompt_with_governance_is_base_plus_explicit_instruction(
     assert prompt == ARQUITECTO_PROMPT + identity + instruction
     # El rol base sigue íntegro (no degradado).
     assert prompt.startswith(ARQUITECTO_PROMPT)
-    # El nombre del proyecto es explícito y legible (T-FB005-US01-07).
+    # El nombre del proyecto es explícito y legible (T-AF005-US01-07).
     assert Path(project).name in prompt
     # La instrucción de lectura es EXPLÍCITA y determinista.
     assert "00-gobierno/ARQUITECTO.md" in prompt
@@ -302,7 +302,7 @@ def test_register_developer_with_governance_project_builds_two_layer_prompt(
         assert Path(project).name in agent.prompt
         assert "00-gobierno/DEVELOPER.md" in agent.prompt
     finally:
-        from brain.runtime import stop_runtime
+        from atlas_forge.runtime import stop_runtime
 
         stop_runtime(instance, socket_name=isolated_socket)
 
@@ -312,7 +312,7 @@ def test_register_arquitecto_without_governance_gets_only_base_role(
 ) -> None:
     """Sin gobierno, el prompt sigue siendo solo rol base + identidad de
     proyecto (sin capa de gobierno) — la capa de identidad
-    (T-FB005-US01-07) no depende de que exista gobierno específico."""
+    (T-AF005-US01-07) no depende de que exista gobierno específico."""
     agent, instance = register_arquitecto(
         _active_session(), _test_runtime(), str(tmp_path), socket_name=isolated_socket
     )
@@ -324,6 +324,6 @@ def test_register_arquitecto_without_governance_gets_only_base_role(
         assert agent.prompt == build_arquitecto_prompt(str(tmp_path))
         assert Path(tmp_path).name in agent.prompt
     finally:
-        from brain.runtime import stop_runtime
+        from atlas_forge.runtime import stop_runtime
 
         stop_runtime(instance, socket_name=isolated_socket)

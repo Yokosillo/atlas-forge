@@ -1,4 +1,4 @@
-/* T-FB008-US15-02 (US-FB008-15, 2026-08-17 · "PIPELINE OPERATIVO Y
+/* T-AF008-US15-02 (US-AF008-15, 2026-08-17 · "PIPELINE OPERATIVO Y
  * RECONCILIACIÓN"): botón único "Progresar" en el detalle de una User
  * Story, que sustituye al viejo "Aterrizar en Tasks" (llamaba SIEMPRE
  * de forma síncrona al endpoint desde el navegador, sin pasar por el
@@ -6,20 +6,20 @@
  * DEPRECATED en ese punto).
  *
  * El botón cambia de acción según el `state` real de la US:
- *   - `NO_TASKS` -> "Progresar" marca `EN_DISEÑO` (el Dispatcher
+ *   - `NO_TASKS` -> "Progresar" marca `TO_PLAN` (el Dispatcher
  *     reparte el aterrizaje US→Tasks al Arquitecto libre,
  *     `run_us_landing_dispatch_cycle`).
- *   - `EN_DISEÑO` -> el botón queda deshabilitado con el texto
+ *   - `TO_PLAN` -> el botón queda deshabilitado con el texto
  *     "Esperando al Arquitecto." — no hay ninguna acción del usuario en
  *     este estado, es una señal para el Dispatcher, no un click.
  *
  * Caso real (sin mockear nada): una User Story recién creada vía el
  * formulario real nace en `NO_TASKS` — se verifica que el botón
- * aparece con el texto correcto, y que pulsarlo marca `EN_DISEÑO` de
+ * aparece con el texto correcto, y que pulsarlo marca `TO_PLAN` de
  * verdad en el fichero real (visible en el propio detalle tras el
  * refresco, sin recargar la página).
  *
- * Aterrizaje real US→Tasks (transición `EN_DISEÑO` -> `TO_DO`) es
+ * Aterrizaje real US→Tasks (transición `TO_PLAN` -> `READY`) es
  * responsabilidad del Dispatcher en segundo plano (`run_us_landing_dispatch_cycle`,
  * `04-src/tests/test_dispatch_queue_worker.py`) — no se ejercita aquí,
  * fuera del alcance de "verificar el botón desde la web". */
@@ -157,65 +157,64 @@ async function _clickButtonByText(page, text) {
 
 // ---------------------------------------------------------------------
 // Caso real: US recién creada nace en NO_TASKS, botón "Progresar"
-// visible, click la marca EN_DISEÑO de verdad (sin recargar la página).
+// visible, click la marca TO_PLAN de verdad (sin recargar la página).
 // ---------------------------------------------------------------------
 
-async function test_progresar_button_on_sin_tareas_marks_en_diseno() {
+async function test_progresar_button_is_removed_and_selector_still_works() {
   await withBackend(async ({ page, baseUrl }) => {
     await page.goto(baseUrl + "/ui/");
     await _goToBacklogTab(page);
-    await _createEpicViaForm(page, "FB-930", "Epic para progresar");
-    await _createUserStoryViaForm(page, "US-FB930-01");
+    await _createEpicViaForm(page, "AF-930", "Epic para progresar");
+    await _createUserStoryViaForm(page, "US-AF930-01");
 
-    await _openUserStoryDetail(page, "US-FB930-01");
+    await _openUserStoryDetail(page, "US-AF930-01");
 
-    // Criterio: la US recién creada nace en NO_TASKS — el botón
-    // "Progresar" debe estar visible y habilitado en ese estado.
+    // T-AF036-US16-01: el botón "Progresar" se eliminó de la pantalla
+    // Backlog — no debe existir en el detalle de la User Story (el avance
+    // se controla con el estado TO_DEVELOP y la derivación).
     await page.waitForFunction(
       () =>
-        Array.from(document.querySelectorAll("button")).some(
-          (b) => b.textContent.trim() === "Progresar" && !b.disabled
+        Array.from(document.querySelectorAll(".accion-controls button")).some(
+          (b) => b.textContent.trim() === "+ Nueva Task"
         ),
       { timeout: 10000 }
     );
-
-    await _clickButtonByText(page, "Progresar");
-
-    // Tras el click, el mismo botón pasa a mostrar el estado de espera
-    // (EN_DISEÑO): deshabilitado, con el texto "Esperando al Arquitecto."
-    await page.waitForFunction(
-      () =>
-        Array.from(document.querySelectorAll(".section-note")).some((p) =>
-          p.textContent.includes("Esperando al Arquitecto")
-        ),
-      { timeout: 10000 }
-    );
-
-    const progresarBtnDisabled = await page.evaluate(() => {
-      const btn = Array.from(document.querySelectorAll("button")).find(
+    const hasProgresarBtn = await page.evaluate(() =>
+      Array.from(document.querySelectorAll("button")).some(
         (b) => b.textContent.trim() === "Progresar"
-      );
-      return btn ? btn.disabled : null;
-    });
-    assert.strictEqual(
-      progresarBtnDisabled, true,
-      "El botón 'Progresar' debe quedar deshabilitado mientras la US está EN_DISEÑO."
+      )
     );
+    assert.strictEqual(
+      hasProgresarBtn, false,
+      "El botón 'Progresar' no debe existir en la pantalla Backlog (T-AF036-US16-01)."
+    );
+
+    // El selector de estado genérico sigue permitiendo mover la US (p. ej.
+    // a TO_PLAN) — el avance no depende del botón eliminado.
+    const stateOptions = await page.evaluate((id) => {
+      const line = Array.from(document.querySelectorAll(".backlog-us-line")).find((l) =>
+        l.textContent.includes(id)
+      );
+      const select = line ? line.querySelector(".backlog-edit-state") : null;
+      return select ? Array.from(select.options).map((o) => o.value) : null;
+    }, "US-AF930-01");
+    assert.ok(stateOptions && stateOptions.includes("TO_PLAN"),
+      "El selector de estado debe seguir incluyendo 'TO_PLAN'.");
   });
 }
 
 // ---------------------------------------------------------------------
-// El selector de estado genérico (US-FB036-08) también permite ver/fijar
-// NO_TASKS y EN_DISEÑO como cualquier otro estado — confirma que ambos
+// El selector de estado genérico (US-AF036-08) también permite ver/fijar
+// NO_TASKS y TO_PLAN como cualquier otro estado — confirma que ambos
 // valores están en el conjunto editable, sin depender solo del botón.
 // ---------------------------------------------------------------------
 
-async function test_state_selector_includes_sin_tareas_and_en_diseno_options() {
+async function test_state_selector_includes_sin_tareas_and_to_plan_options() {
   await withBackend(async ({ page, baseUrl }) => {
     await page.goto(baseUrl + "/ui/");
     await _goToBacklogTab(page);
-    await _createEpicViaForm(page, "FB-931", "Epic con selector");
-    await _createUserStoryViaForm(page, "US-FB931-01");
+    await _createEpicViaForm(page, "AF-931", "Epic con selector");
+    await _createUserStoryViaForm(page, "US-AF931-01");
 
     const optionValues = await page.evaluate((id) => {
       const line = Array.from(document.querySelectorAll(".backlog-us-line")).find((l) =>
@@ -225,21 +224,21 @@ async function test_state_selector_includes_sin_tareas_and_en_diseno_options() {
       const select = line.querySelector(".backlog-edit-state");
       if (!select) return null;
       return Array.from(select.options).map((o) => o.value);
-    }, "US-FB931-01");
+    }, "US-AF931-01");
 
     assert.ok(optionValues, "No se encontró el selector de estado de la User Story.");
     assert.ok(optionValues.includes("NO_TASKS"), "El selector debe incluir 'NO_TASKS'.");
-    assert.ok(optionValues.includes("EN_DISEÑO"), "El selector debe incluir 'EN_DISEÑO'.");
+    assert.ok(optionValues.includes("TO_PLAN"), "El selector debe incluir 'TO_PLAN'.");
   });
 }
 
 module.exports = [
   {
-    name: "Botón 'Progresar' sobre una User Story en NO_TASKS la marca EN_DISEÑO de verdad, sin recargar la página",
-    fn: test_progresar_button_on_sin_tareas_marks_en_diseno,
+    name: "El botón 'Progresar' fue eliminado (T-AF036-US16-01) y el selector de estado sigue permitiendo mover la US",
+    fn: test_progresar_button_is_removed_and_selector_still_works,
   },
   {
-    name: "El selector de estado genérico incluye NO_TASKS y EN_DISEÑO como opciones",
-    fn: test_state_selector_includes_sin_tareas_and_en_diseno_options,
+    name: "El selector de estado genérico incluye NO_TASKS y TO_PLAN como opciones",
+    fn: test_state_selector_includes_sin_tareas_and_to_plan_options,
   },
 ];

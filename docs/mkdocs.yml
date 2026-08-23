@@ -1,8 +1,8 @@
-site_name: Factory Brain
+site_name: Atlas Forge
 site_description: AI-assisted software development coordination from a single platform.
-site_url: https://factoria-software.github.io/factory-brain/
-repo_url: https://github.com/factoria-software/factory-brain
-repo_name: factory-brain
+site_url: https://factoria-software.github.io/atlas-forge/
+repo_url: https://github.com/factoria-software/atlas-forge
+repo_name: atlas-forge
 edit_uri: blob/main/docs/
 
 # This configuration is published together with the content: mkdocs.yml and the

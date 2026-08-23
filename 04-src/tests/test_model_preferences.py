@@ -1,11 +1,11 @@
-"""Tests de T-FB022-US10-01: persistencia de modelos habilitados y default por rol."""
+"""Tests de T-AF022-US10-01: persistencia de modelos habilitados y default por rol."""
 
 from __future__ import annotations
 
 import tempfile
 from pathlib import Path
 
-from brain.model_preferences import (
+from atlas_forge.model_preferences import (
     load_model_preferences,
     save_model_preferences,
 )

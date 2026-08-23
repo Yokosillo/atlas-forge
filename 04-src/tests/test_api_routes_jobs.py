@@ -7,22 +7,22 @@ import libtmux
 import pytest
 from fastapi.testclient import TestClient
 
-import brain.api.routes as routes_module
-from brain.api import create_app
-from brain.core import resolve_startup_session
-from brain.core.session_registry import _reset_registry_for_tests
-from brain.agents.launch import launch_agent
-from brain.dispatcher.architect_verdict_queue import (
+import atlas_forge.api.routes as routes_module
+from atlas_forge.api import create_app
+from atlas_forge.core import resolve_startup_session
+from atlas_forge.core.session_registry import _reset_registry_for_tests
+from atlas_forge.agents.launch import launch_agent
+from atlas_forge.dispatcher.architect_verdict_queue import (
     _instance as _verdict_queue_instance,
     get_verdict_queue_status,
 )
-from brain.dispatcher.job_cancellation_registry import (
+from atlas_forge.dispatcher.job_cancellation_registry import (
     _reset_registry_for_tests as _reset_job_cancellation,
 )
-from brain.dispatcher.job_history_registry import _reset_registry_for_tests as _reset_job_history
-from brain.dispatcher.job_report import read_job_report
-from brain.runtime import is_runtime_alive, stop_runtime
-from brain.workspace import discover_projects, select_active_project
+from atlas_forge.dispatcher.job_history_registry import _reset_registry_for_tests as _reset_job_history
+from atlas_forge.dispatcher.job_report import read_job_report
+from atlas_forge.runtime import is_runtime_alive, stop_runtime
+from atlas_forge.workspace import discover_projects, select_active_project
 
 _COOPERATIVE_AGENT_SCRIPT = str(
     Path(__file__).parent / "fixtures" / "cooperative_agent_sim.sh"
@@ -44,8 +44,8 @@ def _clean_registries():
 
 @pytest.fixture(autouse=True)
 def _no_real_runtime(monkeypatch):
-    import brain.runtime.claude_code as claude_code_module
-    import brain.runtime.opencode as opencode_module
+    import atlas_forge.runtime.claude_code as claude_code_module
+    import atlas_forge.runtime.opencode as opencode_module
 
     monkeypatch.setattr(claude_code_module, "DEFAULT_CLAUDE_CODE_COMMAND", "sleep")
     monkeypatch.setattr(claude_code_module, "DEFAULT_CLAUDE_CODE_ARGS", ["5"])
@@ -56,7 +56,7 @@ def _no_real_runtime(monkeypatch):
 
 @pytest.fixture
 def isolated_socket(monkeypatch):
-    name = f"brain-test-{uuid.uuid4().hex[:8]}"
+    name = f"atlas_forge-test-{uuid.uuid4().hex[:8]}"
     monkeypatch.setattr(routes_module, "_SOCKET_NAME", name)
     try:
         yield name
@@ -95,7 +95,7 @@ def _launch_cooperative_agent(
     sustituyendo el comando de Claude Code por el doble cooperativo de
     prueba (`cooperative_agent_sim.sh`, mismo fixture ya usado en
     test_job_dispatch.py/test_job_chaining.py) — nunca el binario real."""
-    import brain.runtime.claude_code as claude_code_module
+    import atlas_forge.runtime.claude_code as claude_code_module
 
     monkeypatch.setattr(
         claude_code_module, "DEFAULT_CLAUDE_CODE_COMMAND", f"{extra_env} bash".strip()
@@ -172,7 +172,7 @@ def test_get_jobs_returns_the_same_history_as_the_tui_screen(
     """Criterio de aceptación: GET /jobs devuelve el mismo histórico que
     vería la pantalla Jobs de la TUI (mismo origen de datos,
     list_jobs_for_session, no duplicado)."""
-    from brain.dispatcher import list_jobs_for_session
+    from atlas_forge.dispatcher import list_jobs_for_session
 
     _project, session = _active_project_and_session(tmp_path, monkeypatch)
     agent, runtime_instance = _launch_cooperative_agent(
@@ -207,7 +207,7 @@ def test_post_jobs_chains_developer_result_into_architect_job(
 ) -> None:
     """Criterio de aceptación: encadenar un Job de Developer como entrada
     de un Job de Arquitecto (previous_job_id) funciona igual que hoy en la
-    TUI (US-FB008-02) — verificado end-to-end vía HTTP. `SIM_ROLE=critic`
+    TUI (US-AF008-02) — verificado end-to-end vía HTTP. `SIM_ROLE=critic`
     es solo la etiqueta interna del doble cooperativo de prueba
     (`cooperative_agent_sim.sh`), no depende del rol real lanzado."""
     _project, session = _active_project_and_session(tmp_path, monkeypatch)
@@ -244,7 +244,7 @@ def test_post_jobs_chains_developer_result_into_architect_job(
 def test_post_jobs_rejects_developer_to_developer_chaining(
     tmp_path: Path, isolated_socket: str, monkeypatch
 ) -> None:
-    """T-FB008-US07-01 vía HTTP (consumidor real de `create_job`): encadenar
+    """T-AF008-US07-01 vía HTTP (consumidor real de `create_job`): encadenar
     Developer→Developer se rechaza con 400 y mensaje explícito, sin crear el
     Job — el dominio no registra nada (no hay Job nuevo en el histórico)."""
     _project, session = _active_project_and_session(tmp_path, monkeypatch)
@@ -324,8 +324,8 @@ def test_post_jobs_returns_404_when_no_session_is_active() -> None:
 def test_post_job_cancel_interrupts_the_original_post_jobs_request(
     tmp_path: Path, isolated_socket: str, monkeypatch
 ) -> None:
-    """Criterio de aceptación central de US-FB008-05 (el que dejó pendiente
-    T-FB008-US05-01): la petición `POST /jobs` ORIGINAL — la que despachó
+    """Criterio de aceptación central de US-AF008-05 (el que dejó pendiente
+    T-AF008-US05-01): la petición `POST /jobs` ORIGINAL — la que despachó
     el Job y está bloqueada esperando su resultado — recibe efectivamente
     la respuesta de cancelación, no un timeout normal, cuando otra petición
     concurrente llama a `POST /jobs/{id}/cancel`. Verificado con tmux real
@@ -429,17 +429,17 @@ def test_post_job_cancel_returns_404_when_no_session_is_active() -> None:
 def test_post_jobs_with_story_id_writes_report_and_marks_story_review(
     tmp_path: Path, isolated_socket: str, monkeypatch
 ) -> None:
-    """T-FB024-US15-01, criterio de aceptación central: `POST /jobs` con
+    """T-AF024-US15-01, criterio de aceptación central: `POST /jobs` con
     `story_id` informado, al completarse el Job, genera el informe de
     cierre en `07-informes` — de punta a punta, con tmux real (doble
     cooperativo), no mockeando la lógica de negocio.
 
-    T-FB008-US14-02: `trigger_architect_verdict` ya no encola un
+    T-AF008-US14-02: `trigger_architect_verdict` ya no encola un
     veredicto directamente (la cola FIFO ciega de `architect_verdict_queue`
     se sustituyó por reparto vía el Dispatcher, que comprueba
     disponibilidad real del Arquitecto) — ahora, cuando TODAS las Tasks
     de la Story están `DONE` en el backlog real del proyecto activo,
-    marca la propia User Story en `state: REVIEW`. Se crea una US y una
+    marca la propia User Story en `state: IN_REVIEW`. Se crea una US y una
     Task sintéticas ya `DONE` en `project-a/02-backlog/` para verificar
     el disparo real (antes de esta Task, disparaba sin comprobar nada,
     bug de diseño corregido)."""
@@ -447,25 +447,25 @@ def test_post_jobs_with_story_id_writes_report_and_marks_story_review(
     backlog_dir = tmp_path / "workspace" / "project-a" / "02-backlog"
     stories_dir = backlog_dir / "user-stories"
     stories_dir.mkdir(parents=True, exist_ok=True)
-    story_path = stories_dir / "US-FB024-15-titulo.md"
+    story_path = stories_dir / "US-AF024-15-titulo.md"
     story_path.write_text(
-        "---\nid: US-FB024-15\ntype: user-story\ntitle: Titulo\nstate: TODO\n"
-        "dependencies: []\nepic: FB-024\n---\n\n# US-FB024-15\n\n## Contexto\n\nC.\n",
+        "---\nid: US-AF024-15\ntype: user-story\ntitle: Titulo\nstate: TODO\n"
+        "dependencies: []\nepic: AF-024\n---\n\n# US-AF024-15\n\n## Contexto\n\nC.\n",
         encoding="utf-8",
     )
     tasks_dir = backlog_dir / "tasks"
     tasks_dir.mkdir(parents=True, exist_ok=True)
-    (tasks_dir / "T-FB024-US15-01.md").write_text(
-        "---\nid: T-FB024-US15-01\ntype: task\ntitle: Task\nstate: DONE\n"
-        "dependencies: []\nepic: FB-024\nuser_story: US-FB024-15\npriority: Alta\n---\n\n"
-        "# T-FB024-US15-01\n\n## Objetivo\n\nObjetivo.\n\n## Criterios de aceptación\n\n1. Y.\n",
+    (tasks_dir / "T-AF024-US15-01.md").write_text(
+        "---\nid: T-AF024-US15-01\ntype: task\ntitle: Task\nstate: DONE\n"
+        "dependencies: []\nepic: AF-024\nuser_story: US-AF024-15\npriority: Alta\n---\n\n"
+        "# T-AF024-US15-01\n\n## Objetivo\n\nObjetivo.\n\n## Criterios de aceptación\n\n1. Y.\n",
         encoding="utf-8",
     )
     agent, runtime_instance = _launch_cooperative_agent(
         "developer", tmp_path, session, isolated_socket, monkeypatch
     )
 
-    from brain.dispatcher.job_report import write_job_report as _real_write_job_report
+    from atlas_forge.dispatcher.job_report import write_job_report as _real_write_job_report
 
     reports_root = tmp_path / "07-informes"
 
@@ -480,7 +480,7 @@ def test_post_jobs_with_story_id_writes_report_and_marks_story_review(
         json={
             "agent_id": agent.id,
             "description": "implement the feature",
-            "story_id": "US-FB024-15",
+            "story_id": "US-AF024-15",
         },
     )
 
@@ -489,9 +489,9 @@ def test_post_jobs_with_story_id_writes_report_and_marks_story_review(
     assert body["status"] == "completed"
 
     story_text = story_path.read_text(encoding="utf-8")
-    assert "state: REVIEW" in story_text
+    assert "state: IN_REVIEW" in story_text
 
-    report = read_job_report("US-FB024-15", body["id"], reports_root=reports_root)
+    report = read_job_report("US-AF024-15", body["id"], reports_root=reports_root)
     assert report is not None
     assert "cooperative result" in report
 
@@ -501,7 +501,7 @@ def test_post_jobs_with_story_id_writes_report_and_marks_story_review(
 def test_post_jobs_without_story_id_does_not_write_report_or_enqueue_verdict(
     tmp_path: Path, isolated_socket: str, monkeypatch
 ) -> None:
-    """T-FB024-US15-01, test de regresión dedicado: un Job sin `story_id`
+    """T-AF024-US15-01, test de regresión dedicado: un Job sin `story_id`
     no dispara ni informe ni veredicto — comportamiento actual preservado."""
     _project, session = _active_project_and_session(tmp_path, monkeypatch)
     agent, runtime_instance = _launch_cooperative_agent(

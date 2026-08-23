@@ -1,4 +1,4 @@
-/* Bug real de T-FB036-US02-04 (US-FB036-02): crear la primera Epic con
+/* Bug real de T-AF036-US02-04 (US-AF036-02): crear la primera Epic con
  * "+ Nueva Epic" contra el backend real dejaba un backlog con una Epic
  * SIN hijos (sin US/Tasks) que no aparecía en ningún sitio: `by_epic`
  * (`GET /backlog`) solo se poblaba desde los items hijos, así que una
@@ -51,16 +51,17 @@ async function test_empty_epic_appears_expanded_after_create() {
       { timeout: 10000 }
     );
 
-    // Abrir el formulario inline (T6) y rellenar los 4 campos
-    // (0=id, 1=título, 2=objetivo, 3=fase, en el orden del DOM).
+    // Abrir el formulario inline (T6) y rellenar los 3 campos
+    // (0=id, 1=título, 2=objetivo, en el orden del DOM). La Epic ya NO
+    // declara `fase` (T-AF036-US18-01: se versiona), así que el formulario
+    // solo tiene ID/Título/Objetivo.
     await page.click(".backlog-new-epic-btn");
     await waitVisible(page, ".jobs-form");
     const inputs = await page.$$(".backlog-new-epic-input");
-    assert.strictEqual(inputs.length, 4, "El formulario debe tener los 4 campos especificados.");
-    await inputs[0].type("FB-900");
+    assert.strictEqual(inputs.length, 3, "El formulario debe tener los 3 campos especificados.");
+    await inputs[0].type("AF-900");
     await inputs[1].type("Epic de Prueba");
     await inputs[2].type("Objetivo real de prueba.");
-    await inputs[3].type("Fase 1.0");
 
     // Pulsar "Crear" (botón del formulario, no otro botón del DOM).
     const clicked = await page.evaluate(() => {
@@ -85,7 +86,7 @@ async function test_empty_epic_appears_expanded_after_create() {
         const lines = Array.from(document.querySelectorAll(".backlog-epic-line"));
         return lines.some((line) => {
           return (
-            line.textContent.includes("FB-900") &&
+            line.textContent.includes("AF-900") &&
             line.getAttribute("aria-expanded") === "true"
           );
         });
@@ -93,7 +94,7 @@ async function test_empty_epic_appears_expanded_after_create() {
       { timeout: 10000 }
     );
 
-    // Detalle expandido con sus datos correctos (GET /backlog/FB-900 real).
+    // Detalle expandido con sus datos correctos (GET /backlog/AF-900 real).
     await page.waitForFunction(
       () => {
         const detail = document.querySelector(".job-detail");

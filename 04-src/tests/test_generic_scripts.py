@@ -1,7 +1,7 @@
-"""Tests de T-FB018-US01-01: catálogo fijo de scripts genéricos basados en
+"""Tests de T-AF018-US01-01: catálogo fijo de scripts genéricos basados en
 `git` (commit, push, changed_files, diff_stat) y su ejecución real sobre un
-repositorio, reutilizando el mecanismo de ejecución de T-FB001-US03-02
-(`run_subprocess`, `brain/workspace/project_scripts.py`) y el mismo tipo
+repositorio, reutilizando el mecanismo de ejecución de T-AF001-US03-02
+(`run_subprocess`, `atlas_forge/workspace/project_scripts.py`) y el mismo tipo
 `ScriptRunResult`.
 
 ## ADVERTENCIA DE SEGURIDAD (verificada dos veces en cada test)
@@ -9,7 +9,7 @@ repositorio, reutilizando el mecanismo de ejecución de T-FB001-US03-02
 `commit` y `push` ejecutan comandos git REALES con efectos reales. Todos
 los tests operan SIEMPRE sobre un repositorio git temporal aislado creado
 con `tmp_path` (fixture de pytest: directorio temporal efímero) + `git
-init`, NUNCA sobre el repositorio de trabajo de Factory Brain ni sobre
+init`, NUNCA sobre el repositorio de trabajo de Atlas Forge ni sobre
 ningún otro repo real: cada test que toca git crea SU PROPIO repo con
 `_init_repo(tmp_path / "repo")` y solo ejecuta comandos git con `-C`
 apuntando a ese directorio. No hay ningún test que invoque git sobre la raíz
@@ -27,13 +27,13 @@ from pathlib import Path
 
 import pytest
 
-from brain.workspace.generic_scripts import list_generic_scripts, run_generic_script
+from atlas_forge.workspace.generic_scripts import list_generic_scripts, run_generic_script
 
 
 def _git(repo_path: Path, *args: str) -> subprocess.CompletedProcess[str]:
     """Ejecuta un comando git REAL sobre `repo_path` (directorio de
     trabajo del repo temporal aislado) — nunca sobre el repo real de
-    Factory Brain. Usado solo para preparar el repo en el setup de cada
+    Atlas Forge. Usado solo para preparar el repo en el setup de cada
     test y para verificar resultados."""
     return subprocess.run(
         ["git", "-C", str(repo_path), *args],
@@ -343,7 +343,7 @@ def test_language_stats_reports_a_missing_external_tool_explicitly(
     _init_repo(repo)
     (repo / "app.py").write_text("def f():\n    return 1\n", encoding="utf-8")
 
-    import brain.workspace.generic_scripts as generic_scripts
+    import atlas_forge.workspace.generic_scripts as generic_scripts
 
     monkeypatch.setattr(generic_scripts.shutil, "which", lambda _name: None)
 
@@ -379,7 +379,7 @@ def _write_backlog_file(path: Path, item_id: str, *, state: str, priority: str) 
     (con `## Estado`, `## Dependencias` y `## Prioridad`)."""
     path.write_text(
         f"# {item_id}\n"
-        f"**Epic:** FB-999 · Epic de prueba\n"
+        f"**Epic:** AF-999 · Epic de prueba\n"
         f"## Estado\n\n{state}\n\n"
         f"## Dependencias\n\nNinguna.\n\n"
         f"## Prioridad\n\n{priority}\n",
@@ -388,16 +388,16 @@ def _write_backlog_file(path: Path, item_id: str, *, state: str, priority: str) 
 
 
 def test_backlog_status_returns_the_structured_report_in_stdout(tmp_path: Path) -> None:
-    """Criterio de T-FB018-US02-02: la entrada del catálogo reusa el cálculo
-    del comando `brain backlog-status` (misma fuente de verdad) y devuelve el
+    """Criterio de T-AF018-US02-02: la entrada del catálogo reusa el cálculo
+    del comando `atlas_forge backlog-status` (misma fuente de verdad) y devuelve el
     informe JSON estructurado en stdout — sin duplicar lógica de invocación."""
     repo = tmp_path / "repo"
     _init_repo(repo)
     backlog = repo / "02-backlog"
     (backlog / "user-stories").mkdir(parents=True)
     (backlog / "tasks").mkdir(parents=True)
-    _write_backlog_file(backlog / "user-stories" / "US-FB999-01.md", "US-FB999-01", state="DONE", priority="Alta.")
-    _write_backlog_file(backlog / "tasks" / "T-FB999-01.md", "T-FB999-01", state="TO_DO", priority="Crítica.")
+    _write_backlog_file(backlog / "user-stories" / "US-AF999-01.md", "US-AF999-01", state="DONE", priority="Alta.")
+    _write_backlog_file(backlog / "tasks" / "T-AF999-01.md", "T-AF999-01", state="READY", priority="Crítica.")
     (repo / "file.txt").write_text("v1", encoding="utf-8")
     _git(repo, "add", "-A")
     _git(repo, "commit", "-q", "-m", "add backlog")
@@ -413,13 +413,13 @@ def test_backlog_status_returns_the_structured_report_in_stdout(tmp_path: Path) 
     assert report["total"]["errors"] == 0
     # El item TODO LISTA (sin dependencias pendientes) aparece ordenado por
     # prioridad (Crítica antes que Alta).
-    assert [entry["id"] for entry in report["items_lista"]] == ["T-FB999-01"]
+    assert [entry["id"] for entry in report["items_lista"]] == ["T-AF999-01"]
 
 
 def test_backlog_status_on_a_fresh_project_returns_empty_report(tmp_path: Path) -> None:
-    """Criterio de T-FB018-US02-02: un proyecto recién creado sin US/Tasks es
+    """Criterio de T-AF018-US02-02: un proyecto recién creado sin US/Tasks es
     un resultado válido (`success=True`, informe `empty=True`), igual que el
-    comando `brain backlog-status` — no una excepción."""
+    comando `atlas_forge backlog-status` — no una excepción."""
     repo = tmp_path / "repo"
     _init_repo(repo)
     (repo / "file.txt").write_text("v1", encoding="utf-8")

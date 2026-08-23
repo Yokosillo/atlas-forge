@@ -1,4 +1,4 @@
-# Dispatcher de Factory Brain
+# Dispatcher de Atlas Forge
 
 ## Propósito
 
@@ -30,13 +30,13 @@ El worker de cola coordina, como mínimo:
 
 La cola de desarrollo se gestiona mediante:
 
-`brain.dispatcher.dispatch_queue`
+`atlas_forge.dispatcher.dispatch_queue`
 
 El mecanismo HTTP de referencia es:
 
 `POST /backlog/{task_id}/enqueue`
 
-Si no existe `brain-api`, puede utilizarse la función de dominio equivalente.
+Si no existe `atlas-forge-api`, puede utilizarse la función de dominio equivalente.
 
 El worker hace polling periódico y despacha una Task elegible por ciclo.
 
@@ -59,50 +59,40 @@ El trabajo real de una Task no debe depender de un timeout corto de `dispatch_jo
 
 El Job formal puede pedir al agente que escriba su resultado en:
 
-`/tmp/factory-brain-job-<uuid>.txt`
+`/tmp/atlas-forge-job-<uuid>.txt`
 
 y cierre con:
 
-`___FACTORY_BRAIN_JOB_DONE___`
+`___ATLAS_FORGE_JOB_DONE___`
 
 El backend vigila el fichero y obtiene el resultado.
 
 No debe confundirse este mecanismo con la cola de cierre asíncrona de Tasks.
 
-## Cola Developer→Arquitecto
+## Canal Developer→Arquitecto
 
-La cola:
+El canal Developer→Arquitecto es el ciclo de veredicto del Dispatcher
+(`dispatch_queue_worker.run_architect_verdict_dispatch_cycle`, T-AF008-US14-02):
 
-`<project_root>/.claude/state/<project_name>/architect_queue.jsonl`
+1. El cierre de un Job de Developer (marcador `___ATLAS_FORGE_JOB_DONE___`)
+   persiste su informe en `07-informes/<story_id>/<job_id>.md`.
+2. Cuando TODAS las Tasks de una User Story están `DONE`,
+   `trigger_architect_verdict` marca la US en `REVIEW`.
+3. En el ciclo de polling, si hay una US en `REVIEW` y un Arquitecto
+   `idle`, el Dispatcher despacha un Job de veredicto al Arquitecto
+   (`dispatch_architect_verdict`). El Arquitecto devuelve su decisión como
+   resultado del Job (`job.result`, formato `ESTADO:`/`JUSTIFICACIÓN:`/
+   `SIGUIENTE_PROMPT_PARA_WORKER:`); `_process_verdict_result` la procesa y
+   promueve la US (o crea una Task de cobertura) según el estado.
 
-es unidireccional:
+No es un canal para asignar trabajo al Developer.
 
-```text
-Developer → Arquitecto
-```
+El mecanismo legado `architect_queue.jsonl` + `architect_queue_watcher.sh`
+está deprecado y no debe utilizarse.
 
-No es una cola para asignar trabajo al Developer.
+## User Story IN_REVIEW
 
-Cada cierre de Task debe registrar:
-
-- `agente`;
-- `task_id`;
-- `informe`;
-- `ts`.
-
-El informe referencia la sección concreta de la Task.
-
-## Aviso al Arquitecto
-
-`architect_queue_watcher.sh` puede avisar mediante tmux cuando aparece una nueva entrada.
-
-La cola es append-only.
-
-El Arquitecto no debe asumir que una entrada desaparece cuando ha sido atendida.
-
-## User Story REVIEW
-
-Cuando todas las Tasks están `DONE`, el Dispatcher promueve la User Story a `REVIEW` y la asigna a un Arquitecto libre.
+Cuando todas las Tasks están `DONE`, el Dispatcher promueve la User Story a `IN_REVIEW` y la asigna a un Arquitecto libre.
 
 No se necesita una cola adicional para este veredicto.
 
@@ -111,13 +101,13 @@ No se necesita una cola adicional para este veredicto.
 Si Tester devuelve `FALLO`:
 
 ```text
-Task REVIEW
+Task IN_REVIEW
    ↓
 Dispatcher
    ↓
 Developer
    ↓
-Task REVIEW
+Task IN_REVIEW
 ```
 
 No se crea automáticamente otra Task para cada fallo.
@@ -127,11 +117,11 @@ No se crea automáticamente otra Task para cada fallo.
 Si la User Story carece de cobertura:
 
 ```text
-US REVIEW
+US IN_REVIEW
    ↓
 Arquitecto crea Task
    ↓
-Task EN_DESARROLLO
+Task TO_DEVELOP
    ↓
 Dispatcher
 ```

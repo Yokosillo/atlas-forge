@@ -3,7 +3,7 @@ import uuid
 import libtmux
 import pytest
 
-from brain.tmux import (
+from atlas_forge.tmux import (
     CommandCaptureTimeoutError,
     create_session,
     run_command_and_capture,
@@ -14,7 +14,7 @@ from brain.tmux import (
 def isolated_socket():
     """Aísla los tests en su propio servidor tmux, con limpieza garantizada
     incluso si el test falla a medio camino."""
-    name = f"brain-test-{uuid.uuid4().hex[:8]}"
+    name = f"atlas_forge-test-{uuid.uuid4().hex[:8]}"
     try:
         yield name
     finally:

@@ -1,6 +1,6 @@
 from pathlib import Path
 
-from brain.workspace import discover_projects
+from atlas_forge.workspace import discover_projects
 
 
 def _make_git_repo(path: Path) -> None:
@@ -48,13 +48,13 @@ def test_discover_projects_finds_real_repos_and_skips_false_positives(
 
 
 def test_discover_projects_populates_name_and_path(tmp_path: Path) -> None:
-    repo_path = tmp_path / "factory-brain"
+    repo_path = tmp_path / "atlas-forge"
     _make_git_repo(repo_path)
 
     projects = discover_projects(tmp_path)
 
     assert len(projects) == 1
-    assert projects[0].name == "factory-brain"
+    assert projects[0].name == "atlas-forge"
     assert projects[0].path == str(repo_path)
 
 
@@ -85,10 +85,10 @@ def test_discover_projects_detects_root_itself_when_it_is_a_repo(
 def test_discover_projects_skips_hidden_directories_but_keeps_sibling_repo(
     tmp_path: Path,
 ) -> None:
-    # Caso real: `.brain` es un repo git real (con .git válido) que vive al
+    # Caso real: `.atlas_forge` es un repo git real (con .git válido) que vive al
     # mismo nivel que los productos, pero es infraestructura interna, no un
     # proyecto de trabajo. Todo directorio oculto debe excluirse del recorrido.
-    _make_git_repo(tmp_path / ".brain")
+    _make_git_repo(tmp_path / ".atlas_forge")
 
     # Repo real hermano, sin punto al principio: sí debe aparecer.
     _make_git_repo(tmp_path / "real-project")

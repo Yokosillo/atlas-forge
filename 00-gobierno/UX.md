@@ -8,7 +8,7 @@ No audita pantallas existentes. Esa función corresponde a `AUDITOR-OSS.md`.
 
 ## Marco
 
-Factory Brain proporciona visibilidad y control sobre una factoría de software.
+Atlas Forge proporciona visibilidad y control sobre una factoría de software.
 
 No es un IDE.
 

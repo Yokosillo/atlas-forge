@@ -1,13 +1,13 @@
 # Configuración
 
-Los ficheros de configuración de Factory Brain son YAML/JSON legibles por humanos y editables a mano, sin tocar código Python ni re-desplegar.
+Los ficheros de configuración de Atlas Forge son YAML/JSON legibles por humanos y editables a mano, sin tocar código Python ni re-desplegar.
 
-## `.factory-brain/models.yml` — catálogo de modelos
+## `.atlas-forge/models.yml` — catálogo de modelos
 
 Declara los modelos disponibles en el sistema: su **identificador real** (el que se pasa a `--model`), nombre visible y **runtime** asociado.
 
 ```yaml
-# Catálogo de modelos disponibles en Factory Brain.
+# Catálogo de modelos disponibles en Atlas Forge.
 models:
   - id: opencode-go/deepseek-v4-flash
     name: "DeepSeek V4 Flash"
@@ -41,7 +41,7 @@ Reglas de validación (`models_catalog.py`): runtime soportado, sin IDs duplicad
 !!! note "Codex"
     El runtime `codex` se considera en el catálogo pero **no está activo**: la entrada `openai/gpt-5` está comentada porque Codex está fuera del alcance del roadmap actual. `launch_agent` solo acepta `claude-code` y `opencode` por ahora.
 
-## `.factory-brain/scripts.yml` — scripts específicos de proyecto
+## `.atlas-forge/scripts.yml` — scripts específicos de proyecto
 
 Declara los scripts propios del proyecto activo (no los genéricos). Ver [Scripts](scripts.md).
 
@@ -50,9 +50,9 @@ scripts:
   - id: deploy-web
     name: "Deploy web (restart + verification)"
     command: >-
-      sudo systemctl restart factory-brain-api.service && ...
+      sudo systemctl restart atlas-forge-api.service && ...
     description: >-
-      Reinicia factory-brain-api.service y verifica que /ui/ responde.
+      Reinicia atlas-forge-api.service y verifica que /ui/ responde.
 ```
 
 | Campo | Tipo | Obligatorio | Descripción |
@@ -64,7 +64,7 @@ scripts:
 
 ## `model_preferences.json` — preferencias de modelo
 
-Estado editable por el usuario, distinto del catálogo. Ubicación: `<state_dir>/model_preferences.json` (por defecto `~/.local/share/brain/`).
+Estado editable por el usuario, distinto del catálogo. Ubicación: `<state_dir>/model_preferences.json` (por defecto `~/.local/share/atlas_forge/`).
 
 ```json
 {
@@ -87,21 +87,21 @@ Se edita desde la pestaña **Models** de la web (`GET/PUT /models/preferences`).
 | `active_project.json` | Proyecto activo seleccionado (persistido). |
 | `model_preferences.json` | Preferencias de modelo (habilitados + valores por defecto). |
 
-`state_dir` por defecto es `$XDG_DATA_HOME/brain` o `~/.local/share/brain`.
+`state_dir` por defecto es `$XDG_DATA_HOME/atlas_forge` o `~/.local/share/atlas_forge`.
 
 ## Despliegue (systemd)
 
-`deploy/systemd/factory-brain-api.service` es la fuente de verdad del servicio:
+`deploy/systemd/atlas-forge-api.service` es la fuente de verdad del servicio:
 
-- Ejecuta `brain-api` como usuario operador no root.
+- Ejecuta `atlas-forge-api` como usuario operador no root.
 - `WorkingDirectory=<raíz del workspace>` — para que el proceso vea los repos reales.
-- `ExecStart=.../04-src/.venv/bin/brain-api`.
+- `ExecStart=.../04-src/.venv/bin/atlas-forge-api`.
 - `Restart=on-failure` — un `systemctl stop` deliberado no se reinicia.
 
 Instalación:
 
 ```bash
-sudo cp deploy/systemd/factory-brain-api.service /etc/systemd/system/
+sudo cp deploy/systemd/atlas-forge-api.service /etc/systemd/system/
 sudo systemctl daemon-reload
-sudo systemctl enable --now factory-brain-api.service
+sudo systemctl enable --now atlas-forge-api.service
 ```

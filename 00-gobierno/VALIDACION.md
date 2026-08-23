@@ -1,4 +1,4 @@
-# Validación determinista de Factory Brain
+# Validación determinista de Atlas Forge
 
 ## Propósito
 
@@ -16,7 +16,7 @@ Existen dos familias independientes.
 
 `04-src/scripts/validate_backlog.py`
 
-Utiliza `validate_backlog_file_v2` de `brain/backlog/validator_v2.py`.
+Utiliza `validate_backlog_file_v2` de `atlas_forge/backlog/validator_v2.py`.
 
 Modos:
 
@@ -29,25 +29,23 @@ El validador no modifica ni mueve ficheros.
 
 `04-src/scripts/promote_states.py --check` / `--apply`
 
-El estado de un padre es una **función determinista** del estado de sus hijos. La regla de derivación es la única fuente de verdad de la coherencia:
+El estado de un padre es una **función determinista** del estado de sus hijos (AF-040: `derive_user_story_state` en `04-src/src/atlas_forge/core/state_machines.py` es la única fuente de verdad). La regla de derivación es la única fuente de verdad de la coherencia:
 
 **User Story**
 
 1. Con **0 Tasks** → `NO_TASKS`.
-2. En **`TO_PLAN`** (pendiente de que el Arquitecto la descomponga en Tasks) → `TO_PLAN`.
-3. Con **≥1 Task** → el estado de su Task **menos avanzada**, según el orden de progreso `READY` < `TO_DEVELOP` < `IN_PROGRESS` < `IN_REVIEW` < `DONE`.
-4. Con **todas sus Tasks `DONE`** → `IN_REVIEW` (pendiente de la validación final del Arquitecto; no se deriva a `DONE` automáticamente).
+2. Con **≥1 Task** → el estado de su Task **menos avanzada**, según el orden de progreso `READY` < `TO_DEVELOP` < `IN_PROGRESS` < `IN_REVIEW` < `DONE`. Si la menos avanzada está `DONE` (todas lo están) → `IN_REVIEW` (validación final del Arquitecto pendiente; nunca `DONE` automático).
 
 **Epic**
 
-1. Con **0 User Stories** → `TO_DO`.
-2. Con **≥1 User Story** → `DONE` si todas están `DONE`; si no, al estado de su User Story **menos avanzada**, con `NO_TASKS`/`TO_PLAN`/`OUT_OF_SCOPE` → `TO_DO`.
+1. Con **0 User Stories** → `READY`.
+2. Con **≥1 User Story** → `DONE` si todas están `DONE` (una US en `IN_REVIEW` NO cuenta como `DONE`); si no, al estado de su User Story **más retrasada**, con `NO_TASKS`/`TO_PLAN`/`READY` → `READY`.
 
 `--check` detecta drift (estado en disco que no coincide con la derivación).
 
-`--apply` consolida en **ambos sentidos** en una sola pasada idempotente: promueve (padre con todos los hijos `DONE` → `DONE`) y reabre (padre `DONE` o adelantado con un hijo que deja de estarlo → estado menos avanzado). La regla es simétrica: nunca puede quedar desactualizada por ningún sentido.
+`--apply` consolida en **ambos sentidos** en una sola pasada idempotente: promueve (Task → `IN_REVIEW` para la US cuando todos los hijos están `DONE`; Epic → `DONE`) y reabre (padre `DONE` o adelantado con un hijo que deja de estarlo → estado más retrasado). La regla es simétrica: nunca puede quedar desactualizada por ningún sentido. Nota: hoy `--apply` promueve la US a `IN_REVIEW` (nunca a `DONE` — el `DONE` de la US exige el veredicto del Arquitecto); el resto del mecanismo es idéntico.
 
-**Estados transitorios propiedad del pipeline** (no derivables de los hijos; los fija el pipeline explícitamente y la consolidación los respeta): `TO_PLAN` de User Story (solo válido con 0 Tasks, mientras el Arquitecto aterriza las Tasks) e `IN_REVIEW` de User Story (solo válido con todas sus Tasks `DONE`, durante la validación final del Arquitecto).
+**Estados transitorios propiedad del pipeline** (no derivables de los hijos; los fija el pipeline explícitamente y la consolidación los respeta): `TO_PLAN` de User Story (solo válido con 0 Tasks, mientras el Arquitecto aterriza las Tasks) y `IN_REVIEW` de User Story (solo válido con todas sus Tasks `DONE`, durante el veredicto del Arquitecto). `OUT_OF_SCOPE` es exclusivo de User Story (antes `OUT_OF_SCOPE`).
 
 La detección se reutiliza en las lecturas del backlog para evitar presentar al usuario una jerarquía falsamente cerrada.
 

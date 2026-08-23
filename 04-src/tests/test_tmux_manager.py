@@ -4,7 +4,7 @@ import uuid
 import libtmux
 import pytest
 
-from brain.tmux.manager import (
+from atlas_forge.tmux.manager import (
     create_session,
     is_alive,
     kill_session,
@@ -15,7 +15,7 @@ from brain.tmux.manager import (
 
 @pytest.fixture
 def socket_name():
-    name = f"brain-test-{uuid.uuid4().hex[:8]}"
+    name = f"atlas_forge-test-{uuid.uuid4().hex[:8]}"
     yield name
     # Limpieza: si el servidor de prueba sigue vivo al final del test, se mata.
     try:
@@ -25,7 +25,7 @@ def socket_name():
 
 
 def test_runtime_model_construction() -> None:
-    from brain.models import Runtime
+    from atlas_forge.models import Runtime
 
     runtime = Runtime(
         id="r1",
@@ -77,7 +77,7 @@ def test_kill_session_is_safe_when_session_does_not_exist(socket_name: str) -> N
 def test_list_sessions_empty_socket_returns_empty_list_without_raising(
     socket_name: str,
 ) -> None:
-    """T-FB031-US01-01: socket sin ninguna sesión creada todavía — no debe
+    """T-AF031-US01-01: socket sin ninguna sesión creada todavía — no debe
     lanzar excepción, y la lista debe estar vacía (criterio 2 de
     aceptación explícito)."""
     assert list_sessions(socket_name=socket_name) == []

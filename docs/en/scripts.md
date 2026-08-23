@@ -1,15 +1,15 @@
 # Scripts
 
-Factory Brain catalogs and runs scripts from the interface, distinguishing two sources:
+Atlas Forge catalogs and runs scripts from the interface, distinguishing two sources:
 
-- **Generic**: fixed catalog bundled with Factory Brain, available in any project of the workspace.
-- **Project-specific**: declared by the active project in `.factory-brain/scripts.yml`.
+- **Generic**: fixed catalog bundled with Atlas Forge, available in any project of the workspace.
+- **Project-specific**: declared by the active project in `.atlas-forge/scripts.yml`.
 
 Both run on the active project with the same mechanism (`run_subprocess`, 30s timeout) and are exposed together in `GET /scripts`.
 
 ## Generic scripts
 
-Fixed catalog (`brain/workspace/generic_scripts.py`, 7 identifiers):
+Fixed catalog (`atlas_forge/workspace/generic_scripts.py`, 7 identifiers):
 
 | id | Name | What it does |
 |---|---|---|
@@ -38,14 +38,14 @@ curl -X POST http://<host>:8000/scripts/run_tests/run
 
 ## Project-specific scripts
 
-Declared in the active project's `.factory-brain/scripts.yml`:
+Declared in the active project's `.atlas-forge/scripts.yml`:
 
 ```yaml
 scripts:
   - id: deploy-web
     name: "Deploy web (restart + verification)"
     command: >-
-      sudo systemctl restart factory-brain-api.service && ...
+      sudo systemctl restart atlas-forge-api.service && ...
     description: "..."
 ```
 

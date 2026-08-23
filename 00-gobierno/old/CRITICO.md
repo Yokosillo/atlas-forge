@@ -1,9 +1,9 @@
 # Rol: Crítico (Validador de Worker)
 
-> **Nota (2026-08-05): rol eliminado como agente lanzable.** FB-022
+> **Nota (2026-08-05): rol eliminado como agente lanzable.** AF-022
 > renombró Crítico a Arquitecto (`00-gobierno/ARQUITECTO.md`), que
 > absorbió esta función junto con la generación de backlog. El rol
-> `critic` ya no existe en `brain.agents.roles.list_roles()` — no se
+> `critic` ya no existe en `atlas_forge.agents.roles.list_roles()` — no se
 > puede lanzar. Este fichero se conserva solo por su contenido histórico
 > todavía aplicable (en particular, el protocolo de lanzamiento headless
 > de OpenCode sin supervisión, referenciado desde `ARQUITECTO.md`). No
@@ -11,8 +11,8 @@
 > "Crítico" — usa `ARQUITECTO.md`.
 
 ## Objetivo
-Verificar el trabajo realizado por el worker en el backlog de Factory Brain
-(PROD-006-factory-brain), leyendo el resultado de su última ejecución en
+Verificar el trabajo realizado por el worker en el backlog de Atlas Forge
+(PROD-006-atlas-forge), leyendo el resultado de su última ejecución en
 `worker_output.txt`, y decidir el siguiente paso: aprobar, pedir
 correcciones puntuales, o proponer el siguiente prompt para el worker.
 
@@ -21,7 +21,7 @@ correcciones puntuales, o proponer el siguiente prompt para el worker.
   ejecución del worker (se sobrescribe en cada ejecución, no es un histórico).
 - Contexto de la User Story o Task en curso (`02-backlog/user-stories/`,
   `02-backlog/tasks/`).
-- El fichero de la Epic correspondiente (`02-backlog/epics/FB-*.md`), en
+- El fichero de la Epic correspondiente (`02-backlog/epics/AF-*.md`), en
   particular su sección "Alcance v1 (mínimo)" / "Diferido a v2" cuando exista.
 
 ## Cuándo actuar
@@ -63,8 +63,8 @@ correcciones puntuales, o proponer el siguiente prompt para el worker.
      ahora", no lo dejes pasar por ser técnicamente defendible — dilo,
      propone el orden alternativo, y explica el motivo (aunque no exista
      ningún criterio de aceptación que lo exija literalmente). Por
-     ejemplo: si el worker cierra `US-FB005-03` (declarar capacidades de
-     agente) antes de que exista `FB-008 Dispatcher v1` funcionando,
+     ejemplo: si el worker cierra `US-AF005-03` (declarar capacidades de
+     agente) antes de que exista `AF-008 Dispatcher v1` funcionando,
      señálalo — esa User Story está bloqueada explícitamente por falta de
      consumidor real, según su propio fichero.
 4. Decide una de estas tres salidas:
@@ -136,7 +136,7 @@ verificación adicional obligatorio en momentos concretos:
   anteriores de Tasks individuales no se heredan automáticamente como
   "la Epic está bien" — la suma de partes correctas no garantiza el todo.
 - **Cómo hacerlo (evidencia directa, no relectura de lo ya escrito):**
-  - Relee el fichero de la Epic (`02-backlog/epics/FB-<n>-*.md`) completo:
+  - Relee el fichero de la Epic (`02-backlog/epics/AF-<n>-*.md`) completo:
     objetivo, alcance v1/v2, exclusiones, dependencias, criterios de
     aceptación de la Epic — no solo los de la última Story.
   - Para cada Story marcada `DONE`, confirma con `grep`/lectura de código
@@ -148,15 +148,15 @@ verificación adicional obligatorio en momentos concretos:
     distintas implementaron de forma distinta, criterios de la Epic que
     ninguna Story cubre explícitamente (huecos entre Stories). Por
     ejemplo: comprobar que el ciclo completo Developer → Job → resultado →
-    Job de Critic → veredicto (US-FB008-01 + US-FB008-02) funciona de
+    Job de Critic → veredicto (US-AF008-01 + US-AF008-02) funciona de
     extremo a extremo, no solo que cada Task por separado pasa sus tests.
   - Verifica que no queda deuda declarada sin destino: cada hallazgo que el
     worker fue anotando como "fuera de alcance, para otra sesión/Epic" debe
     tener un lugar real donde vive esa nota (Task, Story o Epic de destino
     existente, o el propio roadmap), no solo mención en un
     `worker_output.txt` ya sobrescrito.
-  - Si la Epic tiene Stories bloqueadas o diferidas (p. ej. US-FB005-03,
-    bloqueada hasta que exista FB-008 Dispatcher v1), confirma tú mismo que
+  - Si la Epic tiene Stories bloqueadas o diferidas (p. ej. US-AF005-03,
+    bloqueada hasta que exista AF-008 Dispatcher v1), confirma tú mismo que
     el motivo del bloqueo sigue siendo cierto (no asumas que la
     verificación anterior del worker sigue vigente sin comprobarlo).
 - Esta auditoría es más profunda que la verificación normal de hito
@@ -357,11 +357,11 @@ SIGUIENTE_PROMPT_PARA_WORKER:
 
 ESTADO: APROBADO
 JUSTIFICACIÓN:
-T-FB001-US01-01 cumple sus criterios: el modelo `Project` existe con test
+T-AF001-US01-01 cumple sus criterios: el modelo `Project` existe con test
 de construcción, y el round-trip de persistencia (guardar/leer proyecto
 activo) está verificado. No se detectan efectos secundarios fuera del
 alcance de la Task.
 SIGUIENTE_PROMPT_PARA_WORKER:
-Implementa T-FB001-US01-02 (descubrir repositorios Git en el workspace),
-en 02-backlog/tasks/T-FB001-US01-02-descubrir-repositorios-git.md.
+Implementa T-AF001-US01-02 (descubrir repositorios Git en el workspace),
+en 02-backlog/tasks/T-AF001-US01-02-descubrir-repositorios-git.md.
 Construye sobre el modelo `Project` ya creado en la Task anterior.

@@ -1,6 +1,6 @@
-/* Factory Brain — cliente HTTP del backend (T-FB021-US01-02).
+/* Atlas Forge — cliente HTTP del backend (T-AF021-US01-02).
  *
- * Envoltura fina sobre `fetch` para la API REST de `brain-api` (FB-016):
+ * Envoltura fina sobre `fetch` para la API REST de `atlas-forge-api` (AF-016):
  * una función por endpoint HTTP, agrupadas por dominio — mismo patrón ya
  * aplicado en `BackendClient.kt` (Android) y `backend_client.py` (TUI).
  *
@@ -57,7 +57,7 @@
   /* host/puerto de Tailscale, no debe asumir `localhost`.               */
   /*                                                                     */
   /* Por defecto, la URL base es el propio origen (`""`): como la web se  */
-  /* sirve DESDE `brain-api` (`/ui`, T-FB021-US01-01), una petición al    */
+  /* sirve DESDE `atlas-forge-api` (`/ui`, T-AF021-US01-01), una petición al    */
   /* mismo origen es same-origin y NO dispara CORS. Para servir la web    */
   /* junto a un backend en otro host/puerto, configurar la URL base.     */
   /* ------------------------------------------------------------------ */
@@ -237,6 +237,13 @@
     return request("POST", "/agents/" + encodeURIComponent(agentId) + "/stop", { post: true });
   }
 
+  /** `POST /agents/{agent_id}/release` — libera un agente caído/detenido
+   * (unavailable/stopped), retirándolo de la sesión sin matar su runtime
+   * (T-AF024-US11-16, backend T-AF005-US01-09). */
+  async function releaseAgent(agentId) {
+    return request("POST", "/agents/" + encodeURIComponent(agentId) + "/release", { post: true });
+  }
+
   /** `GET /agents/{agent_id}/pane` — contenido actual del pane de tmux del agente. */
   async function getAgentPane(agentId) {
     return request("GET", "/agents/" + encodeURIComponent(agentId) + "/pane");
@@ -261,7 +268,7 @@
 
   /** `GET /agents/{agent_id}/status-model` — modelo activo real de un
    * agente Claude Code, leído bajo demanda vía /status del pane
-   * (T-FB024-US11-05). A diferencia de getAgentModel (OpenCode, lectura
+   * (T-AF024-US11-05). A diferencia de getAgentModel (OpenCode, lectura
    * pasiva), el backend rechaza esta llamada con 400 si el agente está
    * `working` — nunca se debe invocar automáticamente. */
   async function getAgentStatusModel(agentId) {
@@ -269,7 +276,7 @@
   }
 
   /** `POST /agents/{agent_id}/send-keys` — envía teclas literales al pane
-   * del agente (T-FB024-US11-13). Se usa para enviar empujones sin crear
+   * del agente (T-AF024-US11-13). Se usa para enviar empujones sin crear
    * un Job formal. */
   async function sendAgentKeys(agentId, keys) {
     return request("POST", "/agents/" + encodeURIComponent(agentId) + "/send-keys", {
@@ -278,7 +285,7 @@
   }
 
   /* ------------------------------------------------------------------ */
-  /* Modelos — preferencias (T-FB022-US10-01)                           */
+  /* Modelos — preferencias (T-AF022-US10-01)                           */
   /* ------------------------------------------------------------------ */
 
   /** `GET /models/preferences` — catálogo completo con habilitado y defaults. */
@@ -292,7 +299,7 @@
   }
 
   /* ------------------------------------------------------------------ */
-  /* Sistema — preferencias (US-FB024-12)                                */
+  /* Sistema — preferencias (US-AF024-12)                                */
   /* ------------------------------------------------------------------ */
 
   /** `GET /system/preferences` — catálogo de valores de sistema configurables (hoy solo `max_simultaneous_developers`). */
@@ -305,7 +312,7 @@
     return request("PUT", "/system/preferences", { post: true, body: payload });
   }
 
-  /** `POST /system/restart` — reinicia el servicio brain-api (T-FB037-US05-01). Fire-and-forget: responde 202 y el backend se cae; el llamador debe verificar la recuperación con polling. */
+  /** `POST /system/restart` — reinicia el servicio atlas-forge-api (T-AF037-US05-01). Fire-and-forget: responde 202 y el backend se cae; el llamador debe verificar la recuperación con polling. */
   async function restartSystem() {
     return request("POST", "/system/restart", { post: true });
   }
@@ -390,7 +397,7 @@
   }
 
   /* ------------------------------------------------------------------ */
-  /* Acciones transversales de proyecto (FB-025)                          */
+  /* Acciones transversales de proyecto (AF-025)                          */
   /* ------------------------------------------------------------------ */
 
   /** `POST /project/actions/{action_id}` — despacha una acción transversal
@@ -402,7 +409,7 @@
   }
 
   /* ------------------------------------------------------------------ */
-  /* Backlog (T-FB020-US01-01/T-FB020-US02-01, T-FB020-US04-01)          */
+  /* Backlog (T-AF020-US01-01/T-AF020-US02-01, T-AF020-US04-01)          */
   /* ------------------------------------------------------------------ */
 
   /** `GET /backlog` — informe estructurado del backlog del proyecto activo
@@ -415,7 +422,7 @@
   }
 
   /** `GET /backlog/{item_id}` — detalle de una Epic (`item_id` con forma
-   * `FB-xxx`)/User Story/Task concreta. Un `item_id` inexistente propaga
+   * `AF-xxx`)/User Story/Task concreta. Un `item_id` inexistente propaga
    * el 404 real del backend (motivo explícito, incluido el de un fallo de
    * parseo) — siempre un error real de navegación, nunca un estado
    * válido a silenciar. */
@@ -423,7 +430,28 @@
     return request("GET", "/backlog/" + encodeURIComponent(itemId));
   }
 
-  /** `POST /backlog/epic` (T-FB036-US02-01) — crea una Epic nueva desde
+  /** `GET /backlog/epic/{epic_id}/coverage` (T-AF036-US05-01) — cobertura
+   * del alcance v1 declarado de una Epic frente a sus User Stories/Tasks
+   * reales (detector aproximado). 404 (Epic sin fichero propio) propaga el
+   * `detail` verbatim. En éxito devuelve `{declared_alcance, points, gaps,
+   * approximate, message}` — o, si la Epic no declara la sección,
+   * `{declared_alcance: null, message: "...no se puede calcular
+   * cobertura", gaps: []}` (nunca un vacío ambiguo). */
+  async function getEpicCoverage(epicId) {
+    return request("GET", "/backlog/epic/" + encodeURIComponent(epicId) + "/coverage");
+  }
+
+  /** `GET /backlog/us/{us_id}/report` (T-AF036-US06-01) — informe de cierre
+   * real de una User Story. El backend resuelve el fichero real dentro de
+   * `07-informes/<us_id>/` por GLOB (el nombre no siempre coincide con
+   * `<story_id>.md`). Devuelve `{exists: false, us_id}` si no hay informe
+   * todavía (resultado válido, distinguible de un error real) o
+   * `{exists: true, us_id, path, content}` con el contenido completo. */
+  async function getUsClosingReport(usId) {
+    return request("GET", "/backlog/us/" + encodeURIComponent(usId) + "/report");
+  }
+
+  /** `POST /backlog/epic` (T-AF036-US02-01) — crea una Epic nueva desde
    * cero con `{id, title, objetivo, fase}`. 400 (`id` con formato
    * inválido o contenido que no pasa el validador) / 409 (`id` duplicado)
    * propagan el `detail` verbatim del backend. Éxito: 201 con
@@ -432,7 +460,7 @@
     return request("POST", "/backlog/epic", { post: true, body: payload });
   }
 
-  /** `POST /backlog/epic/{epic_id}/us` (T-FB036-US02-02) — crea una User
+  /** `POST /backlog/epic/{epic_id}/us` (T-AF036-US02-02) — crea una User
    * Story nueva desde cero bajo la Epic `epicId`, con
    * `{id, title, objetivo, criterios_aceptacion, priority}`. `epicId`
    * viene siempre de la URL, nunca de `payload` (el backend lo resuelve
@@ -454,7 +482,7 @@
     });
   }
 
-  /** `POST /backlog/epic/{epic_id}/propose-stories` (T-FB036-US10-01) —
+  /** `POST /backlog/epic/{epic_id}/propose-stories` (T-AF036-US10-01) —
    * pipeline Epic→User Story: propone User Stories desde el alcance v1 de
    * la Epic, ejecuta validación + autoauditoría y, si se aprueban
    * (`validation_valid: true` y `self_audit.status: "APROBADO"`), las
@@ -467,7 +495,7 @@
     return request("POST", "/backlog/epic/" + encodeURIComponent(epicId) + "/propose-stories", { post: true });
   }
 
-  /** `POST /backlog/us/{us_id}/propose-tasks` (T-FB036-US10-01) — pipeline
+  /** `POST /backlog/us/{us_id}/propose-tasks` (T-AF036-US10-01) — pipeline
    * User Story→Task: propone Tasks desde la US, ejecuta validación +
    * autoauditoría y, si se aprueban, las escribe a disco. 404 (US
    * inexistente) propaga el `detail` real. Mismo contrato de respuesta
@@ -479,9 +507,9 @@
 
   /** `POST /backlog/{story_id}/launch-development` — lanza el desarrollo
    * de la User Story `story_id` con contexto ya resuelto por el backend
-   * (objetivo + Tasks `TO_DO`), despachado al agente `agentId`. Bloqueante
+   * (objetivo + Tasks `READY`), despachado al agente `agentId`. Bloqueante
    * como `createAndDispatchJob` (mismo motor de despacho). 400 (sin Tasks
-   * `TO_DO`)/404 (`story_id`/agente inválido) propagan el `detail` real. */
+   * `READY`)/404 (`story_id`/agente inválido) propagan el `detail` real. */
   async function launchDevelopment(storyId, agentId) {
     return request("POST", "/backlog/" + encodeURIComponent(storyId) + "/launch-development", {
       post: true,
@@ -490,7 +518,7 @@
   }
 
   /** `POST /backlog/epic/{epic_id}/analyze-threads` — ejecuta el análisis
-   * determinista de hilos de desarrollo para una Epic (FB-026).
+   * determinista de hilos de desarrollo para una Epic (AF-026).
    * Bloqueante, sin despachar Job al Arquitecto. `numAgents` (default 2,
    * corrección 2026-08-06) es el número de agentes disponibles para la
    * recomendación de reparto — configurable, nunca fijo. */
@@ -500,22 +528,15 @@
   }
 
   /* ------------------------------------------------------------------ */
-  /* Cola de despacho (T-FB008-US10-01/-02/-03)                          */
+  /* Cola de despacho (T-AF008-US10-01/-02/-03)                          */
   /* ------------------------------------------------------------------ */
 
   /** `POST /backlog/{task_id}/enqueue` — marca la Task `taskId` (debe
-   * estar `TO_DO`) como encolada para desarrollo, sin pasar por el flujo
+   * estar `READY`) como encolada para desarrollo, sin pasar por el flujo
    * de Plan/aprobación. 404 (Task inexistente)/400 (no está `TO_DO`)/409
    * (ya encolada) propagan el `detail` real del backend. */
   async function enqueueTask(taskId) {
     return request("POST", "/backlog/" + encodeURIComponent(taskId) + "/enqueue", { post: true });
-  }
-
-  /** `POST /backlog/{us_id}/enqueue-all` — encola de una sola llamada
-   * todas las Tasks `TO_DO` de la User Story `usId`. 404 si `usId` no
-   * existe. */
-  async function enqueueAllTasks(usId) {
-    return request("POST", "/backlog/" + encodeURIComponent(usId) + "/enqueue-all", { post: true });
   }
 
   /** `DELETE /backlog/{task_id}/enqueue` — retira `taskId` de la cola
@@ -531,8 +552,15 @@
     return request("GET", "/backlog/queue");
   }
 
+  /** `DELETE /backlog/queue/history` — borra el histórico de la cola
+   * (entradas `completed`/`failed`), conservando las en curso
+   * (`queued`/`dispatched`). Devuelve `{removed: N}`. */
+  async function clearQueueHistory() {
+    return request("DELETE", "/backlog/queue/history");
+  }
+
   /* ------------------------------------------------------------------ */
-  /* Edición en línea de prioridad/estado (T-FB036-US08-01)              */
+  /* Edición en línea de prioridad/estado (T-AF036-US08-01)              */
   /* ------------------------------------------------------------------ */
 
   /** `PUT /backlog/{item_id}/priority` — cambia la prioridad de una User
@@ -546,15 +574,25 @@
     });
   }
 
+  /** `PUT /backlog/{item_id}/fase` — cambia la fase de una Epic/User Story
+   * ya existente directamente en su fichero real (T-AF036-US14-01).
+   * `newFase` es texto libre, o `null` para "sin fase". 400 (contenido
+   * resultante que no valida) propaga el `detail` real del backend. */
+  async function setBacklogItemFase(itemId, newFase) {
+    return request("PUT", "/backlog/" + encodeURIComponent(itemId) + "/fase", {
+      post: true, body: { fase: newFase }
+    });
+  }
+
   /** `PUT /backlog/{item_id}/state` — cambia el estado de una User
    * Story/Task ya existente directamente en su fichero real.
-   * `newState` es una de `'TO_DO'|'EN_DESARROLLO'|'IN_PROGRESS'|'REVIEW'|'DONE'`.
+   * `newState` es una de `'READY'|'TO_DEVELOP'|'IN_PROGRESS'|'IN_REVIEW'|'DONE'`.
    * Si el item es una User Story y `newState` es `'DONE'`, el backend
    * dispara la promoción automática de su Epic si corresponde
    * (`promoted_epics` en la respuesta). Si es una User Story y
-   * `newState` es `'EN_DESARROLLO'` (T-FB008-US14-04), el backend encola
-   * automáticamente sus Tasks `TO_DO` (`enqueued`/`skipped_already_queued`
-   * en la respuesta, mismo formato que `enqueueAllTasks`). 400 (valor
+   * `newState` es `'TO_DEVELOP'` (T-AF008-US14-04), el backend encola
+   * automáticamente sus Tasks `READY` (`enqueued`/`skipped_already_queued`
+   * en la respuesta). 400 (valor
    * inválido, o Epic) propaga el `detail` real del backend. */
   async function setBacklogItemState(itemId, newState) {
     return request("PUT", "/backlog/" + encodeURIComponent(itemId) + "/state", {
@@ -578,6 +616,7 @@
     getAgentOptions: getAgentOptions,
     launchAgent: launchAgent,
     stopAgent: stopAgent,
+    releaseAgent: releaseAgent,
     getAgentPane: getAgentPane,
     getAgentModel: getAgentModel,
     getAgentStatusModel: getAgentStatusModel,
@@ -604,6 +643,8 @@
     runProjectAction: runProjectAction,
     getBacklog: getBacklog,
     getBacklogItem: getBacklogItem,
+    getEpicCoverage: getEpicCoverage,
+    getUsClosingReport: getUsClosingReport,
     createEpic: createEpic,
     createUserStory: createUserStory,
     createTask: createTask,
@@ -612,10 +653,11 @@
     launchDevelopment: launchDevelopment,
     analyzeEpicThreads: analyzeEpicThreads,
     enqueueTask: enqueueTask,
-    enqueueAllTasks: enqueueAllTasks,
     dequeueTask: dequeueTask,
     getDispatchQueue: getDispatchQueue,
+    clearQueueHistory: clearQueueHistory,
     setBacklogItemPriority: setBacklogItemPriority,
+    setBacklogItemFase: setBacklogItemFase,
     setBacklogItemState: setBacklogItemState,
   });
 })();

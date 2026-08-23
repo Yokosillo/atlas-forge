@@ -1,4 +1,4 @@
-"""Tests de T-FB004-US05-01: get_active_model / set_active_model
+"""Tests de T-AF004-US05-01: get_active_model / set_active_model
 sobre agentes OpenCode en ejecucion via tmux."""
 
 from __future__ import annotations
@@ -7,7 +7,7 @@ from unittest.mock import patch
 
 import pytest
 
-from brain.agent_model import (
+from atlas_forge.agent_model import (
     _find_model_index,
     _model_names_match,
     _parse_model_from_claude_code_status,
@@ -104,31 +104,31 @@ class _FakeRuntimeInstance:
 
 
 def test_get_active_model_returns_none_when_no_runtime_registered() -> None:
-    with patch("brain.agent_model.get_runtime_instance_for_agent", return_value=None):
+    with patch("atlas_forge.agent_model.get_runtime_instance_for_agent", return_value=None):
         assert get_active_model("agente-inexistente") is None
 
 
 def test_get_active_model_returns_none_for_non_opencode_runtime() -> None:
-    with patch("brain.agent_model.get_runtime_instance_for_agent",
+    with patch("atlas_forge.agent_model.get_runtime_instance_for_agent",
                return_value=_FakeRuntimeInstance(rt_type="claude-code")):
         assert get_active_model("claude-agent") is None
 
 
 def test_get_active_model_returns_none_when_session_not_alive() -> None:
     with (
-        patch("brain.agent_model.get_runtime_instance_for_agent",
+        patch("atlas_forge.agent_model.get_runtime_instance_for_agent",
               return_value=_FakeRuntimeInstance()),
-        patch("brain.agent_model.is_alive", return_value=False),
+        patch("atlas_forge.agent_model.is_alive", return_value=False),
     ):
         assert get_active_model("opencode-agent") is None
 
 
 def test_get_active_model_extracts_model_from_pane() -> None:
     with (
-        patch("brain.agent_model.get_runtime_instance_for_agent",
+        patch("atlas_forge.agent_model.get_runtime_instance_for_agent",
               return_value=_FakeRuntimeInstance()),
-        patch("brain.agent_model.is_alive", return_value=True),
-        patch("brain.agent_model.capture_pane_lines",
+        patch("atlas_forge.agent_model.is_alive", return_value=True),
+        patch("atlas_forge.agent_model.capture_pane_lines",
               return_value=["Build · DeepSeek V4 Flash DeepSeek"]),
     ):
         assert get_active_model("opencode-agent") == "DeepSeek V4 Flash DeepSeek"
@@ -136,20 +136,20 @@ def test_get_active_model_extracts_model_from_pane() -> None:
 
 def test_get_active_model_returns_none_when_pattern_not_found() -> None:
     with (
-        patch("brain.agent_model.get_runtime_instance_for_agent",
+        patch("atlas_forge.agent_model.get_runtime_instance_for_agent",
               return_value=_FakeRuntimeInstance()),
-        patch("brain.agent_model.is_alive", return_value=True),
-        patch("brain.agent_model.capture_pane_lines", return_value=["otra cosa"]),
+        patch("atlas_forge.agent_model.is_alive", return_value=True),
+        patch("atlas_forge.agent_model.capture_pane_lines", return_value=["otra cosa"]),
     ):
         assert get_active_model("opencode-agent") is None
 
 
 def test_get_active_model_handles_capture_exception() -> None:
     with (
-        patch("brain.agent_model.get_runtime_instance_for_agent",
+        patch("atlas_forge.agent_model.get_runtime_instance_for_agent",
               return_value=_FakeRuntimeInstance()),
-        patch("brain.agent_model.is_alive", return_value=True),
-        patch("brain.agent_model.capture_pane_lines",
+        patch("atlas_forge.agent_model.is_alive", return_value=True),
+        patch("atlas_forge.agent_model.capture_pane_lines",
               side_effect=RuntimeError("tmux caido")),
     ):
         assert get_active_model("opencode-agent") is None  # no exception
@@ -185,58 +185,58 @@ def test_parse_model_from_claude_code_status(
 
 
 def test_get_active_model_claude_code_returns_none_when_no_runtime_registered() -> None:
-    with patch("brain.agent_model.get_runtime_instance_for_agent", return_value=None):
+    with patch("atlas_forge.agent_model.get_runtime_instance_for_agent", return_value=None):
         assert get_active_model_claude_code("agente-inexistente") is None
 
 
 def test_get_active_model_claude_code_returns_none_for_non_claude_code_runtime() -> None:
-    with patch("brain.agent_model.get_runtime_instance_for_agent",
+    with patch("atlas_forge.agent_model.get_runtime_instance_for_agent",
                return_value=_FakeRuntimeInstance(rt_type="opencode")):
         assert get_active_model_claude_code("opencode-agent") is None
 
 
 def test_get_active_model_claude_code_returns_none_when_session_not_alive() -> None:
     with (
-        patch("brain.agent_model.get_runtime_instance_for_agent",
+        patch("atlas_forge.agent_model.get_runtime_instance_for_agent",
               return_value=_FakeRuntimeInstance(rt_type="claude-code")),
-        patch("brain.agent_model.is_alive", return_value=False),
+        patch("atlas_forge.agent_model.is_alive", return_value=False),
     ):
         assert get_active_model_claude_code("claude-agent") is None
 
 
 def test_get_active_model_claude_code_sends_status_and_parses_panel() -> None:
     with (
-        patch("brain.agent_model.get_runtime_instance_for_agent",
+        patch("atlas_forge.agent_model.get_runtime_instance_for_agent",
               return_value=_FakeRuntimeInstance(rt_type="claude-code")),
-        patch("brain.agent_model.is_alive", return_value=True),
-        patch("brain.agent_model.run_command") as mock_run_command,
-        patch("brain.agent_model.capture_pane_lines",
+        patch("atlas_forge.agent_model.is_alive", return_value=True),
+        patch("atlas_forge.agent_model.run_command") as mock_run_command,
+        patch("atlas_forge.agent_model.capture_pane_lines",
               return_value=["Model:  Default (Sonnet 5 · Efficient for routine tasks)"]),
-        patch("brain.agent_model.send_keys_literal") as mock_send_keys,
-        patch("brain.agent_model.time.sleep"),
+        patch("atlas_forge.agent_model.send_keys_literal") as mock_send_keys,
+        patch("atlas_forge.agent_model.time.sleep"),
     ):
         result = get_active_model_claude_code("claude-agent")
         assert result == "Default (Sonnet 5 · Efficient for routine tasks)"
         # Envía exactamente "/status" al pane (mismo mecanismo que lanzar
         # el prompt inicial: run_command ya añade Enter por defecto).
         mock_run_command.assert_called_once_with(
-            "test-session", "/status", socket_name="factory-brain"
+            "test-session", "/status", socket_name="atlas-forge"
         )
         # Cierra el panel con Escape tras leer, sin dejar residuo.
         mock_send_keys.assert_called_once_with(
-            "test-session", "Escape", socket_name="factory-brain"
+            "test-session", "Escape", socket_name="atlas-forge"
         )
 
 
 def test_get_active_model_claude_code_returns_none_when_pattern_not_found() -> None:
     with (
-        patch("brain.agent_model.get_runtime_instance_for_agent",
+        patch("atlas_forge.agent_model.get_runtime_instance_for_agent",
               return_value=_FakeRuntimeInstance(rt_type="claude-code")),
-        patch("brain.agent_model.is_alive", return_value=True),
-        patch("brain.agent_model.run_command"),
-        patch("brain.agent_model.capture_pane_lines", return_value=["otra cosa"]),
-        patch("brain.agent_model.send_keys_literal") as mock_send_keys,
-        patch("brain.agent_model.time.sleep"),
+        patch("atlas_forge.agent_model.is_alive", return_value=True),
+        patch("atlas_forge.agent_model.run_command"),
+        patch("atlas_forge.agent_model.capture_pane_lines", return_value=["otra cosa"]),
+        patch("atlas_forge.agent_model.send_keys_literal") as mock_send_keys,
+        patch("atlas_forge.agent_model.time.sleep"),
     ):
         assert get_active_model_claude_code("claude-agent") is None
         # Escape se envía igual, aunque el parseo falle (criterio de
@@ -249,18 +249,18 @@ def test_get_active_model_claude_code_closes_status_panel_even_if_capture_fails(
     `capture_pane_lines` lanza una excepción — nunca se propaga, nunca se
     deja el pane sin cerrar."""
     with (
-        patch("brain.agent_model.get_runtime_instance_for_agent",
+        patch("atlas_forge.agent_model.get_runtime_instance_for_agent",
               return_value=_FakeRuntimeInstance(rt_type="claude-code")),
-        patch("brain.agent_model.is_alive", return_value=True),
-        patch("brain.agent_model.run_command"),
-        patch("brain.agent_model.capture_pane_lines",
+        patch("atlas_forge.agent_model.is_alive", return_value=True),
+        patch("atlas_forge.agent_model.run_command"),
+        patch("atlas_forge.agent_model.capture_pane_lines",
               side_effect=RuntimeError("tmux caido")),
-        patch("brain.agent_model.send_keys_literal") as mock_send_keys,
-        patch("brain.agent_model.time.sleep"),
+        patch("atlas_forge.agent_model.send_keys_literal") as mock_send_keys,
+        patch("atlas_forge.agent_model.time.sleep"),
     ):
         assert get_active_model_claude_code("claude-agent") is None  # no exception
         mock_send_keys.assert_called_once_with(
-            "test-session", "Escape", socket_name="factory-brain"
+            "test-session", "Escape", socket_name="atlas-forge"
         )
 
 
@@ -268,20 +268,20 @@ def test_get_active_model_claude_code_closes_status_panel_even_if_run_command_fa
     """Mismo criterio, cubriendo también el fallo al ENVIAR /status (no
     solo al capturar después)."""
     with (
-        patch("brain.agent_model.get_runtime_instance_for_agent",
+        patch("atlas_forge.agent_model.get_runtime_instance_for_agent",
               return_value=_FakeRuntimeInstance(rt_type="claude-code")),
-        patch("brain.agent_model.is_alive", return_value=True),
-        patch("brain.agent_model.run_command", side_effect=RuntimeError("tmux caido")),
-        patch("brain.agent_model.send_keys_literal") as mock_send_keys,
-        patch("brain.agent_model.time.sleep"),
+        patch("atlas_forge.agent_model.is_alive", return_value=True),
+        patch("atlas_forge.agent_model.run_command", side_effect=RuntimeError("tmux caido")),
+        patch("atlas_forge.agent_model.send_keys_literal") as mock_send_keys,
+        patch("atlas_forge.agent_model.time.sleep"),
     ):
         assert get_active_model_claude_code("claude-agent") is None  # no exception
         mock_send_keys.assert_called_once_with(
-            "test-session", "Escape", socket_name="factory-brain"
+            "test-session", "Escape", socket_name="atlas-forge"
         )
 
 
-# -- set_active_model_claude_code (T-FB024-US11-13) ------------------------
+# -- set_active_model_claude_code (T-AF024-US11-13) ------------------------
 #
 # Bug real reportado por el usuario en vivo (2026-08-17), reproducido a
 # mano contra una sesión Claude Code real antes de corregir: enviar solo
@@ -296,32 +296,32 @@ def test_get_active_model_claude_code_closes_status_panel_even_if_run_command_fa
 
 def test_set_active_model_claude_code_confirms_dialog_when_it_appears() -> None:
     with (
-        patch("brain.agent_model.run_command") as mock_run_command,
-        patch("brain.agent_model.capture_pane_lines",
+        patch("atlas_forge.agent_model.run_command") as mock_run_command,
+        patch("atlas_forge.agent_model.capture_pane_lines",
               return_value=["Switch model?", "❯ 1. Yes, switch to Haiku 4.5", "  2. No, go back"]),
-        patch("brain.agent_model.send_keys_literal") as mock_send_keys,
-        patch("brain.agent_model.time.sleep"),
+        patch("atlas_forge.agent_model.send_keys_literal") as mock_send_keys,
+        patch("atlas_forge.agent_model.time.sleep"),
     ):
-        set_active_model_claude_code("test-session", "haiku", socket_name="factory-brain")
+        set_active_model_claude_code("test-session", "haiku", socket_name="atlas-forge")
         mock_run_command.assert_called_once_with(
-            "test-session", "/model haiku", socket_name="factory-brain"
+            "test-session", "/model haiku", socket_name="atlas-forge"
         )
         # El diálogo apareció: se confirma con un segundo Enter.
         mock_send_keys.assert_called_once_with(
-            "test-session", "Enter", socket_name="factory-brain"
+            "test-session", "Enter", socket_name="atlas-forge"
         )
 
 
 def test_set_active_model_claude_code_skips_extra_enter_when_no_dialog() -> None:
     with (
-        patch("brain.agent_model.run_command") as mock_run_command,
-        patch("brain.agent_model.capture_pane_lines", return_value=["❯ "]),
-        patch("brain.agent_model.send_keys_literal") as mock_send_keys,
-        patch("brain.agent_model.time.sleep"),
+        patch("atlas_forge.agent_model.run_command") as mock_run_command,
+        patch("atlas_forge.agent_model.capture_pane_lines", return_value=["❯ "]),
+        patch("atlas_forge.agent_model.send_keys_literal") as mock_send_keys,
+        patch("atlas_forge.agent_model.time.sleep"),
     ):
-        set_active_model_claude_code("test-session", "sonnet", socket_name="factory-brain")
+        set_active_model_claude_code("test-session", "sonnet", socket_name="atlas-forge")
         mock_run_command.assert_called_once_with(
-            "test-session", "/model sonnet", socket_name="factory-brain"
+            "test-session", "/model sonnet", socket_name="atlas-forge"
         )
         # Sin diálogo: nunca se envía un Enter de más (línea en blanco).
         mock_send_keys.assert_not_called()
@@ -331,27 +331,27 @@ def test_set_active_model_claude_code_skips_extra_enter_when_no_dialog() -> None
 
 
 def test_set_active_model_returns_false_for_non_opencode() -> None:
-    with patch("brain.agent_model.get_runtime_instance_for_agent",
+    with patch("atlas_forge.agent_model.get_runtime_instance_for_agent",
                return_value=_FakeRuntimeInstance(rt_type="claude-code")):
         assert set_active_model("claude-agent", "any-model") is False
 
 
 def test_set_active_model_returns_false_when_session_not_alive() -> None:
     with (
-        patch("brain.agent_model.get_runtime_instance_for_agent",
+        patch("atlas_forge.agent_model.get_runtime_instance_for_agent",
               return_value=_FakeRuntimeInstance()),
-        patch("brain.agent_model.is_alive", return_value=False),
+        patch("atlas_forge.agent_model.is_alive", return_value=False),
     ):
         assert set_active_model("dead-agent", "deepseek") is False
 
 
 def test_set_active_model_returns_false_when_no_runtime() -> None:
-    with patch("brain.agent_model.get_runtime_instance_for_agent", return_value=None):
+    with patch("atlas_forge.agent_model.get_runtime_instance_for_agent", return_value=None):
         assert set_active_model("no-agent", "deepseek") is False
 
 
 def test_set_active_model_success_flow() -> None:
-    """Camino feliz (flujo corregido T-FB024-US11-13, 2026-08-17: Ctrl+X
+    """Camino feliz (flujo corregido T-AF024-US11-13, 2026-08-17: Ctrl+X
     directo + 'm', Search por nombre, offset sobre listado FILTRADO —
     ver docstring de `set_active_model`). Las verificaciones de cambio de
     pane pasan y el modelo leido al final coincide (match laxo)."""
@@ -379,12 +379,12 @@ def test_set_active_model_success_flow() -> None:
         return list(result)
 
     with (
-        patch("brain.agent_model.get_runtime_instance_for_agent",
+        patch("atlas_forge.agent_model.get_runtime_instance_for_agent",
               return_value=_FakeRuntimeInstance()),
-        patch("brain.agent_model.is_alive", return_value=True),
-        patch("brain.agent_model.capture_pane_lines", side_effect=fake_capture),
-        patch("brain.agent_model.send_keys_literal"),
-        patch("brain.agent_model.time.sleep"),
+        patch("atlas_forge.agent_model.is_alive", return_value=True),
+        patch("atlas_forge.agent_model.capture_pane_lines", side_effect=fake_capture),
+        patch("atlas_forge.agent_model.send_keys_literal"),
+        patch("atlas_forge.agent_model.time.sleep"),
     ):
         result = set_active_model("agent-1", "deepseek-chat")
         assert result is True
@@ -392,12 +392,12 @@ def test_set_active_model_success_flow() -> None:
 
 def test_set_active_model_handles_exception_gracefully() -> None:
     with (
-        patch("brain.agent_model.get_runtime_instance_for_agent",
+        patch("atlas_forge.agent_model.get_runtime_instance_for_agent",
               return_value=_FakeRuntimeInstance()),
-        patch("brain.agent_model.is_alive", return_value=True),
-        patch("brain.agent_model.capture_pane_lines",
+        patch("atlas_forge.agent_model.is_alive", return_value=True),
+        patch("atlas_forge.agent_model.capture_pane_lines",
               side_effect=RuntimeError("exploto")),
-        patch("brain.agent_model.send_keys_literal"),
-        patch("brain.agent_model.time.sleep"),
+        patch("atlas_forge.agent_model.send_keys_literal"),
+        patch("atlas_forge.agent_model.time.sleep"),
     ):
         assert set_active_model("agent-1", "deepseek") is False

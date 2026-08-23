@@ -1,12 +1,12 @@
-/* Regresión de T-FB024-US11-04 (US-FB024-11): el botón "Detener"
+/* Regresión de T-AF024-US11-04 (US-AF024-11): el botón "Detener"
  * (Arquitecto y otros roles) y "Eliminar" (Developer, mismo botón
- * renombrado — T-FB024-US12-02) deben compartir exactamente el mismo
+ * renombrado — T-AF024-US12-02) deben compartir exactamente el mismo
  * estilo visual (clase `agent-stop`, resuelto por CSS a
  * `border: 1px solid #b3261e; color: #b3261e; background: #fff6f5`) —
  * antes del fix, el botón del Arquitecto usaba la clase específica
  * `arq-btn-stop` (roja) mientras Developer usaba `agent-stop` sin
  * ninguna regla de color, quedando con el estilo neutro por defecto.
- * Ver `02-backlog/tasks/T-FB024-US11-04-unificar-estilo-boton-detener.md`.
+ * Ver `02-backlog/tasks/T-AF024-US11-04-unificar-estilo-boton-detener.md`.
  *
  * Ninguno de los dos roles necesita estar realmente LANZADO para el
  * resto de esta suite — las filas sintéticas "detenidas" muestran
@@ -43,7 +43,7 @@ async function test_stop_button_has_the_same_visual_style_for_arquitecto_and_dev
 
       // Esperar a que ambos agentes reales (no sintéticos) aparezcan con
       // su botón de detener/eliminar visible. La fila sintética "stopped"
-      // de Developer-1 también cumple el nombre (T-FB005-US01-08), así que
+      // de Developer-1 también cumple el nombre (T-AF005-US01-08), así que
       // se espera además al botón real "Detener"/"Eliminar" para no
       // comparar estilos contra una fila todavía no lanzada.
       await page.waitForFunction(

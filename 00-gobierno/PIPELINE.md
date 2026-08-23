@@ -1,4 +1,4 @@
-# Pipeline operativo de Factory Brain
+# Pipeline operativo de Atlas Forge
 
 ## Objetivo
 
@@ -6,137 +6,46 @@ Coordinar el recorrido de una User Story desde su creación hasta su veredicto s
 
 ## Estados canónicos
 
-### Task
-
-Una Task tiene exactamente estos estados, en este orden:
-
-```text
-READY → TO_DEVELOP → IN_PROGRESS → IN_REVIEW → DONE
-```
-
-| Estado | Significado |
-|---|---|
-| `READY` | La Task ha sido creada y está completamente definida. Preparada para ser enviada al Dispatcher, pero todavía no ha sido enviada. |
-| `TO_DEVELOP` | La Task ya ha sido enviada al Dispatcher y está en la cola de implementación. |
-| `IN_PROGRESS` | La Task ha sido recibida por un Developer y está siendo desarrollada. |
-| `IN_REVIEW` | El Developer ha terminado la implementación y la Task está siendo revisada por el Tester. Si el Tester la aprueba, pasa a `DONE`; si la rechaza, vuelve a `IN_PROGRESS` con el mismo Developer. |
-| `DONE` | La Task ha sido implementada y validada correctamente. |
-
-Una Task **no puede tener** `OUT_OF_SCOPE`. `OUT_OF_SCOPE` pertenece exclusivamente a las User Stories.
+El vocabulario canónico (AF-040) vive en `04-src/src/atlas_forge/core/state_machines.py` (única fuente de verdad, con `can_transition` y `derive_user_story_state`); este documento lo describe, no lo define.
 
 ### User Story
 
-Estados propios iniciales:
-
 ```text
-NO_TASKS → TO_PLAN
-```
-
-| Estado | Significado |
-|---|---|
-| `NO_TASKS` | La US ha sido creada pero todavía no tiene Tasks. |
-| `TO_PLAN` | La US está pendiente de que el Arquitecto la analice y la descomponga en Tasks. |
-
-Cuando el Arquitecto termina la planificación y crea las Tasks, la US deja de tener un estado de planificación propio y pasa a **reflejar el estado de sus Tasks** (ver "Estado derivado de la US").
-
-### Estados derivados de la US
-
-Una vez que una US tiene Tasks, su estado se calcula **automáticamente** a partir del estado de sus Tasks: la US refleja siempre la **Task menos avanzada**.
-
-Orden de prioridad de estados:
-
-```text
-READY < TO_DEVELOP < IN_PROGRESS < IN_REVIEW < DONE
-```
-
-Ejemplos:
-
-```text
-Task A → READY        Task A → DONE         Task A → DONE
-Task B → READY        Task B → IN_PROGRESS  Task B → IN_REVIEW
-Task C → READY        Task C → DONE         Task C → DONE
-US → READY            US → IN_PROGRESS      US → IN_REVIEW
-```
-
-**Regla especial:** cuando **todas** las Tasks de una US están en `DONE`, la US pasa a `IN_REVIEW`, y en ese caso `IN_REVIEW` significa que la US completa está pendiente de **validación por el Arquitecto**. La US **no** pasa automáticamente a `DONE`.
-
-### Validación final de la US
-
-Cuando todas las Tasks están `DONE`, debe producirse automáticamente:
-
-```text
-ALL TASKS = DONE
-        ↓
-US → IN_REVIEW   (queda disponible para que el Arquitecto haga la validación final)
-        ↓
-Arquitecto revisa la US completa (incluido el resultado de sus Tasks)
-        ↓
-Validación satisfactoria
-        ↓
-US IN_REVIEW → US DONE
-```
-
-La transición a `DONE` de la US **requiere la validación del Arquitecto**.
-
-### OUT_OF_SCOPE
-
-`OUT_OF_SCOPE` es un estado **exclusivo de User Story**: una US puede pasar a `OUT_OF_SCOPE` cuando se determina que queda fuera del alcance o del roadmap del proyecto. Una Task nunca puede tener este estado.
-
-### Flujo completo
-
-```text
-USER STORY
-    │
-    ▼
 NO_TASKS
-    │
-    ▼
+   ↓ Progresar
 TO_PLAN
-    │  Arquitecto crea Tasks
-    ▼
-Tasks creadas
-    │
-    ▼
-US = Task menos avanzada
-    │
-    ├── READY
-    ├── TO_DEVELOP
-    ├── IN_PROGRESS
-    ├── IN_REVIEW
-    └── ALL TASKS DONE → US IN_REVIEW → validación Arquitecto → US DONE
+   ↓ Arquitecto crea Tasks
+READY            (derivado: Task menos avanzada en READY)
+   ↓ Progresar
+TO_DEVELOP       (derivado)
+   ↓ todas las Tasks DONE
+IN_REVIEW        (derivado + validación final del Arquitecto)
+   ↓ veredicto Arquitecto
+DONE
 ```
 
-### Reglas de transición
+`NO_TASKS`, `TO_PLAN`, `READY`, `TO_DEVELOP`, `IN_PROGRESS`, `IN_REVIEW`, `DONE` y `OUT_OF_SCOPE` son estados de User Story. `OUT_OF_SCOPE` es exclusivo de User Story.
 
-**Task:**
+### Task
+
+El flujo operativo canónico es:
 
 ```text
-READY → TO_DEVELOP
-TO_DEVELOP → IN_PROGRESS
-IN_PROGRESS → IN_REVIEW
-IN_REVIEW → DONE | IN_PROGRESS
+READY → TO_DEVELOP → IN_PROGRESS → IN_REVIEW → DONE
+                                     ↓
+                                IN_PROGRESS
 ```
 
-No debe existir ninguna transición directa que salte fases sin una razón explícita del pipeline.
+La vuelta a `IN_PROGRESS` ocurre cuando el Tester rechaza la implementación y el Dispatcher devuelve la Task al Developer (el ciclo normal la re-envía a `IN_REVIEW` al completarse de nuevo).
 
-**User Story:**
-
-```text
-NO_TASKS → TO_PLAN
-TO_PLAN → (derivado de sus Tasks: READY | TO_DEVELOP | IN_PROGRESS | IN_REVIEW)
-```
-
-Las transiciones posteriores a `TO_PLAN` son **derivadas automáticamente** de sus Tasks, no transiciones manuales de la US. Cuando todas las Tasks estén `DONE`: `US → IN_REVIEW`; después de la validación del Arquitecto: `IN_REVIEW → DONE`. Además, cualquier US aplicable puede pasar a `OUT_OF_SCOPE` según las reglas de negocio existentes.
-
-### Regla fundamental
-
-**No** se implementan `READY`, `TO_DEVELOP`, `IN_PROGRESS` ni `IN_REVIEW` de una US como estados operativos independientes: **son estados derivados**. La fuente de verdad del estado operativo es el conjunto de Tasks asociadas a la US. La única excepción es el `IN_REVIEW` final de la US cuando todas sus Tasks están `DONE`, porque en ese momento la revisión ya no corresponde al Tester sino al Arquitecto.
+Las Tasks **nunca** pueden estar en `OUT_OF_SCOPE` (es exclusivo de User Story). `TO_DEVELOP → READY` (desencolar) es la única otra salida del avance lineal justificada por el pipeline.
 
 ## Progresar
 
 La Web expone un único verbo "Progresar" para una User Story.
 
 - `NO_TASKS` → `TO_PLAN`.
+- `READY` → `TO_DEVELOP`.
 
 No se crean dos acciones equivalentes con nombres diferentes.
 
@@ -146,15 +55,15 @@ Cuando una User Story está en `TO_PLAN`, el Dispatcher asigna el aterrizaje al 
 
 El aterrizaje es determinista desde el punto de vista de orquestación y no debe convertirse en un Job de implementación.
 
-Cuando existe al menos una Task válida, la User Story deja de tener estado de planificación propio y pasa a reflejar el estado de sus Tasks.
+Cuando existe al menos una Task válida, la User Story pasa a `READY` (su estado derivado).
 
 El Developer no crea Tasks por iniciativa propia para suplir una User Story sin aterrizar.
 
 ## Desarrollo
 
-Cuando la User Story entra en desarrollo (sus Tasks empiezan a encolarse), sus Tasks elegibles se encolan.
+Cuando la User Story está en `TO_DEVELOP` (derivado), sus Tasks elegibles se encolan.
 
-El Dispatcher solo debe despachar Tasks cuyas dependencias estén satisfechas y cuyo estado permita desarrollo (`TO_DEVELOP`).
+El Dispatcher solo debe despachar Tasks cuyas dependencias estén satisfechas y cuyo estado permita desarrollo.
 
 ## IN_REVIEW de Task
 
@@ -169,16 +78,16 @@ IN_REVIEW → DONE
 ### Fallo
 
 ```text
-IN_REVIEW → IN_PROGRESS
+IN_REVIEW → IN_PROGRESS → IN_REVIEW
 ```
 
-La corrección vuelve al mismo Developer cuando está disponible (la Task pasa de nuevo a `IN_PROGRESS`). No se crea una Task de corrección separada para cada fallo del Tester.
+La corrección vuelve al mismo Developer cuando está disponible. No se crea una Task de corrección separada para cada fallo del Tester.
 
 Si el Developer ya no está disponible, la Task puede volver a `READY` con el hallazgo persistido.
 
 ## IN_REVIEW de User Story
 
-Solo se activa cuando todas las Tasks de la Story están `DONE`.
+Solo se activa cuando todas las Tasks de la Story están `DONE` (derivado automático: `derive_user_story_state` devuelve `IN_REVIEW`).
 
 El Arquitecto revisa:
 
@@ -197,9 +106,11 @@ No repite mecánicamente la verificación funcional de cada Task.
 IN_REVIEW → DONE
 ```
 
+Solo la validación final del Arquitecto lleva la User Story a `DONE`; la promoción automática (`promote_backlog`) la deja en `IN_REVIEW`, nunca en `DONE`.
+
 ### Rechazo por cobertura
 
-El Arquitecto crea una Task adicional en la misma User Story. La nueva Task puede entrar directamente en desarrollo para que el Dispatcher la atienda.
+El Arquitecto crea una Task adicional en la misma User Story. La nueva Task puede entrar directamente en `TO_DEVELOP` para que el Dispatcher la atienda.
 
 No se crea una User Story nueva para completar una User Story que ya existe.
 
@@ -228,9 +139,9 @@ No se utiliza una cola paralela para sustituir la responsabilidad del Dispatcher
 
 ## Estado padre/hijo
 
-El estado de una User Story es una **función determinista** de sus Tasks (ver `VALIDACION.md`): `NO_TASKS` si no tiene Tasks, si no el estado de su Task más retrasada (orden `TO_DO` < `EN_DESARROLLO` < `REVIEW` < `DONE`; `IN_PROGRESS` ≡ `EN_DESARROLLO`, `FUERA_ROADMAP` ≡ `TO_DO`).
+El estado de una User Story es una **función determinista** de sus Tasks (`derive_user_story_state` en `state_machines.py`): `NO_TASKS` si no tiene Tasks; si no, el estado de su Task **menos avanzada** (orden `READY` < `TO_DEVELOP` < `IN_PROGRESS` < `IN_REVIEW` < `DONE`); si la menos avanzada está `DONE` (todas lo están) → `IN_REVIEW` (validación final pendiente).
 
-El pipeline solo transita estados respetando esta invariante: cada transición de estado de una Task actualiza el estado de su User Story en ambos sentidos (avanzar y retrasar), nunca deja una US desactualizada respecto a sus Tasks. `EN_DISEÑO` (con 0 Tasks) y el `REVIEW` de User Story (con todas sus Tasks `DONE`) son estados transitorios que fija el propio pipeline.
+El pipeline solo transita estados respetando esta invariante: cada transición de estado de una Task actualiza el estado de su User Story en ambos sentidos (avanzar y retrasar), nunca deja una US desactualizada respecto a sus Tasks. `TO_PLAN` (con 0 Tasks) y el `IN_REVIEW` de User Story (con todas sus Tasks `DONE`) son estados transitorios que fija el propio pipeline.
 
 Una Epic solo puede considerarse `DONE` cuando tiene al menos una User Story y todas están `DONE`; con una User Story pendiente se reabre al estado más retrasado de sus User Stories.
 

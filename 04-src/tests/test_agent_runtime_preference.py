@@ -1,7 +1,7 @@
-"""Tests de T-FB005-US05-01: declarar preferencia de runtime/modelo al
+"""Tests de T-AF005-US05-01: declarar preferencia de runtime/modelo al
 registrar un agente. Verificado que el mecanismo YA EXISTÍA end-to-end
 (`launch_agent`/`register_agent` ya aceptan `runtime`/`model` explícitos
-desde T-FB002-US01-01) — el único hueco real cerrado por esta Task es que
+desde T-AF002-US01-01) — el único hueco real cerrado por esta Task es que
 `GET /agents` no reflejaba el `runtime_id`/`model` asociado a cada agente
 en su respuesta."""
 
@@ -11,16 +11,16 @@ import libtmux
 import pytest
 from fastapi.testclient import TestClient
 
-import brain.api.routes as routes_module
-from brain.api import create_app
-from brain.core.session_registry import (
+import atlas_forge.api.routes as routes_module
+from atlas_forge.api import create_app
+from atlas_forge.core.session_registry import (
     _reset_registry_for_tests,
     resolve_startup_session,
 )
-from brain.runtime import extract_model_from_runtime, is_runtime_alive, stop_runtime
-from brain.runtime.claude_code import register_claude_code_runtime
-from brain.runtime.opencode import register_opencode_runtime
-from brain.workspace import discover_projects, select_active_project
+from atlas_forge.runtime import extract_model_from_runtime, is_runtime_alive, stop_runtime
+from atlas_forge.runtime.claude_code import register_claude_code_runtime
+from atlas_forge.runtime.opencode import register_opencode_runtime
+from atlas_forge.workspace import discover_projects, select_active_project
 
 
 @pytest.fixture(autouse=True)
@@ -32,8 +32,8 @@ def _clean_registry():
 
 @pytest.fixture(autouse=True)
 def _no_real_runtime(monkeypatch):
-    import brain.runtime.claude_code as claude_code_module
-    import brain.runtime.opencode as opencode_module
+    import atlas_forge.runtime.claude_code as claude_code_module
+    import atlas_forge.runtime.opencode as opencode_module
 
     monkeypatch.setattr(claude_code_module, "DEFAULT_CLAUDE_CODE_COMMAND", "sleep")
     monkeypatch.setattr(claude_code_module, "DEFAULT_CLAUDE_CODE_ARGS", ["5"])
@@ -45,7 +45,7 @@ def _no_real_runtime(monkeypatch):
 def isolated_socket(monkeypatch):
     import uuid
 
-    name = f"brain-test-{uuid.uuid4().hex[:8]}"
+    name = f"atlas_forge-test-{uuid.uuid4().hex[:8]}"
     monkeypatch.setattr(routes_module, "_SOCKET_NAME", name)
     try:
         yield name
@@ -101,8 +101,8 @@ def test_registering_an_agent_with_an_explicit_model_associates_it_with_that_run
     verificado con tmux real.' Aquí verificado a través de `launch_agent`
     (dashboard), que ya construye el `Runtime` con el `model` indicado —
     mecanismo preexistente, no nuevo en esta Task."""
-    from brain.core.session_registry import DevelopmentSession, activate
-    from brain.agents.launch import launch_agent
+    from atlas_forge.core.session_registry import DevelopmentSession, activate
+    from atlas_forge.agents.launch import launch_agent
 
     session = DevelopmentSession(id="s1", project_id="p1")
     activate(session)
@@ -128,8 +128,8 @@ def test_not_indicating_a_model_keeps_the_current_default_behavior(
 ) -> None:
     """Criterio de aceptación: 'No indicar preferencia mantiene el
     comportamiento actual (runtime por defecto según rol).'"""
-    from brain.core.session_registry import DevelopmentSession, activate
-    from brain.agents.launch import launch_agent
+    from atlas_forge.core.session_registry import DevelopmentSession, activate
+    from atlas_forge.agents.launch import launch_agent
 
     session = DevelopmentSession(id="s1", project_id="p1")
     activate(session)

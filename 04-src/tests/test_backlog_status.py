@@ -1,10 +1,10 @@
-"""Tests de T-FB018-US02-02: comando `brain backlog-status` y su informe
-estructurado (`brain.backlog.report`), sobre `02-backlog/` sintético y sobre
+"""Tests de T-AF018-US02-02: comando `atlas_forge backlog-status` y su informe
+estructurado (`atlas_forge.backlog.report`), sobre `02-backlog/` sintético y sobre
 el real de este proyecto 006.
 
 ## Estrategia de fixtures
 
-Igual que en T-FB018-US02-01: NINGÚN test usa números del estado actual del
+Igual que en T-AF018-US02-01: NINGÚN test usa números del estado actual del
 backlog como valor esperado fijo (el backlog cambia constantemente). Los
 tests de comportamiento usan un mini-backlog sintético en `tmp_path` con
 resultado totalmente controlado. El único test sobre el `02-backlog/` real
@@ -21,25 +21,25 @@ from pathlib import Path
 
 import pytest
 
-from brain.backlog import (
+from atlas_forge.backlog import (
     BACKLOG_STATUS_NO_DATA_TEXT,
     build_backlog_report,
     format_human_report,
     priority_rank,
     render_json_report,
 )
-from brain.cli.backlog_status import run_backlog_status
+from atlas_forge.cli.backlog_status import run_backlog_status
 
 REAL_BACKLOG_PATH = (
     Path(__file__).resolve().parents[1].parent / "02-backlog"
 )
 
 _WELL_FORMED_TASK = (
-    "# T-FB100-01 · Ejemplo\n\n"
-    "**Epic:** FB-100 · Uno\n\n"
+    "# T-AF100-01 · Ejemplo\n\n"
+    "**Epic:** AF-100 · Uno\n\n"
     "## Dependencias\n\nNinguna.\n\n"
     "## Estado\n\n"
-    "TO_DO\n\n"
+    "READY\n\n"
     "## Prioridad\n\n"
     "Alta.\n"
 )
@@ -56,54 +56,54 @@ def _write(backlog_path: Path, subdir: str, filename: str, content: str) -> Path
 def _synthetic_backlog(tmp_path: Path) -> Path:
     """Mini-backlog sintético controlado por el test:
 
-    - US-FB100-01  DONE, Alta., epic "FB-100 · Uno"
-    - T-FB100-01   TO_DO LISTA (sin deps), Crítica., epic "FB-100 · Uno"
-    - T-FB100-02   TO_DO LISTA (sin deps), Alta., epic "FB-100 · Uno"
-    - US-FB101-01  TO_DO LISTA (sin deps), Baja — opcional., epic "FB-101 · Dos"
-    - T-FB101-01   TO_DO BLOQUEADA, depende de T-FB100-01 (TO_DO), Media.,
-                   epic "FB-101 · Dos"
+    - US-AF100-01  DONE, Alta., epic "AF-100 · Uno"
+    - T-AF100-01   READY LISTA (sin deps), Crítica., epic "AF-100 · Uno"
+    - T-AF100-02   READY LISTA (sin deps), Alta., epic "AF-100 · Uno"
+    - US-AF101-01  READY LISTA (sin deps), Baja — opcional., epic "AF-101 · Dos"
+    - T-AF101-01   READY BLOQUEADA, depende de T-AF100-01 (READY), Media.,
+                   epic "AF-101 · Dos"
 
     Resultados esperados:
-    - total: 5 items · 0 errores; US: DONE=1, TO_DO=1; Task: TO_DO=3.
-    - items_lista ordenados por prioridad: T-FB100-01 (Crítica) → T-FB100-02
-      (Alta) → US-FB101-01 (Baja).
-    - items_bloqueada: T-FB101-01 con dependencia pendiente T-FB100-01.
-    - max_leverage_chain: T-FB100-01 → T-FB101-01.
+    - total: 5 items · 0 errores; US: DONE=1, READY=1; Task: READY=3.
+    - items_lista ordenados por prioridad: T-AF100-01 (Crítica) → T-AF100-02
+      (Alta) → US-AF101-01 (Baja).
+    - items_bloqueada: T-AF101-01 con dependencia pendiente T-AF100-01.
+    - max_leverage_chain: T-AF100-01 → T-AF101-01.
     """
     backlog = tmp_path / "backlog"
     _write(
         backlog,
         "user-stories",
-        "US-FB100-01-done.md",
-        _WELL_FORMED_TASK.replace("T-FB100-01", "US-FB100-01").replace("TO_DO", "DONE"),
+        "US-AF100-01-done.md",
+        _WELL_FORMED_TASK.replace("T-AF100-01", "US-AF100-01").replace("READY", "DONE"),
     )
     _write(
         backlog,
         "user-stories",
-        "US-FB101-01-lista.md",
-        _WELL_FORMED_TASK.replace("T-FB100-01", "US-FB101-01")
-        .replace("**Epic:** FB-100 · Uno", "**Epic:** FB-101 · Dos")
+        "US-AF101-01-lista.md",
+        _WELL_FORMED_TASK.replace("T-AF100-01", "US-AF101-01")
+        .replace("**Epic:** AF-100 · Uno", "**Epic:** AF-101 · Dos")
         .replace("Alta.", "Baja — opcional."),
     )
     _write(
         backlog,
         "tasks",
-        "T-FB100-01-lista.md",
-        _WELL_FORMED_TASK.replace("T-FB100-01", "T-FB100-01").replace("Alta.", "Crítica."),
+        "T-AF100-01-lista.md",
+        _WELL_FORMED_TASK.replace("T-AF100-01", "T-AF100-01").replace("Alta.", "Crítica."),
     )
     _write(
         backlog,
         "tasks",
-        "T-FB100-02-lista.md",
-        _WELL_FORMED_TASK.replace("T-FB100-01", "T-FB100-02"),
+        "T-AF100-02-lista.md",
+        _WELL_FORMED_TASK.replace("T-AF100-01", "T-AF100-02"),
     )
     _write(
         backlog,
         "tasks",
-        "T-FB101-01-bloqueada.md",
-        _WELL_FORMED_TASK.replace("T-FB100-01", "T-FB101-01")
-        .replace("**Epic:** FB-100 · Uno", "**Epic:** FB-101 · Dos")
-        .replace("## Dependencias\n\nNinguna.\n\n", "## Dependencias\n\n**T-FB100-01** (sigue TO_DO).\n\n")
+        "T-AF101-01-bloqueada.md",
+        _WELL_FORMED_TASK.replace("T-AF100-01", "T-AF101-01")
+        .replace("**Epic:** AF-100 · Uno", "**Epic:** AF-101 · Dos")
+        .replace("## Dependencias\n\nNinguna.\n\n", "## Dependencias\n\n**T-AF100-01** (sigue READY).\n\n")
         .replace("Alta.", "Media."),
     )
     return backlog
@@ -141,6 +141,43 @@ def test_priority_rank_orders_critica_alta_media_baja_and_missing() -> None:
 # ---------------------------------------------------------------------------
 
 
+def test_build_backlog_report_exposes_fase_per_user_story_in_by_epic(tmp_path: Path) -> None:
+    """T-AF036-US15-01: `by_epic` expone por Epic la lista de User Stories
+    con su `fase` (`user_stories_detail`) — campo aditivo que no rompe los
+    conteos existentes."""
+    from atlas_forge.backlog.report import build_backlog_report
+
+    backlog = tmp_path / "02-backlog"
+    (backlog / "epics").mkdir(parents=True)
+    (backlog / "user-stories").mkdir(parents=True)
+    (backlog / "epics" / "AF-700.md").write_text(
+        "---\nid: AF-700\ntype: epic\ntitle: Epic\nstate: READY\n"
+        "dependencies: []\nfase: Fase 1.1\n---\n\n## Objetivo\n\nO.\n",
+        encoding="utf-8",
+    )
+    _yaml_us(backlog / "user-stories" / "US-AF700-01.md", "US-AF700-01", "AF-700", "READY")
+    # Añade `fase` a la US (el helper no lo incluye).
+    us_path = backlog / "user-stories" / "US-AF700-01.md"
+    us_path.write_text(
+        us_path.read_text(encoding="utf-8").replace("epic: AF-700\n", "epic: AF-700\nfase: Fase 1.1\n"),
+        encoding="utf-8",
+    )
+    _yaml_us(backlog / "user-stories" / "US-AF700-02.md", "US-AF700-02", "AF-700", "READY")
+
+    report = build_backlog_report(backlog)
+
+    entry = next(e for e in report["by_epic"] if e["epic"] == "AF-700")
+    # Campo nuevo aditivo: detalle por US con su fase (None si no la declara).
+    detail_by_id = {us["id"]: us for us in entry["user_stories_detail"]}
+    assert detail_by_id["US-AF700-01"]["fase"] == "Fase 1.1"
+    assert detail_by_id["US-AF700-01"]["state"] == "NO_TASKS"
+    assert detail_by_id["US-AF700-02"]["fase"] is None
+    assert detail_by_id["US-AF700-02"]["state"] == "NO_TASKS"
+    # Los campos existentes siguen presentes (aditivo, no rompe consumidores).
+    assert entry["user_stories"] == {"NO_TASKS": 2}
+    assert "unblock_degree" in entry
+
+
 def test_build_backlog_report_counts_by_epic_and_state(tmp_path: Path) -> None:
     report = build_backlog_report(_synthetic_backlog(tmp_path))
 
@@ -148,33 +185,43 @@ def test_build_backlog_report_counts_by_epic_and_state(tmp_path: Path) -> None:
     assert report["total"] == {
         "items": 5,
         "epics": {},
-        "user_stories": {"DONE": 1, "TO_DO": 1},
-        "tasks": {"TO_DO": 3},
+        # T-AF022-US13-09: el backlog sintético es formato legacy (sin
+        # `user_story:` en las Tasks), así que ambas US se ven sin Tasks
+        # vinculadas y derivan a NO_TASKS.
+        "user_stories": {"NO_TASKS": 2},
+        "tasks": {"READY": 3},
         "errors": 0,
     }
     assert report["by_epic"] == [
         {
-            "epic": "FB-100",
-            "epic_label": "FB-100",
-            "user_stories": {"DONE": 1},
-            "tasks": {"TO_DO": 2},
+            "epic": "AF-100",
+            "epic_label": "AF-100",
+            "user_stories": {"NO_TASKS": 1},
+            "tasks": {"READY": 2},
+            # T-AF036-US15-01: detalle por US con su fase (legacy sin fase -> None).
+            "user_stories_detail": [
+                {"id": "US-AF100-01", "fase": None, "state": "NO_TASKS"}
+            ],
             "unblock_degree": 1.0,
         },
         {
-            "epic": "FB-101",
-            "epic_label": "FB-101",
-            "user_stories": {"TO_DO": 1},
-            "tasks": {"TO_DO": 1},
+            "epic": "AF-101",
+            "epic_label": "AF-101",
+            "user_stories": {"NO_TASKS": 1},
+            "tasks": {"READY": 1},
+            "user_stories_detail": [
+                {"id": "US-AF101-01", "fase": None, "state": "NO_TASKS"}
+            ],
             "unblock_degree": 0.5,
         },
     ]
 
 
-# T-FB018-US02-06: `epic_label` debía devolver el título real de la Epic
-# (campo `title` del frontmatter YAML de su fichero), no el mismo `FB-NNN`
+# T-AF018-US02-06: `epic_label` debía devolver el título real de la Epic
+# (campo `title` del frontmatter YAML de su fichero), no el mismo `AF-NNN`
 # ya presente en el campo `epic` — `_epic_label_from_file` leía la
 # PRIMERA LÍNEA literal del fichero buscando `# Título`, formato Markdown
-# antiguo previo a la migración a frontmatter YAML (`FB-027`,
+# antiguo previo a la migración a frontmatter YAML (`AF-027`,
 # 2026-08-06); tras la migración esa primera línea es siempre `---`, así
 # que la función caía siempre a su fallback (`epic_id`).
 _EPIC_FRONTMATTER = (
@@ -193,45 +240,45 @@ _EPIC_FRONTMATTER = (
 def test_epic_label_from_file_reads_title_from_yaml_frontmatter(tmp_path: Path) -> None:
     # Criterio de aceptación 3: test de regresión con un fixture de Epic
     # en formato frontmatter YAML real.
-    from brain.backlog.report import _epic_label_from_file
+    from atlas_forge.backlog.report import _epic_label_from_file
 
     backlog = tmp_path / "backlog"
     _write(
         backlog,
         "epics",
-        "FB-500-epic-de-prueba.md",
-        _EPIC_FRONTMATTER.format(epic_id="FB-500", title="Título Real De La Epic"),
+        "AF-500-epic-de-prueba.md",
+        _EPIC_FRONTMATTER.format(epic_id="AF-500", title="Título Real De La Epic"),
     )
 
-    assert _epic_label_from_file(backlog, "FB-500") == "Título Real De La Epic"
+    assert _epic_label_from_file(backlog, "AF-500") == "Título Real De La Epic"
 
 
 def test_epic_label_from_file_falls_back_to_epic_id_without_epic_file(tmp_path: Path) -> None:
     # Criterio de aceptación 2: Epic huérfana (sin fichero propio en
     # `02-backlog/epics/`) sigue devolviendo el `epic_id` como fallback,
     # sin lanzar.
-    from brain.backlog.report import _epic_label_from_file
+    from atlas_forge.backlog.report import _epic_label_from_file
 
     backlog = tmp_path / "backlog"
     backlog.mkdir(parents=True, exist_ok=True)
 
-    assert _epic_label_from_file(backlog, "FB-999") == "FB-999"
+    assert _epic_label_from_file(backlog, "AF-999") == "AF-999"
 
 
 def test_epic_label_from_file_falls_back_to_epic_id_when_title_missing(tmp_path: Path) -> None:
     # Fichero de Epic real, con frontmatter válido, pero sin campo
     # `title` — mismo criterio de robustez (nunca lanza).
-    from brain.backlog.report import _epic_label_from_file
+    from atlas_forge.backlog.report import _epic_label_from_file
 
     backlog = tmp_path / "backlog"
     _write(
         backlog,
         "epics",
-        "FB-501-sin-titulo.md",
-        "---\nid: FB-501\ntype: epic\nstate: TODO\ndependencies: []\n---\n\n## Objetivo\n\nSin título.\n",
+        "AF-501-sin-titulo.md",
+        "---\nid: AF-501\ntype: epic\nstate: TODO\ndependencies: []\n---\n\n## Objetivo\n\nSin título.\n",
     )
 
-    assert _epic_label_from_file(backlog, "FB-501") == "FB-501"
+    assert _epic_label_from_file(backlog, "AF-501") == "AF-501"
 
 
 def test_build_backlog_report_by_epic_uses_real_title_from_frontmatter(
@@ -242,48 +289,49 @@ def test_build_backlog_report_by_epic_uses_real_title_from_frontmatter(
     # una Epic real (fichero propio en frontmatter YAML) y una Epic
     # huérfana (sin fichero) — confirma que `by_epic` refleja el título
     # real para la primera y el fallback para la segunda.
-    from brain.backlog.report import build_backlog_report
+    from atlas_forge.backlog.report import build_backlog_report
 
     backlog = _synthetic_backlog(tmp_path)
     _write(
         backlog,
         "epics",
-        "FB-100-epic-real.md",
-        _EPIC_FRONTMATTER.format(epic_id="FB-100", title="Uno De Verdad"),
+        "AF-100-epic-real.md",
+        _EPIC_FRONTMATTER.format(epic_id="AF-100", title="Uno De Verdad"),
     )
 
     report = build_backlog_report(backlog)
 
     by_epic = {entry["epic"]: entry["epic_label"] for entry in report["by_epic"]}
-    assert by_epic["FB-100"] == "Uno De Verdad"
-    # FB-101 sigue sin fichero propio de Epic (huérfana en este fixture
+    assert by_epic["AF-100"] == "Uno De Verdad"
+    # AF-101 sigue sin fichero propio de Epic (huérfana en este fixture
     # sintético) — mismo fallback que antes de esta Task, sin cambios.
-    assert by_epic["FB-101"] == "FB-101"
+    assert by_epic["AF-101"] == "AF-101"
 
 
 # ---------------------------------------------------------------------------
-# T-FB036-US02-04: Epics sin hijos (recién creadas) en el listado agrupado
+# T-AF036-US02-04: Epics sin hijos (recién creadas) en el listado agrupado
 # ---------------------------------------------------------------------------
 
 
 def test_build_backlog_report_includes_an_epic_without_children(tmp_path: Path) -> None:
-    """Bug real de T-FB036-US02-04: una Epic recién creada (sin US/Tasks)
+    """Bug real de T-AF036-US02-04: una Epic recién creada (sin US/Tasks)
     no aparecía en `by_epic` — el listado agrupado solo se poblaba desde
     los items hijos (US/Task), así que el criterio "la Epic aparece
     expandida tras crearla" quedaba sin tarjeta que expandir. Tras el fix,
     una Epic sin hijos aparece igualmente en `by_epic` con conteos vacíos
     (`user_stories`/`tasks` = {}), su título real, `unblock_degree` (1.0,
-    nada que desbloquear) y `fase`, y el backlog NO es `empty` (hay una
-    tarjeta real que mostrar)."""
-    from brain.backlog.report import build_backlog_report
+    nada que desbloquear) y, T-AF036-US18-01, sin `fase` (la Epic se
+    versiona, no lleva fase), y el backlog NO es `empty` (hay una tarjeta
+    real que mostrar)."""
+    from atlas_forge.backlog.report import build_backlog_report
 
     backlog = tmp_path / "02-backlog"
     _write(
         backlog,
         "epics",
-        "FB-600-epic-sin-hijos.md",
-        "---\nid: FB-600\ntype: epic\ntitle: Epic Sin Hijos\nstate: TODO\n"
-        "dependencies: []\nfase: Fase 1.0\n---\n\n# FB-600 · Epic Sin Hijos\n\n"
+        "AF-600-epic-sin-hijos.md",
+        "---\nid: AF-600\ntype: epic\ntitle: Epic Sin Hijos\nstate: TODO\n"
+        "dependencies: []\nversion: 0.9\n---\n\n# AF-600 · Epic Sin Hijos\n\n"
         "## Objetivo\n\nObjetivo de prueba.\n",
     )
 
@@ -292,12 +340,14 @@ def test_build_backlog_report_includes_an_epic_without_children(tmp_path: Path) 
     assert report["empty"] is False
     assert report["by_epic"] == [
         {
-            "epic": "FB-600",
+            "epic": "AF-600",
             "epic_label": "Epic Sin Hijos",
             "user_stories": {},
             "tasks": {},
+            "user_stories_detail": [],
             "unblock_degree": 1.0,
-            "fase": "Fase 1.0",
+            # T-AF036-US15-06: `by_epic` expone la VERSION de la Epic (US-AF036-18).
+            "version": "0.9",
         }
     ]
 
@@ -309,44 +359,49 @@ def test_build_backlog_report_empty_epic_coexists_with_populated_ones(
     duplicarse: la entrada de la Epic con hijos se puebla desde sus items,
     la de la Epic sin hijos se crea con conteos vacíos — nunca dos entradas
     para el mismo id."""
-    from brain.backlog.report import build_backlog_report
+    from atlas_forge.backlog.report import build_backlog_report
 
     backlog = _synthetic_backlog(tmp_path)
     _write(
         backlog,
         "epics",
-        "FB-100-epic-real.md",
-        _EPIC_FRONTMATTER.format(epic_id="FB-100", title="Uno De Verdad"),
+        "AF-100-epic-real.md",
+        _EPIC_FRONTMATTER.format(epic_id="AF-100", title="Uno De Verdad"),
     )
     _write(
         backlog,
         "epics",
-        "FB-600-epic-sin-hijos.md",
-        "---\nid: FB-600\ntype: epic\ntitle: Epic Sin Hijos\nstate: TODO\n"
-        "dependencies: []\n---\n\n# FB-600 · Epic Sin Hijos\n\n"
+        "AF-600-epic-sin-hijos.md",
+        "---\nid: AF-600\ntype: epic\ntitle: Epic Sin Hijos\nstate: TODO\n"
+        "dependencies: []\n---\n\n# AF-600 · Epic Sin Hijos\n\n"
         "## Objetivo\n\nObjetivo de prueba.\n",
     )
 
     report = build_backlog_report(backlog)
 
     by_epic = {entry["epic"]: entry for entry in report["by_epic"]}
-    assert list(by_epic) == ["FB-100", "FB-101", "FB-600"]
-    # FB-100 sigue poblada desde sus items (5 US/Tasks en total), sin
+    assert list(by_epic) == ["AF-100", "AF-101", "AF-600"]
+    # AF-100 sigue poblada desde sus items (5 US/Tasks en total), sin
     # duplicarse con la entrada de Epic sin hijos.
-    assert by_epic["FB-100"]["user_stories"] == {"DONE": 1}
-    assert by_epic["FB-100"]["tasks"] == {"TO_DO": 2}
-    # FB-600, recién creada sin hijos, entra con conteos vacíos.
-    assert by_epic["FB-600"]["user_stories"] == {}
-    assert by_epic["FB-600"]["tasks"] == {}
+    # T-AF022-US13-09: backlog legacy sin `user_story:` -> US-AF100-01
+    # DONE se ve sin Tasks vinculadas y deriva a NO_TASKS.
+    assert by_epic["AF-100"]["user_stories"] == {"NO_TASKS": 1}
+    assert by_epic["AF-100"]["tasks"] == {"READY": 2}
+    # AF-600, recién creada sin hijos, entra con conteos vacíos.
+    assert by_epic["AF-600"]["user_stories"] == {}
+    assert by_epic["AF-600"]["tasks"] == {}
 
 
 def test_build_backlog_report_lists_lista_sorted_by_priority(tmp_path: Path) -> None:
     report = build_backlog_report(_synthetic_backlog(tmp_path))
 
+    # T-AF022-US13-09: US-AF100-01 (DONE con Tasks READY) deriva a READY y
+    # pasa a ser un item TO_DO pendiente de `items_lista`.
     assert [entry["id"] for entry in report["items_lista"]] == [
-        "T-FB100-01",
-        "T-FB100-02",
-        "US-FB101-01",
+        "T-AF100-01",
+        "T-AF100-02",
+        "US-AF100-01",
+        "US-AF101-01",
     ]
 
 
@@ -355,13 +410,13 @@ def test_build_backlog_report_lists_bloqueada_with_pending_dependency(
 ) -> None:
     report = build_backlog_report(_synthetic_backlog(tmp_path))
 
-    assert [entry["id"] for entry in report["items_bloqueada"]] == ["T-FB101-01"]
+    assert [entry["id"] for entry in report["items_bloqueada"]] == ["T-AF101-01"]
     assert report["items_bloqueada"][0]["blocking_dependencies"] == [
-        {"id": "T-FB100-01", "state": "TO_DO"}
+        {"id": "T-AF100-01", "state": "READY"}
     ]
     assert [entry["id"] for entry in report["max_leverage_chain"]] == [
-        "T-FB100-01",
-        "T-FB101-01",
+        "T-AF100-01",
+        "T-AF101-01",
     ]
 
 
@@ -371,7 +426,7 @@ def test_build_backlog_report_lists_bloqueada_with_pending_dependency(
 
 
 def test_cli_human_and_json_show_the_same_figures_on_the_real_backlog() -> None:
-    """Criterios 1 y 2 de la Task: `brain backlog-status` sobre el
+    """Criterios 1 y 2 de la Task: `atlas_forge backlog-status` sobre el
     `02-backlog/` real produce una salida legible y la `--json` una salida
     estructurada parseable, ambas con las MISMAS cifras. Se compara cada
     salida contra el informe `build_backlog_report` del `02-backlog/`
@@ -410,7 +465,7 @@ def test_cli_json_output_is_structured_and_parseable() -> None:
     """Criterio 2: `--json` produce un dict estructurado (no el texto
     formateado) con las mismas secciones que el informe.
 
-    `drift` (T-FB022-US13-05) es opcional: solo aparece si el backlog
+    `drift` (T-AF022-US13-05) es opcional: solo aparece si el backlog
     real tiene algún padre DONE con un hijo reabierto — condición real
     hoy sobre `REAL_BACKLOG_PATH` (drift preexistente detectado en vivo,
     2026-08-16), así que se acepta con o sin la clave en vez de fijar un
@@ -466,13 +521,13 @@ def test_human_and_json_render_from_the_same_report(tmp_path: Path) -> None:
 
     assert "Sin datos" not in human
     assert "Total: 5 items · 0 errores de parseo" in human
-    assert "FB-100 · Uno" in human
-    assert "T-FB100-01 → T-FB101-01" in human
+    assert "AF-100 · Uno" in human
+    assert "T-AF100-01 → T-AF101-01" in human
     assert json.loads(render_json_report(report)) == report
 
 
 # ---------------------------------------------------------------------------
-# T-FB022-US13-05: GET /backlog (via build_backlog_report) nunca sirve un
+# T-AF022-US13-05: GET /backlog (via build_backlog_report) nunca sirve un
 # padre DONE con un hijo pendiente, sin escribir nada en disco.
 # ---------------------------------------------------------------------------
 
@@ -499,24 +554,25 @@ def _yaml_task(path: Path, task_id: str, epic_id: str, us_id: str, state: str) -
 
 def test_build_backlog_report_reconciles_us_done_with_reopened_task(tmp_path: Path) -> None:
     backlog = tmp_path / "02-backlog"
-    _yaml_us(backlog / "user-stories" / "US-FB900-01.md", "US-FB900-01", "FB-900", "DONE")
-    _yaml_task(backlog / "tasks" / "T-FB900-US01-01.md", "T-FB900-US01-01", "FB-900", "US-FB900-01", "DONE")
-    _yaml_task(backlog / "tasks" / "T-FB900-US01-02.md", "T-FB900-US01-02", "FB-900", "US-FB900-01", "TO_DO")
+    _yaml_us(backlog / "user-stories" / "US-AF900-01.md", "US-AF900-01", "AF-900", "DONE")
+    _yaml_task(backlog / "tasks" / "T-AF900-US01-01.md", "T-AF900-US01-01", "AF-900", "US-AF900-01", "DONE")
+    _yaml_task(backlog / "tasks" / "T-AF900-US01-02.md", "T-AF900-US01-02", "AF-900", "US-AF900-01", "READY")
 
     report = build_backlog_report(backlog)
 
-    # Ni el conteo agregado ni por-Epic cuentan la US como DONE (criterio 2).
+    # Ni el conteo agregado ni por-Epic cuentan la US como DONE (criterio 2);
+    # la US DONE con una Task READY deriva a READY (T-AF022-US13-09).
     assert report["total"]["user_stories"].get("DONE", 0) == 0
-    assert report["total"]["user_stories"]["IN_PROGRESS"] == 1
-    epic_entry = next(e for e in report["by_epic"] if e["epic"] == "FB-900")
+    assert report["total"]["user_stories"]["READY"] == 1
+    epic_entry = next(e for e in report["by_epic"] if e["epic"] == "AF-900")
     assert epic_entry["user_stories"].get("DONE", 0) == 0
-    assert report["drift"] == ["US-FB900-01"]
+    assert report["drift"] == ["US-AF900-01"]
 
 
 def test_build_backlog_report_no_drift_field_when_backlog_consistent(tmp_path: Path) -> None:
     backlog = tmp_path / "02-backlog"
-    _yaml_us(backlog / "user-stories" / "US-FB900-01.md", "US-FB900-01", "FB-900", "DONE")
-    _yaml_task(backlog / "tasks" / "T-FB900-US01-01.md", "T-FB900-US01-01", "FB-900", "US-FB900-01", "DONE")
+    _yaml_us(backlog / "user-stories" / "US-AF900-01.md", "US-AF900-01", "AF-900", "DONE")
+    _yaml_task(backlog / "tasks" / "T-AF900-US01-01.md", "T-AF900-US01-01", "AF-900", "US-AF900-01", "DONE")
 
     report = build_backlog_report(backlog)
 
@@ -526,9 +582,9 @@ def test_build_backlog_report_no_drift_field_when_backlog_consistent(tmp_path: P
 
 def test_build_backlog_report_does_not_write_any_file(tmp_path: Path) -> None:
     backlog = tmp_path / "02-backlog"
-    us_path = backlog / "user-stories" / "US-FB900-01.md"
-    _yaml_us(us_path, "US-FB900-01", "FB-900", "DONE")
-    _yaml_task(backlog / "tasks" / "T-FB900-US01-01.md", "T-FB900-US01-01", "FB-900", "US-FB900-01", "TO_DO")
+    us_path = backlog / "user-stories" / "US-AF900-01.md"
+    _yaml_us(us_path, "US-AF900-01", "AF-900", "DONE")
+    _yaml_task(backlog / "tasks" / "T-AF900-US01-01.md", "T-AF900-US01-01", "AF-900", "US-AF900-01", "READY")
 
     before = us_path.read_text(encoding="utf-8")
     build_backlog_report(backlog)
@@ -536,3 +592,35 @@ def test_build_backlog_report_does_not_write_any_file(tmp_path: Path) -> None:
 
     assert before == after
     assert "state: DONE" in after
+
+
+def test_build_backlog_report_exposes_version_per_epic(tmp_path: Path) -> None:
+    """T-AF036-US15-06: `by_epic` expone la VERSION de cada Epic (US-AF036-18,
+    campo `version` del frontmatter) para que la vista "Por Fase" agrupe por
+    VERSION. La Epic que no declara `version` no recibe el campo (la vista
+    la agrupa bajo "SIN_VERSION" en el frontend)."""
+    backlog = tmp_path / "02-backlog"
+    _write(
+        backlog,
+        "epics",
+        "AF-910-con-version.md",
+        "---\nid: AF-910\ntype: epic\ntitle: Con Version\nstate: READY\n"
+        "dependencies: []\nversion: 0.9\n---\n\n# AF-910 · Con Version\n\n"
+        "## Objetivo\n\nO.\n",
+    )
+    _yaml_us(backlog / "user-stories" / "US-AF910-01.md", "US-AF910-01", "AF-910", "NO_TASKS")
+    _write(
+        backlog,
+        "epics",
+        "AF-911-sin-version.md",
+        "---\nid: AF-911\ntype: epic\ntitle: Sin Version\nstate: READY\n"
+        "dependencies: []\n---\n\n# AF-911 · Sin Version\n\n"
+        "## Objetivo\n\nO.\n",
+    )
+    _yaml_us(backlog / "user-stories" / "US-AF911-01.md", "US-AF911-01", "AF-911", "NO_TASKS")
+
+    report = build_backlog_report(backlog)
+
+    by_epic = {entry["epic"]: entry for entry in report["by_epic"]}
+    assert by_epic["AF-910"]["version"] == "0.9"
+    assert "version" not in by_epic["AF-911"]

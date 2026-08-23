@@ -13,30 +13,30 @@
 # Comportamiento configurable vía variables de entorno:
 #   SIM_DELAY: segundos de espera antes de reportar (por defecto 0.3).
 #   SIM_FAIL=1: reporta que no pudo completar la instrucción.
-#   SIM_ROLE=critic: simula el rol Critic (T-FB008-US02-01) — si detecta
+#   SIM_ROLE=critic: simula el rol Critic (T-AF008-US02-01) — si detecta
 #     el bloque "Resultado del Job anterior" en la instrucción recibida
 #     (embebido por create_job al encadenar Jobs), incluye en su propio
 #     reporte una referencia explícita a ese contenido, para poder
 #     verificar en los tests que Critic realmente recibió el resultado de
 #     Developer como entrada, no solo que el mecanismo de fichero repite
 #     un texto fijo cualquiera.
-#   SIM_ROLE=scribe_check (T-FB008-US03-02): si detecta la cabecera
+#   SIM_ROLE=scribe_check (T-AF008-US03-02): si detecta la cabecera
 #     "--- Contexto pre-procesado por Scribe ---" en la instrucción
 #     recibida (embebida por dispatch_job cuando el disparo de Scribe
 #     aplica), incluye en su reporte el contenido íntegro de esa sección,
 #     para poder verificar end-to-end (tmux real, sin parsear el pane)
 #     que el agente realmente recibió el contexto pre-procesado de
 #     Scribe, no solo que dispatch_job lo generó internamente.
-#   SIM_ROLE=architect_approved_verdict (T-FB022-US15-04): simula un
+#   SIM_ROLE=architect_approved_verdict (T-AF022-US15-04): simula un
 #     Arquitecto real que emite un veredicto ESTADO: APROBADO en el
 #     formato estructurado que `architect_verdict.parse_verdict` espera
 #     — para tests end-to-end del disparo automático del Tester de UI
 #     que necesitan un veredicto aprobado real, sin mockear
 #     `_do_dispatch_verdict` ni `parse_verdict`.
-#   SIM_ROLE=tester_passed_verdict (T-FB008-US14-02): simula un Tester
+#   SIM_ROLE=tester_passed_verdict (T-AF008-US14-02): simula un Tester
 #     real que emite RESULTADO: EXITO en el formato estructurado que
 #     `task_verdict.parse_task_verdict` espera.
-#   SIM_ROLE=tester_failed_verdict (T-FB008-US14-02): simula un Tester
+#   SIM_ROLE=tester_failed_verdict (T-AF008-US14-02): simula un Tester
 #     real que emite RESULTADO: FALLO, con RESUMEN/SIGUIENTE_PASO fijos
 #     — para verificar end-to-end que un fallo genera la Task de
 #     corrección nueva en EN_DESARROLLO.
@@ -93,7 +93,7 @@ while IFS= read -r line; do
             echo "line one of the cooperative result" > "$report_file"
             echo "line two of the cooperative result" >> "$report_file"
         fi
-        echo "___FACTORY_BRAIN_JOB_DONE___" >> "$report_file"
+        echo "___ATLAS_FORGE_JOB_DONE___" >> "$report_file"
         buffer=""
     fi
 done

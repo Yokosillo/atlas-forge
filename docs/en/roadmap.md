@@ -1,6 +1,6 @@
 # Roadmap
 
-Real state of Factory Brain contrasted against `02-backlog/` (canonical states) and `07-informes/` (closing reports). This document is the public view of the [canonical roadmap](https://github.com/factoria-software/factory-brain/blob/main/02-backlog/roadmap.md) of the project.
+Real state of Atlas Forge contrasted against `02-backlog/` (canonical states) and `07-informes/` (closing reports). This document is the public view of the [canonical roadmap](https://github.com/factoria-software/atlas-forge/blob/main/02-backlog/roadmap.md) of the project.
 
 ## Summary by phase
 
@@ -10,9 +10,9 @@ Real state of Factory Brain contrasted against `02-backlog/` (canonical states) 
 | **0.2** | Multi-runtime/multi-model and token saving: Scribe, automatic Scribe triggering | ✅ Complete |
 | **0.3** | Critical-dispatcher and remote access: backend API, Job cancellation, confirmations | ✅ Complete |
 | **0.4** | Generic and project scripts: 7-script catalog, Scribe indexing | ✅ Complete |
-| **1.0** | Backlog-centric pipeline: Architect role, Epic→US→Task generators, validator, verdicts, structured backlog format, web UX improvements, cross-cutting actions, multi-project sessions, agent reconciliation on startup, live agent log | 🔶 In progress |
-| **0.5–0.9** | Dispatcher v2, Capabilities, Context, Knowledge, Automation, Plugins, remaining Dashboard | ⬜ Planned |
-| — | Config Management (FB-013) | ⏸️ On hold (backlog hold) |
+| **0.9** | Backlog-centric pipeline: Architect role, Epic→US→Task generators, validator, verdicts, structured backlog format, web UX improvements, cross-cutting actions, multi-project sessions, agent reconciliation on startup, live agent log | 🔶 In progress |
+| **0.5–0.8** | Dispatcher v2, Capabilities, Context, Knowledge, Automation, Plugins, remaining Dashboard | ⬜ Planned |
+| — | Config Management (AF-013) | ⏸️ On hold (backlog hold) |
 
 ## Status by Epic
 
@@ -22,73 +22,73 @@ Source: the `state` frontmatter field of each Epic in `02-backlog/epics/` (canon
 
 | Epic | What it includes |
 |---|---|
-| **FB-001** Workspace Management | Git repo discovery, persisted active project, project scripts. |
-| **FB-003** Development Session | Live session during execution, assigned agents. |
-| **FB-004** Runtime Manager | Claude Code and OpenCode in tmux, model switching (OpenCode). |
-| **FB-005** Agent Manager | Developer and Critic roles, two-layer prompts, liveness. |
+| **AF-001** Workspace Management | Git repo discovery, persisted active project, project scripts. |
+| **AF-003** Development Session | Live session during execution, assigned agents. |
+| **AF-004** Runtime Manager | Claude Code and OpenCode in tmux, model switching (OpenCode). |
+| **AF-005** Agent Manager | Developer and Critic roles, two-layer prompts, liveness. |
 
 > Historical note: the Critic role was folded into the Architect (see `00-gobierno/old/CRITICO.md`); the current product pipeline drives work from the backlog (see [Backlog and pipeline](backlog.md)).
 
-| **FB-008** Dispatcher | Jobs, chaining, isolated-Job dispatch, cancellation, automatic Scribe. |
-| **FB-014** Local Tools | Scribe: local summarization/indexing (Ollama), including the `index_scripts` operation. |
-| **FB-016** API Backend | FastAPI: agents, Jobs, backlog, scripts, WebSockets, static `/ui/`, systemd. |
-| **FB-018** Generic Scripts | 7 generic scripts catalog + Scribe prose. |
-| **FB-020** Backlog Management | Listing/detail endpoints, launch development, views in the web. |
-| **FB-021** Web Interface | Complete web: projects, agents, Jobs, scripts, backlog, models. |
-| **FB-026** Parallelizable thread analysis | `dependency_graph.py` module, `POST /backlog/epic/{epic_id}/analyze-threads` endpoint, "Generar hilos de desarrollo" button in the web Backlog tab. |
+| **AF-008** Dispatcher | Jobs, chaining, isolated-Job dispatch, cancellation, automatic Scribe. |
+| **AF-014** Local Tools | Scribe: local summarization/indexing (Ollama), including the `index_scripts` operation. |
+| **AF-016** API Backend | FastAPI: agents, Jobs, backlog, scripts, WebSockets, static `/ui/`, systemd. |
+| **AF-018** Generic Scripts | 7 generic scripts catalog + Scribe prose. |
+| **AF-020** Backlog Management | Listing/detail endpoints, launch development, views in the web. |
+| **AF-021** Web Interface | Complete web: projects, agents, Jobs, scripts, backlog, models. |
+| **AF-026** Parallelizable thread analysis | `dependency_graph.py` module, `POST /backlog/epic/{epic_id}/analyze-threads` endpoint, "Generar hilos de desarrollo" button in the web Backlog tab. |
 
 ### Retired / archived
 
 | Epic | Note |
 |---|---|
-| **FB-002** Dashboard | Terminal interface — **retired and archived** (2026-08-18). All functionality lives in the web. |
-| **FB-017** Mobile app | Native mobile app — **retired and archived** (2026-08-18). Previously **paused** for new functionality (2026-08-04). |
-| **FB-019** Terminal interface | Cancel Job, confirmations, connectivity — **retired and archived** (2026-08-18). |
+| **AF-002** Dashboard | Terminal interface — **retired and archived** (2026-08-18). All functionality lives in the web. |
+| **AF-017** Mobile app | Native mobile app — **retired and archived** (2026-08-18). Previously **paused** for new functionality (2026-08-04). |
+| **AF-019** Terminal interface | Cancel Job, confirmations, connectivity — **retired and archived** (2026-08-18). |
 
-### Phase 1.0 — mostly DONE at Epic level
+### Phase 0.9 — mostly DONE at Epic level
 
 | Epic | Tasks | What it provides |
 |---|---|---|
-| **FB-022** Backlog-centric Pipeline | Most User Stories DONE; US-FB022-16 still TO_DO | Architect and Tester roles, Epic→US→Task generators with validator+self-audit, the state-driven Developer→Tester→Architect verdict cycle, file model catalog. |
-| **FB-024** Web UX improvements | Ongoing (23+ Tasks DONE across multiple User Stories, more added as real usage surfaces gaps) | DONE/TO_DO visual differentiation, badge, dependency blocking, Phase field, heat map, unified Roles/Agents screen (same fields/buttons per role, Developer "stop" deletes the instance instead of pausing it), configurable simultaneous-Developer limit, US-detail history. |
-| **FB-025** Cross-cutting actions | 10/12 DONE (US01–07) | Web actions: document, analyze-architecture, suggest-ideas, test, audit-ux, index. |
-| **FB-027** Structured backlog format | 3/3 DONE | YAML frontmatter + Markdown body for every Epic/User Story/Task, replacing free-text `**ID**` bold-pattern parsing. Full migration of the existing backlog completed. |
-| **FB-029** Simultaneous project sessions | 4/4 DONE | Multiple live sessions in parallel, one per project; switching the active project in the web no longer stops any agent — the previously-focused project's agents stay alive in their own session and become reachable again once it regains focus. |
-| **FB-030** Closing queue to the Architect | DONE | Append-only per-project file where a Developer/other role enqueues Task-closing notices for the Architect; deterministic tmux session naming (`<role>-<project>` / `<role>-N-<project>`) plus an `inotifywait` watcher that pushes into the Architect's pane, with a periodic fallback check. |
-| **FB-031** Agent reconciliation on startup | DONE | On `brain-api` startup, lists real tmux sessions on the socket and recognizes them by their deterministic name (depends on FB-030), re-registering them as `idle` agents without relaunching their runtime — a backend restart no longer loses live agents. |
-| **FB-032** Live agent log in the web | DONE | `WS /ws/agents/{agent_id}/pane`: one channel per connection, server-side poller that only publishes on change, stops on disconnect. One agent at a time, read-only, separate tab/window. |
+| **AF-022** Backlog-centric Pipeline | Most User Stories DONE; US-AF022-16 still TO_DO | Architect and Tester roles, Epic→US→Task generators with validator+self-audit, the state-driven Developer→Tester→Architect verdict cycle, file model catalog. |
+| **AF-024** Web UX improvements | Ongoing (23+ Tasks DONE across multiple User Stories, more added as real usage surfaces gaps) | DONE/TO_DO visual differentiation, badge, dependency blocking, Phase field, heat map, unified Roles/Agents screen (same fields/buttons per role, Developer "stop" deletes the instance instead of pausing it), configurable simultaneous-Developer limit, US-detail history. |
+| **AF-025** Cross-cutting actions | 10/12 DONE (US01–07) | Web actions: document, analyze-architecture, suggest-ideas, test, audit-ux, index. |
+| **AF-027** Structured backlog format | 3/3 DONE | YAML frontmatter + Markdown body for every Epic/User Story/Task, replacing free-text `**ID**` bold-pattern parsing. Full migration of the existing backlog completed. |
+| **AF-029** Simultaneous project sessions | 4/4 DONE | Multiple live sessions in parallel, one per project; switching the active project in the web no longer stops any agent — the previously-focused project's agents stay alive in their own session and become reachable again once it regains focus. |
+| **AF-030** Closing queue to the Architect | DONE | Append-only per-project file where a Developer/other role enqueues Task-closing notices for the Architect; deterministic tmux session naming (`<role>-<project>` / `<role>-N-<project>`) plus an `inotifywait` watcher that pushes into the Architect's pane, with a periodic fallback check. |
+| **AF-031** Agent reconciliation on startup | DONE | On `atlas-forge-api` startup, lists real tmux sessions on the socket and recognizes them by their deterministic name (depends on AF-030), re-registering them as `idle` agents without relaunching their runtime — a backend restart no longer loses live agents. |
+| **AF-032** Live agent log in the web | DONE | `WS /ws/agents/{agent_id}/pane`: one channel per connection, server-side poller that only publishes on change, stops on disconnect. One agent at a time, read-only, separate tab/window. |
 
-!!! note "FB-025 pending"
-    `US-FB025-08` (audit OSS, 2 Tasks) is **TO_DO**: not implemented. The decision on `US-FB025-05` (Commit button) was **not to expose it**: commit already exists as a generic script.
+!!! note "AF-025 pending"
+    `US-AF025-08` (audit OSS, 2 Tasks) is **TO_DO**: not implemented. The decision on `US-AF025-05` (Commit button) was **not to expose it**: commit already exists as a generic script.
 
 ### Planned, not implemented
 
 | Epic | Notes |
 |---|---|
-| **FB-006** Context Engine | No Tasks. Planned (Phase 0.6). |
-| **FB-007** Knowledge Engine | No Tasks. Planned (Phase 0.6). |
-| **FB-009** Automation Engine | No Tasks. Planned (Phase 0.7). |
-| **FB-010** Capability Engine | No Tasks. Planned (Phase 0.5). Unlocks US-FB005-03. |
-| **FB-011** Plugin System | No Tasks. **There is no plugin system nor MCP.** Planned (Phase 0.8). |
-| **FB-012** Development Automations | No Tasks. Planned (Phase 0.7). |
-| **FB-013** Configuration Management | **On hold** (backlog hold): reviewed when a real multi-user configuration need appears. |
-| **FB-023** Lifecycle supervision | Not a priority (2026-08-05 decision). A human-triggered "review if stuck" action exists (FB-024/US-FB024-11); automatic background stuck-detection and headless `opencode serve` remain unimplemented. |
-| **FB-028** Persistent control bar for critical agents | Only 2 User Stories defined, no Tasks yet — not started. |
+| **AF-006** Context Engine | No Tasks. Planned (Phase 0.6). |
+| **AF-007** Knowledge Engine | No Tasks. Planned (Phase 0.6). |
+| **AF-009** Automation Engine | No Tasks. Planned (Phase 0.7). |
+| **AF-010** Capability Engine | No Tasks. Planned (Phase 0.5). Unlocks US-AF005-03. |
+| **AF-011** Plugin System | No Tasks. **There is no plugin system nor MCP.** Planned (Phase 0.8). |
+| **AF-012** Development Automations | No Tasks. Planned (Phase 0.7). |
+| **AF-013** Configuration Management | **On hold** (backlog hold): reviewed when a real multi-user configuration need appears. |
+| **AF-023** Lifecycle supervision | Not a priority (2026-08-05 decision). A human-triggered "review if stuck" action exists (AF-024/US-AF024-11); automatic background stuck-detection and headless `opencode serve` remain unimplemented. |
+| **AF-028** Persistent control bar for critical agents | Only 2 User Stories defined, no Tasks yet — not started. |
 
 ### Postponed / discarded
 
 | Epic | Note |
 |---|---|
-| **FB-015** Remote access (SSH+tmux) | **Postponed** (discarded in principle, 2026-08-02): the need was resolved by FB-016/FB-017 (a real touch app). Kept for traceability, revisited only if a real need appears that FB-016/FB-017 don't cover. |
+| **AF-015** Remote access (SSH+tmux) | **Postponed** (discarded in principle, 2026-08-02): the need was resolved by AF-016/AF-017 (a real touch app). Kept for traceability, revisited only if a real need appears that AF-016/AF-017 don't cover. |
 
 ## Technical debt and relevant decisions
 
-- **Non-web interfaces retired** (2026-08-18): the terminal interface and the mobile app were archived and removed from the repo. Their Epics (FB-002, FB-017, FB-019) and related User Stories/Tasks are marked `FUERA_ROADMAP`; all new functionality is exposed on the web.
-- **In-memory state**: session, agents and Jobs live in the memory of the `brain-api` process. On restart, live tmux sessions are re-recognized by their deterministic name and re-registered as `idle` agents (FB-031) — but Job history and any other in-memory state are still lost; full session recovery (`US-FB003-02`) remains planned, not implemented.
+- **Non-web interfaces retired** (2026-08-18): the terminal interface and the mobile app were archived and removed from the repo. Their Epics (AF-002, AF-017, AF-019) and related User Stories/Tasks are marked `FUERA_ROADMAP`; all new functionality is exposed on the web.
+- **In-memory state**: session, agents and Jobs live in the memory of the `atlas-forge-api` process. On restart, live tmux sessions are re-recognized by their deterministic name and re-registered as `idle` agents (AF-031) — but Job history and any other in-memory state are still lost; full session recovery (`US-AF003-02`) remains planned, not implemented.
 - **Observability** (structured logging, metrics, tracing): no assigned phase, on backlog hold.
 
 ## Functionality criterion
 
-Factory Brain is considered functional when it can: manage multiple projects, keep persistent sessions, administer agents on different runtimes, coordinate Jobs through pipelines, run automations, prepare context automatically, reuse knowledge, minimize remote-model usage, incorporate capabilities through plugins and provide operational vision.
+Atlas Forge is considered functional when it can: manage multiple projects, keep persistent sessions, administer agents on different runtimes, coordinate Jobs through pipelines, run automations, prepare context automatically, reuse knowledge, minimize remote-model usage, incorporate capabilities through plugins and provide operational vision.
 
 **State today**: backlog-driven Job coordination, multi-runtime/multi-model and token saving are real. Context/knowledge management, capabilities, plugins and the full declarative pipeline are future work.

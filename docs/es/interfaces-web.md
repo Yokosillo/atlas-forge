@@ -1,6 +1,6 @@
 # Interfaz web
 
-La **interfaz web es la interfaz principal** de Factory Brain. Se sirve desde el propio backend en `http://<host>:8000/ui/`, es JS puro sin frameworks y habla con la misma API REST + WebSocket que el resto de clientes.
+La **interfaz web es la interfaz principal** de Atlas Forge. Se sirve desde el propio backend en `http://<host>:8000/ui/`, es JS puro sin frameworks y habla con la misma API REST + WebSocket que el resto de clientes.
 
 ## Flujo de arranque
 
@@ -35,7 +35,7 @@ Una pestaña conversacional dedicada al Arquitecto: elige una de sus órdenes pr
 
 ### Scripts
 
-Catálogo combinado `GET /scripts` dividido en **"Generic (Factory Brain)"** y **"Project"**. Cada tarjeta muestra la descripción; el comando shell está oculto por defecto y se muestra con "▶ View command". Solo el script `commit` pide un mensaje. La ejecución muestra éxito/código de salida/stdout/stderr, y formatea la salida de `backlog_status` (conteo por Epic, LISTA, BLOQUEADA, cadena de apalancamiento).
+Catálogo combinado `GET /scripts` dividido en **"Generic (Atlas Forge)"** y **"Project"**. Cada tarjeta muestra la descripción; el comando shell está oculto por defecto y se muestra con "▶ View command". Solo el script `commit` pide un mensaje. La ejecución muestra éxito/código de salida/stdout/stderr, y formatea la salida de `backlog_status` (conteo por Epic, LISTA, BLOQUEADA, cadena de apalancamiento).
 
 ### Acciones
 
@@ -50,7 +50,7 @@ Acciones transversales de proyecto como botones directos a `POST /project/action
 | **Auditar la UX web** | Ejecución headless de `opencode run --auto` según `00-gobierno/UX.md`. |
 | **Indexar proyecto (Scribe)** | Indexa `docs/`, `02-backlog/`, `04-src/`, `00-gobierno/` con Scribe/Ollama. |
 
-Todas persisten sus informes con marca de tiempo en `07-informes/US-FB025-*/` sin sobrescribir ejecuciones anteriores.
+Todas persisten sus informes con marca de tiempo en `07-informes/US-AF025-*/` sin sobrescribir ejecuciones anteriores.
 
 ### Configuración
 
@@ -67,4 +67,4 @@ Preferencias del sistema editables desde la web: el número máximo de Developer
 
 ## Configuración del cliente
 
-El cliente se configura con `BackendClient.setBaseUrl(...)`; por defecto usa el mismo origen (servido desde `brain-api`, sin CORS). Errores: `BackendUnavailableError` (red) y `BackendRequestError` (4xx/5xx con el `detail` real del backend).
+El cliente se configura con `BackendClient.setBaseUrl(...)`; por defecto usa el mismo origen (servido desde `atlas-forge-api`, sin CORS). Errores: `BackendUnavailableError` (red) y `BackendRequestError` (4xx/5xx con el `detail` real del backend).

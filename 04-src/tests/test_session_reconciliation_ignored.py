@@ -1,7 +1,7 @@
-"""Tests de T-FB037-US02-01: `reconcile_session_agents` ahora devuelve
+"""Tests de T-AF037-US02-01: `reconcile_session_agents` ahora devuelve
 `(reconciled, ignored)` en vez de solo `reconciled` — `ignored` trae el
 motivo de cada sesión tmux que no terminó reenganchada (criterio de
-aceptación 2 de `US-FB037-02`). Llama a la función directamente (sin
+aceptación 2 de `US-AF037-02`). Llama a la función directamente (sin
 pasar por `_lifespan`/`TestClient`), tmux real vía `create_session` —
 mismo estilo de fixture que `test_session_reconciliation.py`, pero
 enfocado en el segundo valor de retorno nuevo, no en qué se reengancha
@@ -13,15 +13,15 @@ from pathlib import Path
 import libtmux
 import pytest
 
-from brain.core.session_lifecycle import activate
-from brain.core.session_reconciliation import reconcile_session_agents
-from brain.models import DevelopmentSession
-from brain.tmux.manager import create_session
+from atlas_forge.core.session_lifecycle import activate
+from atlas_forge.core.session_reconciliation import reconcile_session_agents
+from atlas_forge.models import DevelopmentSession
+from atlas_forge.tmux.manager import create_session
 
 
 @pytest.fixture
 def isolated_socket():
-    name = f"brain-test-{uuid.uuid4().hex[:8]}"
+    name = f"atlas_forge-test-{uuid.uuid4().hex[:8]}"
     try:
         yield name
     finally:

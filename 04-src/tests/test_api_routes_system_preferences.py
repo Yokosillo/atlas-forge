@@ -1,4 +1,4 @@
-"""Tests de `GET`/`PUT /system/preferences` (US-FB024-12): mismo patrón
+"""Tests de `GET`/`PUT /system/preferences` (US-AF024-12): mismo patrón
 de aislamiento que `test_api_routes_project_selection.py` — no requieren
 sesión de desarrollo activa ni runtime real, solo `_STATE_DIR` aislado."""
 
@@ -7,9 +7,10 @@ from pathlib import Path
 import pytest
 from fastapi.testclient import TestClient
 
-import brain.api.routes as routes_module
-from brain.api import create_app
-from brain.system_preferences import (
+import atlas_forge.api.routes as routes_module
+from atlas_forge.api import create_app
+from atlas_forge.system_preferences import (
+    DEFAULT_AUTO_REENQUEUE_ORPHANED,
     DEFAULT_DEVELOPER_WAITS_FOR_TESTER_REVIEW,
     DEFAULT_MAX_SIMULTANEOUS_DEVELOPERS,
     DEFAULT_DIFFICULTY_MODEL_MAP,
@@ -33,6 +34,7 @@ def test_get_system_preferences_returns_default_without_saved_file(isolated_stat
         "difficulty_model_map": DEFAULT_DIFFICULTY_MODEL_MAP,
         "tui_enabled": DEFAULT_TUI_ENABLED,
         "developer_waits_for_tester_review": DEFAULT_DEVELOPER_WAITS_FOR_TESTER_REVIEW,
+        "auto_reenqueue_orphaned": DEFAULT_AUTO_REENQUEUE_ORPHANED,
     }
 
 

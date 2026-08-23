@@ -1,15 +1,15 @@
 #!/usr/bin/env python3
-"""Migrate backlog files to the standard format defined by T-FB018-US02-05.
+"""Migrate backlog files to the standard format defined by T-AF018-US02-05.
 
 Deterministic and idempotent: running twice produces identical output.
 
 Rules:
 1. Epic files: promote # X → ## X for all H1 headers except title line.
    Add ## Estado section with a valid closed-set value.
-   Clean FB-003 criterion ## Estado collision, FB-015 DESCARTADA.
+   Clean AF-003 criterion ## Estado collision, AF-015 DESCARTADA.
 
-2. US/Task files: normalize **Epic:** → FB-NNN (ID only).
-   Normalize **User Story:** → US-FBNNN-nn (ID only).
+2. US/Task files: normalize **Epic:** → AF-NNN (ID only).
+   Normalize **User Story:** → US-AFNNN-nn (ID only).
    Clean ## Estado variant values (SUPERADA, DONE(...) etc.) → closed set + note.
 
 Usage:
@@ -23,27 +23,27 @@ import sys
 from pathlib import Path
 
 _EPIC_STATES: dict[str, str] = {
-    "FB-001": "DONE", "FB-002": "DONE", "FB-003": "DONE",
-    "FB-004": "DONE", "FB-005": "DONE", "FB-006": "TODO",
-    "FB-007": "TODO", "FB-008": "DONE", "FB-009": "TODO",
-    "FB-010": "TODO", "FB-011": "TODO", "FB-012": "TODO",
-    "FB-013": "TODO", "FB-014": "DONE", "FB-015": "DONE",
-    "FB-016": "DONE", "FB-017": "DONE", "FB-018": "DONE",
-    "FB-019": "DONE", "FB-020": "DONE", "FB-021": "DONE",
+    "AF-001": "DONE", "AF-002": "DONE", "AF-003": "DONE",
+    "AF-004": "DONE", "AF-005": "DONE", "AF-006": "TODO",
+    "AF-007": "TODO", "AF-008": "DONE", "AF-009": "TODO",
+    "AF-010": "TODO", "AF-011": "TODO", "AF-012": "TODO",
+    "AF-013": "TODO", "AF-014": "DONE", "AF-015": "DONE",
+    "AF-016": "DONE", "AF-017": "DONE", "AF-018": "DONE",
+    "AF-019": "DONE", "AF-020": "DONE", "AF-021": "DONE",
 }
 
 _EPIC_STATE_NOTES: dict[str, str] = {
-    "FB-015": "DESCARTADA (en principio). Decision de producto de 2026-08-02.",
+    "AF-015": "DESCARTADA (en principio). Decision de producto de 2026-08-02.",
 }
 
-_EPIC_ID_RE = re.compile(r"^(FB-\d{3,})")
+_EPIC_ID_RE = re.compile(r"^(AF-\d{3,})")
 _H1_RE = re.compile(r"^# +(.+)$")
 _H2_RE = re.compile(r"^## +(.+)$")
 _ESTADO_H2_RE = re.compile(r"^##\s*Estado\s*(?::\s*(.+))?$")
 
 _EPIC_FIELD_RE = re.compile(r"^(\*\*Epic:\*\*\s*)\**(.+?)\**$")
 _US_FIELD_RE = re.compile(r"^(\*\*User Story:\*\*\s*)\**(.+?)\**$")
-_US_ID_RE = re.compile(r"^(US-FB\d{3,}-\d{2})")
+_US_ID_RE = re.compile(r"^(US-AF\d{3,}-\d{2})")
 
 _CLOSED_STATES = {"TODO", "IN_PROGRESS", "REVIEW", "DONE"}
 _VARIANT_MAP: dict[str, str] = {
@@ -54,7 +54,7 @@ _VARIANT_MAP: dict[str, str] = {
 
 
 def _normalize_epic_field(line: str) -> str | None:
-    """Return normalized **Epic:** line (FB-NNN only) or None if no change."""
+    """Return normalized **Epic:** line (AF-NNN only) or None if no change."""
     m = _EPIC_FIELD_RE.match(line.strip())
     if not m:
         return None
@@ -118,10 +118,10 @@ def _migrate_epic(path: Path) -> tuple[str, str, int]:
     original = path.read_text(encoding="utf-8")
     changes = 0
 
-    # Pre-pass: FB-003 rename criterion ## Estado -> ## Estado de la sesion
+    # Pre-pass: AF-003 rename criterion ## Estado -> ## Estado de la sesion
     # so that has_estado tracking does not pick it up as a status field.
     pre_lines = original.splitlines()
-    if epic_id == "FB-003":
+    if epic_id == "AF-003":
         pre_lines = list(pre_lines)
         for idx in range(len(pre_lines)):
             stripped = pre_lines[idx].strip()
@@ -162,8 +162,8 @@ def _migrate_epic(path: Path) -> tuple[str, str, int]:
         text = text.rstrip() + "\n\n" + estado_line + "\n"
         changes += 1
 
-    # FB-015: clean DESCARTA state value
-    if epic_id == "FB-015":
+    # AF-015: clean DESCARTA state value
+    if epic_id == "AF-015":
         lines_out = text.splitlines()
         new_lines_out: list[str] = []
         in_estado_section = False
@@ -188,7 +188,7 @@ def _migrate_epic(path: Path) -> tuple[str, str, int]:
                     note = (
                         "  # DESCARTADA (en principio) — decision de producto"
                         " de 2026-08-02 — la necesidad real quedo resuelta"
-                        " por FB-016/FB-017 (ver nota al inicio del fichero)"
+                        " por AF-016/AF-017 (ver nota al inicio del fichero)"
                     )
                     new_lines_out.append(" " * indent + "DONE" + note)
                     changes += 1

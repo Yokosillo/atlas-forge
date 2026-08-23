@@ -1,4 +1,4 @@
-"""Tests de T-FB032-US01-01: `WS /ws/agents/{agent_id}/pane`, canal 1:1
+"""Tests de T-AF032-US01-01: `WS /ws/agents/{agent_id}/pane`, canal 1:1
 con poller propio de `capture_pane_lines` por conexión."""
 
 import asyncio
@@ -9,15 +9,15 @@ import libtmux
 import pytest
 from fastapi.testclient import TestClient
 
-import brain.api.app as app_module
-import brain.api.routes as routes_module
-from brain.api import create_app
-from brain.agents.launch import launch_agent
-from brain.core import resolve_startup_session
-from brain.core.session_registry import _reset_registry_for_tests
-from brain.dispatcher.job_history_registry import _reset_registry_for_tests as _reset_job_history
-from brain.runtime import stop_runtime
-from brain.workspace import discover_projects, select_active_project
+import atlas_forge.api.app as app_module
+import atlas_forge.api.routes as routes_module
+from atlas_forge.api import create_app
+from atlas_forge.agents.launch import launch_agent
+from atlas_forge.core import resolve_startup_session
+from atlas_forge.core.session_registry import _reset_registry_for_tests
+from atlas_forge.dispatcher.job_history_registry import _reset_registry_for_tests as _reset_job_history
+from atlas_forge.runtime import stop_runtime
+from atlas_forge.workspace import discover_projects, select_active_project
 
 
 @pytest.fixture(autouse=True)
@@ -31,8 +31,8 @@ def _clean_registries():
 
 @pytest.fixture(autouse=True)
 def _no_real_runtime(monkeypatch):
-    import brain.runtime.claude_code as claude_code_module
-    import brain.runtime.opencode as opencode_module
+    import atlas_forge.runtime.claude_code as claude_code_module
+    import atlas_forge.runtime.opencode as opencode_module
 
     monkeypatch.setattr(claude_code_module, "DEFAULT_CLAUDE_CODE_COMMAND", "sleep")
     monkeypatch.setattr(claude_code_module, "DEFAULT_CLAUDE_CODE_ARGS", ["5"])
@@ -41,21 +41,9 @@ def _no_real_runtime(monkeypatch):
     monkeypatch.setattr(opencode_module, "DEFAULT_OPENCODE_ARGS", ["5"])
 
 
-@pytest.fixture(autouse=True)
-def _no_real_architect_queue_watcher(monkeypatch):
-    # T-FB030-US03-04: `_lifespan` ahora lanza `architect_queue_watcher.sh`
-    # como subproceso real de larga duración para el proyecto activo — sin
-    # este stub, cualquier test de este fichero que construya un
-    # `TestClient` con `with` (lo que sí dispara `_lifespan`, ver
-    # docstrings de más abajo) y tenga un proyecto activo real de test
-    # dejaría ese proceso corriendo indefinidamente tras el test, sin
-    # relación con lo que este fichero prueba.
-    monkeypatch.setattr(app_module, "launch_architect_queue_watcher", lambda *a, **k: None)
-
-
 @pytest.fixture
 def isolated_socket(monkeypatch):
-    name = f"brain-test-{uuid.uuid4().hex[:8]}"
+    name = f"atlas_forge-test-{uuid.uuid4().hex[:8]}"
     monkeypatch.setattr(routes_module, "_SOCKET_NAME", name)
     try:
         yield name
@@ -215,7 +203,7 @@ def test_ws_agent_pane_receives_real_tmux_output_end_to_end(
     tests de este módulo, p. ej. `test_api_routes_agents.py`): sin
     mockear `capture_pane_lines`, un cambio real en el pane del agente
     debe llegar por el WebSocket."""
-    import brain.runtime.claude_code as claude_code_module
+    import atlas_forge.runtime.claude_code as claude_code_module
 
     cooperative_script = str(
         Path(__file__).parent / "fixtures" / "cooperative_agent_sim.sh"

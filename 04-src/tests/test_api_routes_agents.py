@@ -6,17 +6,17 @@ import libtmux
 import pytest
 from fastapi.testclient import TestClient
 
-import brain.api.routes as routes_module
-import brain.agents.launch as launch_module
-from brain.api import create_app
-from brain.core import resolve_startup_session
-from brain.core.session_lifecycle import list_agents
-from brain.core.session_registry import _reset_registry_for_tests
-from brain.dispatcher.job_history_registry import (
+import atlas_forge.api.routes as routes_module
+import atlas_forge.agents.launch as launch_module
+from atlas_forge.api import create_app
+from atlas_forge.core import resolve_startup_session
+from atlas_forge.core.session_lifecycle import list_agents
+from atlas_forge.core.session_registry import _reset_registry_for_tests
+from atlas_forge.dispatcher.job_history_registry import (
     _reset_registry_for_tests as _reset_job_history,
 )
-from brain.runtime import get_runtime_instance_for_agent, stop_runtime
-from brain.workspace import discover_projects, select_active_project
+from atlas_forge.runtime import get_runtime_instance_for_agent, stop_runtime
+from atlas_forge.workspace import discover_projects, select_active_project
 
 _COOPERATIVE_AGENT_SCRIPT = str(
     Path(__file__).parent / "fixtures" / "cooperative_agent_sim.sh"
@@ -36,8 +36,8 @@ def _clean_registry():
 def _no_real_runtime(monkeypatch):
     """Mismo patrón de aislamiento ya usado en test_launch_agent.py: nunca
     invocar los binarios reales de Claude Code/OpenCode en tests."""
-    import brain.runtime.claude_code as claude_code_module
-    import brain.runtime.opencode as opencode_module
+    import atlas_forge.runtime.claude_code as claude_code_module
+    import atlas_forge.runtime.opencode as opencode_module
 
     monkeypatch.setattr(claude_code_module, "DEFAULT_CLAUDE_CODE_COMMAND", "sleep")
     monkeypatch.setattr(claude_code_module, "DEFAULT_CLAUDE_CODE_ARGS", ["5"])
@@ -51,7 +51,7 @@ def isolated_socket(monkeypatch):
     """Aísla el endpoint POST /agents en su propio servidor tmux (el
     socket real no es parámetro del body HTTP — ver `routes._SOCKET_NAME`),
     con limpieza garantizada incluso si el test falla a medio camino."""
-    name = f"brain-test-{uuid.uuid4().hex[:8]}"
+    name = f"atlas_forge-test-{uuid.uuid4().hex[:8]}"
     monkeypatch.setattr(routes_module, "_SOCKET_NAME", name)
     try:
         yield name
@@ -69,7 +69,7 @@ def _make_git_repo(path: Path) -> None:
 
 def _active_project_and_session(tmp_path: Path, monkeypatch):
     """Arranca un proyecto activo y una sesión de desarrollo activa reales
-    y aislados (nunca el estado real del sistema en `~/.local/share/brain`)
+    y aislados (nunca el estado real del sistema en `~/.local/share/atlas_forge`)
     y hace que `routes.get_active_project` (el que de verdad consulta el
     endpoint) devuelva ese proyecto — `load_active_project` sin `state_dir`
     explícito leería del filesystem real del usuario, ajeno a este test."""
@@ -150,7 +150,7 @@ def test_get_agents_reflects_an_agent_launched_directly_via_domain(
     """Criterio de aceptación: arrancar sesión, lanzar agente vía llamada
     directa a dominio (sin pasar por HTTP), consultar por HTTP y ver el
     mismo agente."""
-    from brain.agents.launch import launch_agent
+    from atlas_forge.agents.launch import launch_agent
 
     _project, session = _active_project_and_session(tmp_path, monkeypatch)
     agent, runtime_instance = launch_agent(
@@ -172,6 +172,7 @@ def test_get_agents_reflects_an_agent_launched_directly_via_domain(
             "session_name": runtime_instance.session_name,
             "last_command_at": None,
             "limited_until": None,
+            "supervision": "vivo",
         }
     ]
 
@@ -206,7 +207,7 @@ def test_post_agents_launches_a_real_agent_and_get_agents_reflects_it(
 def test_post_agents_with_developer_number_creates_that_numbered_instance(
     tmp_path: Path, isolated_socket: str, monkeypatch
 ) -> None:
-    """T-FB005-US01-08 (2026-08-18): POST /agents con `developer_number`
+    """T-AF005-US01-08 (2026-08-18): POST /agents con `developer_number`
     crea la instancia con ESE nombre (slot fijo e independiente de
     Developer), aunque no sea el siguiente por orden de lanzamiento."""
     _project, _session = _active_project_and_session(tmp_path, monkeypatch)
@@ -233,7 +234,7 @@ def test_post_agents_with_developer_number_creates_that_numbered_instance(
 def test_post_agents_rejects_duplicate_developer_number(
     tmp_path: Path, isolated_socket: str, monkeypatch
 ) -> None:
-    """T-FB005-US01-08: relanzar el slot de un Developer aún vivo se
+    """T-AF005-US01-08: relanzar el slot de un Developer aún vivo se
     traduce a 400 con el motivo del dominio — nunca un segundo
     "Developer-3" (garantía de nombres únicos)."""
     _project, _session = _active_project_and_session(tmp_path, monkeypatch)
@@ -268,7 +269,7 @@ def test_post_agents_rejects_duplicate_developer_number(
 def test_post_agents_rejects_invalid_developer_number(
     tmp_path: Path, isolated_socket: str, monkeypatch
 ) -> None:
-    """T-FB005-US01-08: `developer_number` < 1 se rechaza en el contrato
+    """T-AF005-US01-08: `developer_number` < 1 se rechaza en el contrato
     (pydantic, 422) antes de tocar el dominio."""
     _project, _session = _active_project_and_session(tmp_path, monkeypatch)
     client = TestClient(create_app())
@@ -287,7 +288,7 @@ def test_post_agents_rejects_invalid_developer_number(
 def test_post_agents_launches_a_real_ux_agent_and_get_agents_reflects_it(
     tmp_path: Path, isolated_socket: str, monkeypatch
 ) -> None:
-    """Criterio de aceptación (T-FB024-US13-01): `POST /agents` con
+    """Criterio de aceptación (T-AF024-US13-01): `POST /agents` con
     `role: "ux"` deja de responder "rol no reconocido" y lanza una
     instancia real, reflejada en `GET /agents` con los mismos campos que
     cualquier otro agente."""
@@ -316,7 +317,7 @@ def test_post_agents_launches_a_real_ux_agent_and_get_agents_reflects_it(
 def test_post_agents_launches_a_real_auditor_oss_agent_and_get_agents_reflects_it(
     tmp_path: Path, isolated_socket: str, monkeypatch
 ) -> None:
-    """Criterio de aceptación (T-FB024-US13-02): `POST /agents` con
+    """Criterio de aceptación (T-AF024-US13-02): `POST /agents` con
     `role: "auditor_oss"` deja de responder "rol no reconocido" y lanza
     una instancia real, reflejada en `GET /agents` con los mismos campos
     que cualquier otro agente."""
@@ -345,12 +346,12 @@ def test_post_agents_launches_a_real_auditor_oss_agent_and_get_agents_reflects_i
 def test_post_agents_with_initial_job_returns_agent_and_job_in_same_response(
     tmp_path: Path, isolated_socket: str, monkeypatch
 ) -> None:
-    """Criterio de aceptación (T-FB016-US01-16): `POST /agents` con
+    """Criterio de aceptación (T-AF016-US01-16): `POST /agents` con
     `initial_job_description` informado devuelve agente + Job en la misma
     respuesta 201, verificado con tmux real (doble cooperativo) — el Job
     queda `completed` con su resultado, y el agente aparece registrado e
     `idle` en `GET /agents` después."""
-    import brain.runtime.claude_code as claude_code_module
+    import atlas_forge.runtime.claude_code as claude_code_module
 
     _project, session = _active_project_and_session(tmp_path, monkeypatch)
     monkeypatch.setattr(
@@ -398,7 +399,7 @@ def test_post_agents_with_initial_job_returns_agent_and_job_in_same_response(
 def test_post_agents_without_initial_job_is_identical_to_previous_response(
     tmp_path: Path, isolated_socket: str, monkeypatch
 ) -> None:
-    """Criterio de aceptación (T-FB016-US01-16): `POST /agents` sin
+    """Criterio de aceptación (T-AF016-US01-16): `POST /agents` sin
     `initial_job_description` se comporta exactamente igual que hoy —
     respuesta 201 plana con los datos del agente (sin envolver en
     `agent`/`job`) y sin ningún Job creado."""
@@ -421,6 +422,8 @@ def test_post_agents_without_initial_job_is_identical_to_previous_response(
         "session_name",
         "last_command_at",
         "limited_until",
+        # T-AF023-US01-02: estado de supervisión expuesto en la serialización.
+        "supervision",
     }
     assert body["status"] == "idle"
 
@@ -436,13 +439,13 @@ def test_post_agents_without_initial_job_is_identical_to_previous_response(
 def test_post_agents_initial_job_dispatch_failure_keeps_agent_and_reports_failed_job(
     tmp_path: Path, isolated_socket: str, monkeypatch
 ) -> None:
-    """Criterio de aceptación de T-FB008-US06-01 expuesto por el endpoint:
+    """Criterio de aceptación de T-AF008-US06-01 expuesto por el endpoint:
     si el despacho del Job inicial falla (runtime que nunca reporta →
     timeout), el agente permanece registrado e `idle` y el Job se devuelve
     `failed` con el motivo en `result` — el fallo nunca revierte el
     registro del agente."""
-    import brain.runtime.claude_code as claude_code_module
-    from brain.dispatcher import dispatch_job as _real_dispatch_job
+    import atlas_forge.runtime.claude_code as claude_code_module
+    from atlas_forge.dispatcher import dispatch_job as _real_dispatch_job
 
     _project, session = _active_project_and_session(tmp_path, monkeypatch)
     monkeypatch.setattr(claude_code_module, "DEFAULT_CLAUDE_CODE_COMMAND", "bash")
@@ -491,7 +494,7 @@ def test_post_agents_initial_job_dispatch_failure_keeps_agent_and_reports_failed
 def test_post_agents_with_initial_job_still_passes_state_dir_to_get_active_project(
     tmp_path: Path, monkeypatch
 ) -> None:
-    """Criterio de aceptación de T-FB016-US01-16: el flujo con Job inicial
+    """Criterio de aceptación de T-AF016-US01-16: el flujo con Job inicial
     también llama a `get_active_project(state_dir=_STATE_DIR)` (bug
     recurrente ya corregido tres veces en este fichero — no regresar aquí)."""
     isolated_state_dir = tmp_path / "state"
@@ -528,7 +531,7 @@ def test_post_agents_with_unrecognized_role_returns_400_with_domain_message(
     """Criterio de aceptación: combinación inválida devuelve 4xx con el
     mismo mensaje de motivo que ya lanza AgentLaunchError, no un texto
     reinventado."""
-    from brain.agents.launch import AgentLaunchError, launch_agent
+    from atlas_forge.agents.launch import AgentLaunchError, launch_agent
 
     _project, session = _active_project_and_session(tmp_path, monkeypatch)
 
@@ -555,12 +558,12 @@ def test_post_agents_with_unrecognized_role_returns_400_with_domain_message(
 def test_post_agents_over_developer_limit_returns_400_not_500(
     tmp_path: Path, isolated_socket: str, monkeypatch
 ) -> None:
-    """T-FB024-US12-01: superar el límite de Developer simultáneos lanza
+    """T-AF024-US12-01: superar el límite de Developer simultáneos lanza
     `RuntimeError` desde `register_developer` (`agents/developer.py:124`),
     que antes se propagaba sin capturar y FastAPI lo convertía en un 500
     genérico. Debe traducirse a 400 con el mismo mensaje explícito del
     dominio, igual que el resto de rechazos de esta ruta."""
-    from brain.agents.developer import MAX_SIMULTANEOUS_DEVELOPERS
+    from atlas_forge.agents.developer import MAX_SIMULTANEOUS_DEVELOPERS
 
     _project, session = _active_project_and_session(tmp_path, monkeypatch)
     client = TestClient(create_app())
@@ -591,12 +594,12 @@ def test_post_agents_over_developer_limit_returns_400_not_500(
 def test_post_agents_with_claude_code_model_infers_runtime_and_launches(
     tmp_path: Path, monkeypatch, isolated_socket,
 ) -> None:
-    """T-FB024-US11-13 (2026-08-17): Claude Code SÍ admite indicar modelo
-    al lanzar — corrección de la premisa original (T-FB002-US01-01) que
+    """T-AF024-US11-13 (2026-08-17): Claude Code SÍ admite indicar modelo
+    al lanzar — corrección de la premisa original (T-AF002-US01-01) que
     asumía lo contrario sin verificarlo contra `claude --help`. Sin
     `runtime_type` explícito, el runtime se infiere del modelo del
     catálogo (`sonnet` → `claude_code` → `claude-code`)."""
-    import brain.runtime.claude_code as claude_code_module
+    import atlas_forge.runtime.claude_code as claude_code_module
 
     _project, _session = _active_project_and_session(tmp_path, monkeypatch)
     monkeypatch.setattr(claude_code_module, "DEFAULT_CLAUDE_CODE_COMMAND", "bash")
@@ -614,14 +617,14 @@ def test_post_agents_with_claude_code_model_infers_runtime_and_launches(
 
 
 # ---------------------------------------------------------------------
-# T-FB005-US07-02: lanzamiento con runtime explícito y separado del modelo
+# T-AF005-US07-02: lanzamiento con runtime explícito y separado del modelo
 # ---------------------------------------------------------------------
 
 
 def test_post_agents_without_runtime_returns_400_with_clear_message_and_no_partial_effects(
     tmp_path: Path, monkeypatch
 ) -> None:
-    """Criterio 1/2 de T-FB005-US07-02: el lanzamiento requiere una elección
+    """Criterio 1/2 de T-AF005-US07-02: el lanzamiento requiere una elección
     explícita de runtime. Un request sin `runtime_type` ni modelo resoluble
     se rechaza con 400 y un motivo claro ANTES de lanzar nada — ningún
     agente queda registrado (sin efectos parciales)."""
@@ -641,7 +644,7 @@ def test_post_agents_without_runtime_returns_400_with_clear_message_and_no_parti
 def test_post_agents_rejects_model_belonging_to_another_runtime(
     tmp_path: Path, monkeypatch
 ) -> None:
-    """Criterio 3 de T-FB005-US07-02: un modelo se acepta solo cuando la
+    """Criterio 3 de T-AF005-US07-02: un modelo se acepta solo cuando la
     capacidad del runtime elegido lo permite. Enviar un modelo del catálogo
     que pertenece a otro runtime (aquí `sonnet`, del catálogo, contra
     un runtime `opencode`) se rechaza con 400 antes de lanzar nada."""
@@ -665,12 +668,12 @@ def test_post_agents_honors_explicit_runtime_over_model_inference(
     tmp_path: Path, monkeypatch
 ) -> None:
     """Regresión de la vía que podía ignorar un runtime seleccionado
-    (raíz de T-FB024-US12-03, cerrada en US-FB005-07): si el request trae
+    (raíz de T-AF024-US12-03, cerrada en US-AF005-07): si el request trae
     `runtime_type` explícito (`claude-code`) junto a un modelo del catálogo
     de OTRO runtime (`opencode-go/deepseek-v4-flash`), el runtime explícito
     se HONRA — no se reescribe en silencio al runtime del modelo. Se
     rechaza con 400 porque el modelo pertenece a OpenCode, no porque
-    Claude Code rechace modelo en sí (T-FB024-US11-13, 2026-08-17: Claude
+    Claude Code rechace modelo en sí (T-AF024-US11-13, 2026-08-17: Claude
     Code SÍ admite indicar modelo al lanzar desde esta corrección)."""
     _project, session = _active_project_and_session(tmp_path, monkeypatch)
     client = TestClient(create_app())
@@ -693,7 +696,7 @@ def test_post_agents_honors_explicit_runtime_over_model_inference(
 def test_post_agents_launches_opencode_with_explicit_runtime_and_keeps_runtime_id(
     tmp_path: Path, monkeypatch, isolated_socket,
 ) -> None:
-    """Criterio 3/4 de T-FB005-US07-02: con runtime explícito (`opencode`)
+    """Criterio 3/4 de T-AF005-US07-02: con runtime explícito (`opencode`)
     y un modelo del MISMO runtime (catalogado, el runtime lo admite) el
     lanzamiento procede y la instancia conserva `runtime_id === "opencode"`
     (runtime fijo, inmutable durante la vida de la instancia)."""
@@ -723,7 +726,7 @@ def test_post_agents_launches_opencode_with_explicit_runtime_and_keeps_runtime_i
 def test_post_agents_passes_state_dir_to_get_active_project(
     tmp_path: Path, monkeypatch
 ) -> None:
-    """Criterio de aceptación de T-FB016-US01-13: `POST /agents` aísla
+    """Criterio de aceptación de T-AF016-US01-13: `POST /agents` aísla
     `state_dir` llamando a `get_active_project(state_dir=_STATE_DIR)` (nunca
     la llamada sin parámetro que leería del filesystem real del usuario)."""
     isolated_state_dir = tmp_path / "state"
@@ -762,12 +765,12 @@ def test_post_agents_returns_404_when_no_session_is_active() -> None:
 def test_get_agents_reports_unavailable_when_runtime_died_externally(
     tmp_path: Path, isolated_socket: str, monkeypatch
 ) -> None:
-    """Criterio de aceptación explícito de T-FB016-US01-07: un agente
+    """Criterio de aceptación explícito de T-AF016-US01-07: un agente
     cuyo proceso tmux se mata externamente (`tmux kill-session` directo,
     fuera de `POST /agents/{id}/stop`) pasa a reportarse como
     `unavailable` la próxima vez que se consulta `GET /agents` — nunca
     sigue como `idle`/`working`."""
-    from brain.tmux.manager import kill_session
+    from atlas_forge.tmux.manager import kill_session
 
     _project, _session = _active_project_and_session(tmp_path, monkeypatch)
     client = TestClient(create_app())
@@ -790,11 +793,11 @@ def test_get_agents_reports_unavailable_when_runtime_died_externally(
 def test_get_agents_reports_limited_status_with_recovery_time(
     tmp_path: Path, isolated_socket: str, monkeypatch
 ) -> None:
-    """Criterio de aceptación de T-FB024-US21-01: un agente con el
+    """Criterio de aceptación de T-AF024-US21-01: un agente con el
     patrón de límite de sesión aparece en `GET /agents` con estado
     distinguible (`limited`) y `limited_until` (hora de recuperación)
     visible — distinto de `idle`/`working`/`stopped`/`unavailable`."""
-    from brain.agents.lifecycle import mark_limited
+    from atlas_forge.agents.lifecycle import mark_limited
 
     _project, session = _active_project_and_session(tmp_path, monkeypatch)
     client = TestClient(create_app())
@@ -820,11 +823,11 @@ def test_get_agents_does_not_rewrite_a_stopped_agent_to_unavailable(
     tmp_path: Path, isolated_socket: str, monkeypatch
 ) -> None:
     """Criterio de aceptación explícito: un agente detenido a propósito
-    (`stopped`, T-FB016-US01-03) no se ve afectado por la verificación de
+    (`stopped`, T-AF016-US01-03) no se ve afectado por la verificación de
     liveness — sigue `stopped`, nunca se reescribe a `unavailable`.
 
     Rol no-Developer (Arquitecto) a propósito: con Developer
-    (T-FB024-US12-02), detener elimina el agente por completo de
+    (T-AF024-US12-02), detener elimina el agente por completo de
     `session.agents`, y este test dejaría de poder comprobar que sigue
     `stopped` en `GET /agents` — sencillamente ya no aparecería."""
     _project, _session = _active_project_and_session(tmp_path, monkeypatch)
@@ -848,12 +851,12 @@ def test_get_agents_does_not_rewrite_a_stopped_agent_to_unavailable(
 def test_stopping_a_developer_removes_it_from_get_agents_and_frees_the_limit(
     tmp_path: Path, isolated_socket: str, monkeypatch
 ) -> None:
-    """T-FB024-US12-02, criterios 1 y 2: "Detener" sobre un Developer
+    """T-AF024-US12-02, criterios 1 y 2: "Detener" sobre un Developer
     elimina el `Agent` por completo (`GET /agents` deja de listarlo), y el
     límite de Developer simultáneos se libera de inmediato — lanzar uno
     nuevo justo después nunca falla por límite alcanzado con instancias
     fantasma."""
-    from brain.agents.developer import MAX_SIMULTANEOUS_DEVELOPERS
+    from atlas_forge.agents.developer import MAX_SIMULTANEOUS_DEVELOPERS
 
     _project, _session = _active_project_and_session(tmp_path, monkeypatch)
     client = TestClient(create_app())
@@ -896,11 +899,11 @@ def test_stopping_a_developer_removes_it_from_get_agents_and_frees_the_limit(
 def test_get_agents_options_returns_the_full_unfiltered_catalog(
     tmp_path, monkeypatch,
 ) -> None:
-    """El filtro que ocultaba Critic + OpenCode (T-FB016-US01-19) se
-    eliminó junto con el rol `critic` (FB-022): `GET /agents/options`
+    """El filtro que ocultaba Critic + OpenCode (T-AF016-US01-19) se
+    eliminó junto con el rol `critic` (AF-022): `GET /agents/options`
     ahora devuelve exactamente el catálogo del dominio
     (`list_available_agent_options`), sin ninguna combinación excluida."""
-    from brain.agents.agent_options import list_available_agent_options
+    from atlas_forge.agents.agent_options import list_available_agent_options
 
     client = TestClient(create_app())
     response = client.get("/agents/options")
@@ -925,15 +928,16 @@ def test_get_agents_options_returns_the_full_unfiltered_catalog(
 def test_get_agent_pane_returns_the_real_tmux_content_of_a_launched_agent(
     tmp_path: Path, isolated_socket: str, monkeypatch
 ) -> None:
-    """Criterio de aceptación (T-FB016-US01-12): `GET /agents/{id}/pane`
+    """Criterio de aceptación (T-AF016-US01-12): `GET /agents/{id}/pane`
     devuelve el contenido real del pane de tmux de un agente lanzado de
     verdad (con tmux real, no mockeado — mismo aislamiento de comandos
     reales que el resto de la suite)."""
-    from brain.agents.launch import launch_agent
+    from atlas_forge.agents.launch import launch_agent
 
     _project, session = _active_project_and_session(tmp_path, monkeypatch)
+    # Se usa claude-code (mecanismo tmux) para verificar el pane tmux real.
     agent, runtime_instance = launch_agent(
-        "developer", "opencode", None, session, str(tmp_path),
+        "developer", "claude-code", None, session, str(tmp_path),
         socket_name=isolated_socket,
     )
 
@@ -979,7 +983,7 @@ def test_get_agent_pane_returns_404_when_agent_does_not_exist(
 
 # ---------------------------------------------------------------------------
 # GET/PUT /agents/{agent_id}/model y GET /agents/{agent_id}/available-models
-# (T-FB021-US07-01)
+# (T-AF021-US07-01)
 # ---------------------------------------------------------------------------
 
 
@@ -1046,14 +1050,14 @@ def test_get_agent_model_returns_model_for_opencode_with_sleep_binary(
 def test_put_agent_model_on_claude_code_sends_model_command_to_pane(
     tmp_path: Path, monkeypatch, isolated_socket,
 ) -> None:
-    """T-FB024-US11-13 (decisión de producto 2026-08-17): Claude Code SÍ
+    """T-AF024-US11-13 (decisión de producto 2026-08-17): Claude Code SÍ
     admite cambio de modelo en caliente — PUT /agents/{id}/model envía
     '/model <id>' + Enter al pane real vía `set_active_model_claude_code`.
     Verificado contra una sesión tmux REAL (bash en vez del binario
     `claude`, mismo patrón que el resto de tests de este fichero) — el
     texto debe aparecer en el pane capturado, no solo asumirse por un
     200 OK."""
-    import brain.runtime.claude_code as claude_code_module
+    import atlas_forge.runtime.claude_code as claude_code_module
 
     _project, _session = _active_project_and_session(tmp_path, monkeypatch)
     monkeypatch.setattr(claude_code_module, "DEFAULT_CLAUDE_CODE_COMMAND", "bash")
@@ -1141,7 +1145,7 @@ def test_get_agent_available_models_returns_list_for_opencode(
 def test_get_agent_available_models_returns_claude_code_catalog_for_claude_code(
     tmp_path: Path, monkeypatch, isolated_socket,
 ) -> None:
-    """T-FB024-US11-13 (decisión de producto 2026-08-17): un agente Claude
+    """T-AF024-US11-13 (decisión de producto 2026-08-17): un agente Claude
     Code VIVO sí admite cambio de modelo en caliente (vía '/model <id>'
     por tmux, POST /agents/{id}/send-keys) — el catálogo devuelto se
     filtra a los modelos del runtime claude_code (sonnet/opus/haiku), no
@@ -1186,10 +1190,10 @@ def test_get_agent_status_model_returns_404_when_agent_does_not_exist(
 def test_get_agent_status_model_returns_400_when_agent_is_working(
     tmp_path: Path, monkeypatch, isolated_socket,
 ) -> None:
-    """T-FB024-US11-05, criterio de aceptación 2: nunca interactúa con el
+    """T-AF024-US11-05, criterio de aceptación 2: nunca interactúa con el
     pane de un agente `working` — rechazo explícito con motivo, no un
     intento silencioso ni un None ambiguo."""
-    from brain.agents.lifecycle import mark_working
+    from atlas_forge.agents.lifecycle import mark_working
 
     _project, session = _active_project_and_session(tmp_path, monkeypatch)
     client = TestClient(create_app())

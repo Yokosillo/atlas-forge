@@ -41,9 +41,9 @@ Los siguientes datos no deben permanecer en `METODOLOGIA.md`:
 
 ### Estados Task
 
-La documentación antigua mezclaba `EN_DESARROLLO` e `IN_PROGRESS`.
+La documentación antigua mezclaba `TO_DEVELOP` e `IN_PROGRESS`.
 
-V2 define `EN_DESARROLLO` como semántica de desarrollo.
+V2 define `TO_DEVELOP` como semántica de desarrollo.
 
 Si el código aún acepta `IN_PROGRESS`, debe considerarse compatibilidad pendiente de convergencia, no un segundo estado conceptual.
 
@@ -71,7 +71,7 @@ Se consolida el modelo de un informe por User Story con secciones por Task.
 
 ### Marcadores antiguos
 
-`### STORY_DONE ###` no debe tratarse como contrato general del pipeline. El mecanismo formal de Job utiliza `___FACTORY_BRAIN_JOB_DONE___`; el cierre asíncrono de Task utiliza la cola de Arquitecto.
+`### STORY_DONE ###` no debe tratarse como contrato general del pipeline. El mecanismo formal de Job utiliza `___ATLAS_FORGE_JOB_DONE___`; el cierre asíncrono de Task utiliza la cola de Arquitecto.
 
 ## Orden de instalación
 

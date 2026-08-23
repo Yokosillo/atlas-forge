@@ -2,11 +2,11 @@
 # Instala el pre-commit hook de control tecnico del backlog: dos chequeos
 # independientes, ambos deben pasar (que uno pase no exime del otro).
 #
-# 1. `promote_states.py --check` (T-FB022-US13-02/04): reconciliacion de
+# 1. `promote_states.py --check` (T-AF022-US13-02/04): reconciliacion de
 #    ESTADO — bloquea si hay drift de promocion (US/Epic con todos sus
 #    hijos DONE pero el padre no) o drift inverso (padre DONE con un hijo
 #    reabierto).
-# 2. `validate_backlog.py` (T-FB022-US13-06): FORMATO — bloquea si algun
+# 2. `validate_backlog.py` (T-AF022-US13-06): FORMATO — bloquea si algun
 #    fichero de 02-backlog/ staged en el commit no cumple el esquema de
 #    02-backlog/README.md (validate_backlog_file_v2).
 #
@@ -56,7 +56,7 @@ fi
 
 cat > "$HOOK_PATH" <<EOF
 #!/usr/bin/env bash
-# Hook pre-commit de Factory Brain: dos chequeos independientes sobre
+# Hook pre-commit de Atlas Forge: dos chequeos independientes sobre
 # 02-backlog/, ambos deben pasar (que uno pase no exime del otro).
 # Instalado por 04-src/scripts/install_git_hooks.sh. No editar a mano;
 # reinstalar para actualizar.

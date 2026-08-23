@@ -1,6 +1,6 @@
-/* Factory Brain — interfaz web (FB-021), arranque, contexto de sesión y
- * navegación operativa condicionada al contexto (T-FB021-US02-01
- * conectividad; T-FB021-US02-02 proyecto activo; T-FB021-US02-03
+/* Atlas Forge — interfaz web (AF-021), arranque, contexto de sesión y
+ * navegación operativa condicionada al contexto (T-AF021-US02-01
+ * conectividad; T-AF021-US02-02 proyecto activo; T-AF021-US02-03
  * navegación condicionada al contexto resuelto).
  *
  * Flujo de arranque (`index.html`, `app.js` se carga al final del body):
@@ -8,11 +8,11 @@
  *      cualquier contenido operativo.
  *   2. Sin backend: guía de onboarding PASO 1 ("No hay conexión con el
  *      backend") con botón "Reintentar" que reutiliza el MISMO mecanismo
- *      de T-FB021-US02-01 (no un flujo duplicado). No se renderiza NINGÚN
+ *      de T-AF021-US02-01 (no un flujo duplicado). No se renderiza NINGÚN
  *      enlace a secciones operativas.
  *   3. Con backend pero sin proyecto activo: guía PASO 2 ("No has elegido
  *      un proyecto todavía") con botón "Elegir proyecto" que abre el
- *      MISMO selector de T-FB021-US02-02. Tampoco se renderizan enlaces a
+ *      MISMO selector de T-AF021-US02-02. Tampoco se renderizan enlaces a
  *      secciones.
  *   4. Con contexto resuelto (backend + proyecto activo): se muestra la
  *      navegación operativa (pestañas Agentes/Jobs/Plan/Scripts) + barra
@@ -23,7 +23,7 @@
  *   - `pickerReason === "initial"`  -> "Elige tu primer proyecto" (onboarding).
  *   - `pickerReason === "change"`   -> "Selecciona otro proyecto" (normal,
  *     no suena a onboarding) — mismo matiz que `can_return_to_dashboard`
- *     en la TUI (`brain/tui/screens/workspace.py`).
+ *     en la TUI (`atlas_forge/tui/screens/workspace.py`).
  *
  * Estado de secciones (punto 5): el modelo de cada sección
  * (Agentes/Jobs/Plan/Scripts) vive en `state.sections[<sección>]` — NO en
@@ -32,7 +32,7 @@
  * desde esa caché (no se vuelve a llamar al backend), de modo que el estado
  * no se pierde igual que con una recarga completa.
  *
- * Sección Jobs (T-FB021-US04-01): a diferencia de Plan/Scripts (cargados
+ * Sección Jobs (T-AF021-US04-01): a diferencia de Plan/Scripts (cargados
  * una vez), el estado de Jobs se recompone SIEMPRE desde `GET /jobs` + el
  * canal `WS /ws/jobs` (que se conecta al entrar en la pestaña y refleja
  * `created`/`running`/`completed`/`failed` sin polling) — nunca desde una
@@ -78,7 +78,7 @@
     ROOT.appendChild(wrapper);
   }
 
-  // ------------------------------------------------------- routing (T-FB024)
+  // ------------------------------------------------------- routing (T-AF024)
   // Cada sección operativa tiene una URL propia bajo /ui/ (`/ui/roles`,
   // `/ui/arquitecto`...) en vez de vivir solo en `state.section` en memoria
   // — así recargar la página o compartir el enlace mantiene la sección
@@ -87,10 +87,10 @@
   // un asset real (ver `app.py::_SPAStaticFiles`), así que esto es
   // puramente de enrutado en el cliente: no hay servidor de rutas nuevo.
   var DEFAULT_SECTION = "backlog";
-  // "agents" ya NO es una ruta válida (T-FB024-US11-12): esa sección
+  // "agents" ya NO es una ruta válida (T-AF024-US11-12): esa sección
   // (agentsSection/renderAgentActions) era código inalcanzable desde la
   // navegación real (nunca tuvo pestaña visible) con un diseño ya
-  // superado por US-FB005-07 — eliminada del fichero. Sin esta entrada,
+  // superado por US-AF005-07 — eliminada del fichero. Sin esta entrada,
   // visitar `/ui/agents` directamente cae al `DEFAULT_SECTION` en vez de
   // intentar cargar una sección que ya no existe.
   // "plan" (2026-08-18): mismo criterio que "agents" arriba — sin pestaña
@@ -120,13 +120,13 @@
     // Navegación entre secciones operativas (solo visible con contexto
     // resuelto). `sections` guarda el estado ya cargado de cada sección
     // para NO perderlo al navegar entre ellas sin recargar (punto 5).
-    // Valor inicial resuelto desde la URL real (T-FB024), no un literal
+    // Valor inicial resuelto desde la URL real (T-AF024), no un literal
     // fijo — así recargar la página respeta la sección en la que estabas.
     section: sectionFromPath(window.location.pathname),
     sections: { jobs: null, plan: null, scripts: null, backlog: null, models: null, roles: null, configuracion: null },
     showPicker: false,
     pickerReason: "initial", // "initial" (onboarding) | "change" (voluntario)
-    pendingBacklogCount: 0, // T-FB024-US01-02: numero de Epics/US con TO_DO>0
+    pendingBacklogCount: 0, // T-AF024-US01-02: numero de Epics/US con TO_DO>0
   };
 
   var SECTION_LOADERS = {
@@ -142,8 +142,8 @@
   };
 
   // ------------------------------------------------------------------
-  // Sección ROLES (T-FB024-US08-01): los 4 roles con nombre, descripción
-  // Pantalla AGENTES unificada (US-FB024-11, reescritura completa).
+  // Sección ROLES (T-AF024-US08-01): los 4 roles con nombre, descripción
+  // Pantalla AGENTES unificada (US-AF024-11, reescritura completa).
   // Una fila por instancia de cada rol de gobierno: Arquitecto, Developer×N,
   // Auditor-OSS, UX, Tester (Documentador queda fuera). Mismos 4 campos
   // (nombre, estado, tiempo desde última orden, modelo) y mismas acciones
@@ -164,12 +164,12 @@
     // (lo consume saveRoleModel); editingRowKey identifica la fila exacta
     // que abrió el editor — para instancias reales es el id del agente,
     // para filas sintéticas (id null) es "synthetic:<role>:<name>", de
-    // modo que Developer-1/2/3 no abran el editor a la vez (US-FB024-11
-    // criterio 11 y T-FB024-US11-03).
+    // modo que Developer-1/2/3 no abran el editor a la vez (US-AF024-11
+    // criterio 11 y T-AF024-US11-03).
     editingRole: null,
     editingRowKey: null,
     modelIndex: 0,
-    // T-FB024-US11-07: true en cuanto el usuario dispara `change` sobre el
+    // T-AF024-US11-07: true en cuanto el usuario dispara `change` sobre el
     // <select> del editor abierto — mientras sea false, cualquier
     // reconstrucción del DOM (incluido un tick de polling) debe seguir
     // reflejando `defaultModel` (todavía no ha elegido nada distinto);
@@ -177,7 +177,7 @@
     // curso), nunca volver a `defaultModel` aunque el polling reconstruya
     // el <select> mientras tanto.
     modelIndexDirty: false,
-    // T-FB024-US12-02: agent_id de Developer con confirmación de
+    // T-AF024-US12-02: agent_id de Developer con confirmación de
     // "Eliminar" pendiente (doble pulsación) | null. Mismo patrón que
     // `plansSection.cancelPendingFor`: el aviso crece en la etiqueta del
     // propio botón, sin desplazar el resto del layout entre el primer y
@@ -185,20 +185,23 @@
     devStopPendingFor: null,
     saving: false,
     saveError: null,
-    // Límite de Developer simultáneos (US-FB024-12, GET /system/preferences)
+    // Límite de Developer simultáneos (US-AF024-12, GET /system/preferences)
     // — null hasta que responda el backend, buildUnifiedRows usa el default
     // local mientras tanto (ver DEFAULT_MAX_SIMULTANEOUS_DEVELOPERS).
     maxSimultaneousDevelopers: null,
     // "Despertar": single-flight del POST /agents/{id}/send-keys (empujón al pane).
     awakeningAgentId: null,
     awakenError: null,
-    // T-FB024-US11-13: modelo real de un agente Claude Code, leído UNA
+    // T-AF024-US11-16: single-flight del POST /agents/{id}/release (Liberar
+    // un Developer caído) — evita dobles envíos al pulsar el botón.
+    releaseInFlight: false,
+    // T-AF024-US11-13: modelo real de un agente Claude Code, leído UNA
     // sola vez (GET /agents/{id}/status-model) al montar su selector
     // inline de modelo — Claude Code no tiene lectura pasiva
     // (agent.model siempre null), así que sin esto la preselección
     // siempre caería en el primer modelo del catálogo en vez del real.
     statusModelByAgentId: {},
-    // T-FB005-US07-03: runtime elegido por fila ANTES de lanzar
+    // T-AF005-US07-03: runtime elegido por fila ANTES de lanzar
     // (`chosenRuntimeByRow[rowKey]` = "opencode"|"claude-code"|"codex") —
     // el runtime es una elección explícita y obligatoria para un agente
     // no lanzado (nunca se infiere en silencio del modelo); una vez lanzado
@@ -206,17 +209,17 @@
     // Se guarda por `rowKeyFor(agent)` para que cada fila (Developer-1/2/3,
     // Arquitecto, UX, ...) tenga su propia elección.
     chosenRuntimeByRow: {},
-    // T-FB024-US11-13 (2026-08-17, tercera revisión de esta Task): modelo
+    // T-AF024-US11-13 (2026-08-17, tercera revisión de esta Task): modelo
     // elegido por fila ANTES de lanzar, para OpenCode Y Claude Code (el
     // cambio en caliente queda bloqueado — ver renderCambiarModeloBtn).
     // Mismo patrón que chosenRuntimeByRow: id del catálogo, por rowKey.
     chosenModelByRow: {},
-    // T-FB005-US07-03: cambio de modelo en caliente de un agente OpenCode
+    // T-AF005-US07-03: cambio de modelo en caliente de un agente OpenCode
     // vivo (idle) — single-flight por `agent_id` en vuelo, con el
     // resultado/error del `PUT /agents/{id}/model` real.
     changeModelInFlight: null,
     changeModelError: null,
-    // T-FB024-US11-12 (ajuste de diseño): selector de modelo INLINE para
+    // T-AF024-US11-12 (ajuste de diseño): selector de modelo INLINE para
     // un agente OpenCode vivo en idle, mismo patrón visual que
     // `renderRuntimeSelector` (dropdown directo en la fila, sin botón
     // previo que abrir) — `liveModelOptionsByAgentId[agent.id]` cachea el
@@ -225,21 +228,21 @@
     // guarda la selección en curso del <select> por agente, para no
     // perderla si el polling reconstruye la fila mientras el usuario
     // todavía no ha confirmado (mismo criterio que `modelIndexDirty` del
-    // editor de modelo por defecto, T-FB024-US11-07).
+    // editor de modelo por defecto, T-AF024-US11-07).
     liveModelOptionsByAgentId: {},
     liveModelIndexByAgentId: {},
   };
 
   // ------------------------------------------------------------------
   // Sección AGENTES (pestaña "Agentes" real, `rolesSection`/
-  // `renderUnifiedRow` — ver más abajo; T-FB024-US11-12 eliminó la
+  // `renderUnifiedRow` — ver más abajo; T-AF024-US11-12 eliminó la
   // implementación paralela `agentsSection`/`renderAgentActions`, código
   // inalcanzable desde la navegación real). A diferencia de Jobs/Plan/
   // Scripts (cargados una vez y cacheados en `state.sections`), la lista
   // de agentes se refresca por POLLING cada [POLL_INTERVAL_MILLIS]
   // mientras la pestaña está visible — mismo intervalo/criterio que
   // `AgentsViewModel.POLL_INTERVAL_MILLIS` (Android, 3s): no existe canal
-  // WebSocket de estado de agente en FB-016 (solo `job_status` en
+  // WebSocket de estado de agente en AF-016 (solo `job_status` en
   // `WS /ws/jobs`), por lo que el polling ligero es el mecanismo.
   var POLL_INTERVAL_MILLIS = 3000;
 
@@ -253,7 +256,7 @@
     working: "#EF6C00", // ámbar/naranja (Orange 800) — ocupado
     stopped: "#757575", // gris (Grey 600) — inactivo a propósito
     unavailable: "#D32F2F", // rojo (Red 700) — fallo no solicitado
-    limited: "#6A1B9A", // púrpura (Purple 800) — sin límite de sesión, T-FB024-US21-01
+    limited: "#6A1B9A", // púrpura (Purple 800) — sin límite de sesión, T-AF024-US21-01
   };
 
   function agentStatusColor(status) {
@@ -261,7 +264,7 @@
   }
 
   // ------------------------------------------------------------------
-  // Sección JOBS (T-FB021-US04-01). El estado de la sección vive en
+  // Sección JOBS (T-AF021-US04-01). El estado de la sección vive en
   // `jobsSection` (no en un módulo que se reinicialice): `list` es el
   // histórico recompuesto desde `GET /jobs` y `pendingCreatedJob` el Job
   // en curso. La lista se recalcula SIEMPRE desde `GET /jobs`/el canal
@@ -283,18 +286,18 @@
     stale: false,
     listError: null,
     // Job seleccionado en el histórico para ver su detalle completo (punto
-    // 2 de T-FB021-US04-02): id basado, persiste a través de la
+    // 2 de T-AF021-US04-02): id basado, persiste a través de la
     // recomposición desde GET /jobs.
     selectedJobId: null,
     // Formulario de creación (punto 3): agentes destinatarios (de los ya
-    // lanzados, T-FB021-US03-01), descripción y Job previo opcional.
+    // lanzados, T-AF021-US03-01), descripción y Job previo opcional.
     agents: null, // null = sin cargar | array = agentes lanzados (sin stopped)
     agentsError: null,
     agentIndex: 0,
     descriptionInput: "",
     previousJobId: null, // job_id encadenado | null
-    // T-FB024-US15-02: Story TO_DO opcional a asociar al Job (`story_id`
-    // en `POST /jobs`, T-FB024-US15-01) — índice sobre el mismo catálogo
+    // T-AF024-US15-02: Story TO_DO opcional a asociar al Job (`story_id`
+    // en `POST /jobs`, T-AF024-US15-01) — índice sobre el mismo catálogo
     // compartido `plansSection.todoStories` (0 = "Sin Story asociada").
     storySelectIndex: 0,
     formError: null,
@@ -314,7 +317,7 @@
     bodyWrap: null,
   };
 
-  // Sección PLAN (T-FB021-US05-01): solicitud del plan del Arquitecto, vista
+  // Sección PLAN (T-AF021-US05-01): solicitud del plan del Arquitecto, vista
   // completa y aprobación/rechazo — paridad con `PlanScreen`/`PlanViewModel`.
   // `currentPlan` es el plan mostrado (plan_id + goal + status + steps); el
   // filtro de `WS /ws/plans` (punto 3) descarta todo evento cuyo `plan_id`
@@ -326,7 +329,7 @@
     currentPlanId: null, // filtro de eventos WS (punto 3)
     goalInput: "",
     goalSelectIndex: 0,
-    // T-FB024-US04-02: historias TO_DO del backlog como opciones del selector.
+    // T-AF024-US04-02: historias TO_DO del backlog como opciones del selector.
     todoStories: null, // null = sin cargar | array = [{id, epic}]
     todoStoriesLoading: false,
     todoStoriesError: null,
@@ -338,14 +341,14 @@
     approvePending: false,
     approving: false,
     rejecting: false, // single-flight POST /plans/{id}/reject (punto 7)
-    // Cancelar (T-FB021-US05-02): SOLO se ofrece mientras el plan está
+    // Cancelar (T-AF021-US05-02): SOLO se ofrece mientras el plan está
     // `approved` y quedan pasos `pending`/`running` (misma condición que
     // el dominio `request_cancellation`). Confirmación de 2ª pulsación en
     // la ETIQUETA del botón (mismo patrón anti-reflow que Cancelar
     // Job/Detener) + single-flight de la llamada real (punto 3).
     cancelPendingFor: null, // plan_id con confirmación pendiente | null
     cancellingPlanId: null, // cancelación en vuelo (single-flight)
-    // Histórico (T-FB021-US05-02): lista desde `GET /plans` (incluye los
+    // Histórico (T-AF021-US05-02): lista desde `GET /plans` (incluye los
     // ya decididos — el backend no purga ninguno, mismo criterio que
     // `GET /jobs`) + detalle de uno concreto vía `GET /plans/{id}`.
     history: null, // null = sin cargar | array = planes de la sesión
@@ -355,16 +358,16 @@
     historyDetail: null, // detalle cargado vía GET /plans/{id} | null
     historyDetailError: null,
     actionError: null,
-    // Canal WS /ws/plans (mismo wrapper reutilizado de T-FB021-US04-01).
+    // Canal WS /ws/plans (mismo wrapper reutilizado de T-AF021-US04-01).
     ws: null,
     wsStatus: null, // null | "connecting" | "connected" | "reconnecting"
   };
 
-  // Sección SCRIPTS (T-FB021-US06-01): catálogo combinado (genérico +
+  // Sección SCRIPTS (T-AF021-US06-01): catálogo combinado (genérico +
   // particular, `GET /scripts`) con indicador de origen, ejecución con un
   // clic (`POST /scripts/{id}/run`), resultado completo (success/stdout/
   // stderr/error_message) y presentación legible de `backlog_status`
-  // (punto 4, mismo shape de T-FB018-US02-04). `runningScriptId` es el
+  // (punto 4, mismo shape de T-AF018-US02-04). `runningScriptId` es el
   // single-flight de la ejecución (punto 5).
   var scriptsSection = {
     bodyWrap: null,
@@ -385,7 +388,7 @@
   };
 
   // ------------------------------------------------------------- BACKLOG
-  // (T-FB020-US04-01). Mismo patrón de expandir-en-el-sitio ya usado en
+  // (T-AF020-US04-01). Mismo patrón de expandir-en-el-sitio ya usado en
   // Jobs/Plan (histórico con detalle desplegable al clic, sin navegar a
   // otra pantalla) — no un `Screen`/estado de navegación por pantallas
   // como Android/TUI: lista de Epics -> clic expande sus User Stories
@@ -406,7 +409,7 @@
     report: null,
     reportError: null,
     stale: false,
-    // Epic actualmente expandida en el listado (id `FB-xxx` derivado del
+    // Epic actualmente expandida en el listado (id `AF-xxx` derivado del
     // label libre) — su detalle se pide con `GET /backlog/{epic_id}` de
     // forma perezosa (solo al expandir, mismo criterio que
     // `togglePlanHistoryDetail`).
@@ -419,12 +422,12 @@
     itemDetail: null,
     itemDetailError: null,
     // Formulario "Lanzar desarrollo" (solo visible para el detalle de una
-    // User Story, T-FB020-US02-02): agentes Developer ya lanzados
+    // User Story, T-AF020-US02-02): agentes Developer ya lanzados
     // (mismo catálogo que Agentes/Jobs, filtrado a role === "developer"),
     // single-flight de la propia llamada, y el resultado/`detail` real
     // del backend ante un rechazo (400 sin Tasks TO_DO, 404 agente
     // inválido) — nunca un mensaje genérico (criterio de aceptación
-    // explícito, mismo patrón que T-FB021-US04-01).
+    // explícito, mismo patrón que T-AF021-US04-01).
     developerAgents: null,
     developerAgentsError: null,
     developerAgentIndex: 0,
@@ -432,7 +435,7 @@
     launchError: null,
     launchResult: null,
     viewMode: "flat", // "flat" | "by_fase"
-    // T-FB036-US01-01: barra de controles (buscador + filtro de estado +
+    // T-AF036-US01-01: barra de controles (buscador + filtro de estado +
     // filtro de prioridad), filtrando en cliente sobre `report` ya
     // cargado, sin llamada adicional al backend. `filterText` guarda el
     // valor YA debounced (200ms) que se usa para filtrar; `filterTextInput`
@@ -446,20 +449,28 @@
     filterTextDebounceTimer: null,
     filterState: "all", // "all" | "TO_DO" | "IN_PROGRESS" | "REVIEW" | "DONE" | "blocked"
     filterPriority: "all", // "all" | "Crítica" | "Alta" | "Media" | "Baja" | "none"
-    // T-FB036-US01-02: panel "Próximo foco" (report.max_leverage_chain),
-    // colapsable, expandido por defecto — solo estado de UI local, sin
-    // llamada adicional al backend (el dato ya viene en `report`).
-    backlogFocusCollapsed: false,
-    // T-FB036-US01-04: Epics agrupadas bajo "Terminadas (N)", plegado por
+    // T-AF036-US11-01: filtro por fase del roadmap — "all" | <fase> |
+    // "SIN_ASIGNAR". Se construye dinámicamente a partir del informe (las
+    // fases no son un conjunto fijo). Vive en `backlogSection`, igual que
+    // filterState/filterPriority, así que sobrevive a
+    // `refreshBacklogReport()` (se reaplica sobre el `report` nuevo).
+    filterFase: "all",
+    // T-AF036-US16-05: se retiró el panel "Próximo foco" (decisión de
+    // producto 2026-08-19) y con él su estado local `backlogFocusCollapsed`.
+    // T-AF036-US01-04: Epics agrupadas bajo "Terminadas (N)", plegado por
     // defecto (T5 de la especificación UX) — booleano local, sin fetch.
     showDoneEpics: false,
-    // T-FB036-US01-05: tarjeta "(sin epic)" expandida/plegada — solo hay
+    // T-AF036-US15-02: en la vista "Por Fase", estado de plegado por grupo
+    // (clave = fase) de los bloques colapsables "Terminadas" y "Todas fuera
+    // de roadmap" — ambos colapsados por defecto, mismos booleans por grupo.
+    byFaseOpen: {},
+    // T-AF036-US01-05: tarjeta "(sin epic)" expandida/plegada — solo hay
     // UNA entrada huérfana por informe (`by_epic` las colapsa todas bajo
     // el label literal "(sin epic)", `report.py:161`), así que un
     // booleano basta, sin necesitar un id real (no existe `epicId` que
     // guardar, ver `epicIdFromLabel`).
     orphanExpanded: false,
-    // T-FB036-US01-04, T7: tras pulsar el badge "N bloqueadas" de una
+    // T-AF036-US01-04, T7: tras pulsar el badge "N bloqueadas" de una
     // Epic que aún no estaba expandida, el scroll a la primera US
     // bloqueada debe esperar a que `epicDetail` llegue (fetch async de
     // `toggleEpicDetail`) — este par guarda el `epicId` en vuelo y sus
@@ -468,20 +479,12 @@
     // hay scroll pendiente.
     pendingBlockedScrollEpicId: null,
     pendingBlockedScrollItems: null,
-    // T-FB036-US01-10: id del elemento del DOM al que hacer scroll en
-    // cuanto el detalle de la Epic (y, para una Task, también el de su
-    // US padre) termine de renderizarse tras un clic en el panel
-    // "Próximo foco" — mecanismo independiente del de
-    // `pendingBlockedScrollEpicId` de arriba (badge "N bloqueadas") para
-    // no acoplar ambos flujos, aunque el patrón sea similar. `null` = no
-    // hay scroll pendiente.
-    pendingChainScrollElementId: null,
-    // T-FB024-US09-03: formulario manual de Job en detalle de US.
+    // T-AF024-US09-03: formulario manual de Job en detalle de US.
     manualJobAgents: null,
     manualJobAgentsError: null,
     manualJobAgentIndex: 0,
     manualJobDescription: "",
-    // T-FB024-US15-02: índice sobre el mismo catálogo compartido
+    // T-AF024-US15-02: índice sobre el mismo catálogo compartido
     // `plansSection.todoStories` (0 = "Sin Story asociada", igual que
     // `jobsSection.storySelectIndex`) — se inicializa a la Story cuyo
     // detalle está abierto SI esa Story está en TO_DO (ver
@@ -491,34 +494,32 @@
     creatingManualJob: false,
     manualJobError: null,
     manualJobResult: null,
-    // T-FB008-US10-03: encolar/desencolar una Task individual desde su
+    // T-AF008-US10-03: encolar/desencolar una Task individual desde su
     // detalle — single-flight por `task_id` (guarda el id en vuelo, no
     // solo un booleano, mismo criterio ya usado por
     // `proposeStoriesInFlight`/`proposeTasksInFlight`) para no bloquear
     // otra Task mientras esta petición está en curso.
     enqueueTaskInFlight: null,
     enqueueTaskError: null,
-    // T-FB008-US10-03: encolar toda una User Story de una sola llamada
-    // — single-flight por `us_id`, mismo criterio.
-    enqueueAllInFlight: null,
-    enqueueAllResult: null,
-    enqueueAllError: null,
-    // T-FB008-US10-03: vista de cola — null = sin cargar todavía |
+    // T-AF008-US10-03: vista de cola — null = sin cargar todavía |
     // array = último snapshot de GET /backlog/queue ya cargado. Se
     // recarga tras cada acción de encolar/desencolar con éxito (mismo
     // criterio de refresco que el resto de esta pantalla), sin polling
-    // periódico propio (igual que el resto de Backlog, T-FB036-US01-01:
+    // periódico propio (igual que el resto de Backlog, T-AF036-US01-01:
     // "no hay setInterval sobre esta pantalla").
     dispatchQueue: null,
     dispatchQueueError: null,
     dispatchQueueCollapsed: false,
-    // T-FB036-US07-01: desplegable "Opciones avanzadas" del detalle de una
+    // T-AF036-US12-01: timer del polling periódico del panel de la cola de
+    // despacho (mientras la pestaña de Backlog está abierta) | null.
+    dispatchQueuePollTimer: null,
+    // T-AF036-US07-01: desplegable "Opciones avanzadas" del detalle de una
     // US (Lanzar desarrollo + Crear Job manual) — colapsado por defecto.
     // No persiste entre distintos items: se resetea a `true` al expandir
     // cualquier detalle nuevo (toggleItemDetail/toggleNestedTaskDetail),
     // "menos ruido por defecto" para cada detalle.
     advancedOptionsCollapsed: true,
-    // T-FB008-US10-03: detalle de una Task individual expandida DENTRO
+    // T-AF008-US10-03: detalle de una Task individual expandida DENTRO
     // del detalle de su propia User Story — slot de estado SEPARADO de
     // `selectedItemId`/`itemDetail` (el de la propia US): antes de esta
     // Task, ninguna Task individual era clicable en la UI; reutilizar
@@ -529,21 +530,21 @@
     selectedNestedTaskId: null,
     nestedTaskDetail: null,
     nestedTaskDetailError: null,
-    // T-FB036-US08-01: edición de prioridad/estado en línea — single-flight
+    // T-AF036-US08-01: edición de prioridad/estado en línea — single-flight
     // por `item_id` (misma US/Task no puede tener dos PUT en vuelo a la
     // vez), `editItemErrorFor` guarda a qué item pertenece el último error
     // para no mostrarlo bajo una fila distinta a la que lo produjo.
     editItemInFlight: null,
     editItemError: null,
     editItemErrorFor: null,
-    // T-FB036-US02-04: formulario "+ Nueva Epic" — `null` = cerrado |
+    // T-AF036-US02-04: formulario "+ Nueva Epic" — `null` = cerrado |
     // objeto `{id, title, objetivo, fase, submitting, error}` = abierto
     // (mismo patrón de estado que los formularios de Jobs/Plan). Los
     // valores de los campos viven en el propio objeto para sobrevivir al
     // re-render de `renderBacklogBody()` (mismo criterio que
     // `manualJobDescription`/`filterTextInput`).
     newEpicForm: null,
-    // T-FB036-US02-05: formulario inline "+ Nueva User Story" — mismo
+    // T-AF036-US02-05: formulario inline "+ Nueva User Story" — mismo
     // patrón que `newEpicForm`, con `epicId` fijado desde el contexto
     // (la Epic expandida donde se pulsó el botón) en vez de un `<input>`
     // editable. Un único slot global (no uno por Epic): abrir el
@@ -551,16 +552,16 @@
     // abierto en otra, mismo criterio que el resto de esta pantalla
     // (`editingRowKey`, `selectedItemId`).
     newUserStoryForm: null,
-    // T-FB036-US02-06: formulario inline "+ Nueva Task" — mismo patrón que
+    // T-AF036-US02-06: formulario inline "+ Nueva Task" — mismo patrón que
     // `newUserStoryForm`, con `us_id`/`epic_id` fijados desde el contexto
     // (la US expandida donde se pulsó el botón). Un único slot global
     // (no uno por US): abrir el formulario en una US distinta descarta
     // cualquier formulario ya abierto en otra.
     newTaskForm: null,
-    // T-FB036-US10-01: botones "Proponer User Stories" (detalle de Epic)
+    // T-AF036-US10-01: botones "Proponer User Stories" (detalle de Epic)
     // y "Aterrizar en Tasks" (detalle de User Story) — single-flight por
-    // id en vuelo, mismo criterio que `enqueueTaskInFlight`/
-    // `enqueueAllInFlight`. El error/resultado del pipeline viven en
+    // id en vuelo, mismo criterio que `enqueueTaskInFlight`. El
+    // error/resultado del pipeline viven en
     // slots globales que SOLO se pintan en el detalle que los generó
     // (se resetean al cambiar de detalle o al lanzar una petición nueva).
     proposeStoriesInFlight: null, // epic_id en vuelo | null
@@ -569,9 +570,31 @@
     proposeTasksInFlight: null,   // us_id en vuelo | null
     proposeTasksError: null,      // motivo verbatim del backend | null
     proposeTasksResult: null,     // resumen del pipeline aprobado | null
+    // T-AF036-US05-01: botón "Revisar cobertura" (detalle de Epic) —
+    // single-flight por epic_id, mismo patrón que proposeStories. El
+    // resultado (coverage) vive en un slot global que solo se pinta en el
+    // detalle de la Epic que lo generó (se resetea al cambiar de detalle).
+    coverageInFlight: null, // epic_id en vuelo | null
+    coverageError: null,    // motivo verbatim del backend | null
+    coverageResult: null,   // {declared_alcance, points, gaps, message} | null
+    // T-AF036-US06-01: informe de cierre real de una User Story — se carga
+    // automáticamente al expandir el detalle de una US (sin clic explícito),
+    // con indicador de carga bajo el bloque de Tasks. `closingReportUsId`
+    // guarda a qué US pertenece el estado (para no pintar el informe de una
+    // US distinta mientras se abre otra); `closingReport` es la respuesta
+    // del endpoint (`{exists, content}`) o null si aún no llegó;
+    // `closingReportError` guarda el motivo verbatim de un error real,
+    // distinguible del caso "informe ausente".
+    closingReportUsId: null,
+    closingReportLoading: false,
+    closingReportError: null,
+    closingReport: null,
+    // Task del informe a la que hacer scroll (id de Task cerrada) — se
+    // consume en el mismo render y se limpia.
+    closingReportScrollTaskId: null,
   };
 
-  // Sección MODELOS (T-FB022-US10-02): catálogo con habilitado/deshabilitado
+  // Sección MODELOS (T-AF022-US10-02): catálogo con habilitado/deshabilitado
   // y defaults por rol, consumiendo GET/PUT /models/preferences.
   var modelsSection = {
     bodyWrap: null,
@@ -586,7 +609,7 @@
     saveError: null,
   };
 
-  // Sección CONFIGURACIÓN (US-FB024-12): catálogo abierto de preferencias
+  // Sección CONFIGURACIÓN (US-AF024-12): catálogo abierto de preferencias
   // de sistema, consumiendo GET/PUT /system/preferences. Empieza con un
   // único valor (límite de Developer simultáneos), pero el formulario está
   // pensado para crecer sin rediseñarse — cada preferencia es una fila
@@ -600,7 +623,7 @@
     dirty: false,
     saving: false,
     saveError: null,
-    // Reinicio del servicio (T-FB037-US05-02): confirmación de doble
+    // Reinicio del servicio (T-AF037-US05-02): confirmación de doble
     // pulsación, estado "Reiniciando…" y polling de recuperación.
     restartPendingFor: null, // true mientras espera la segunda pulsación
     restarting: false,
@@ -609,7 +632,7 @@
     restartPollTimer: null,
   };
 
-  // --------------------------------------------------------- FB-025 Hilo 3
+  // --------------------------------------------------------- AF-025 Hilo 3
   var accionesSection = {
     bodyWrap: null,
     inFlight: null, // action_id en vuelo o null
@@ -617,8 +640,8 @@
     error: null,
   };
 
-  // --------------------------------------------------------- FB-028
-  // Barra de estado persistente del Arquitecto (US-FB028-01): polling 3s
+  // --------------------------------------------------------- AF-028
+  // Barra de estado persistente del Arquitecto (US-AF028-01): polling 3s
   // del agente Arquitecto, modelo y botón lanzar/detener visibles en todas
   // las pestañas. El estado solo se refresca si hay proyecto activo.
   var ARQUITECTO_POLL_MILLIS = 3000;
@@ -632,16 +655,24 @@
     stopPending: false,
     defaultModel: null, // modelo default para arquitecto desde GET /models/preferences
     modelPreferencesReady: false,
+    catalog: [], // catálogo {id, name} para resolver nombres amigables en la barra (2026-08-18)
+    // T-AF028-US01-01: modelo activo REAL del Arquitecto (Claude Code no lo
+    // guarda pasivamente — se consulta bajo demanda vía
+    // `GET /agents/{id}/status-model`, nunca mientras el agente está
+    // `working`). `realModelAgentId` evita re-consultar el mismo agente.
+    realModel: null,
+    realModelPending: false,
+    realModelAgentId: null,
   };
 
-  // Pestaña Arquitecto (US-FB028-02): órdenes deterministas, prompt libre
+  // Pestaña Arquitecto (US-AF028-02): órdenes deterministas, prompt libre
   // e historial de últimas 10 respuestas.
   var ORDENES_ARQUITECTO = [
     { id: "generar-us", label: "Generar User Stories", desc: "Toma una Epic y la desglosa en User Stories.", needsSelect: "epic", promptPrefix: "Desglosa la siguiente Epic en User Stories:" },
     { id: "desgranar-tasks", label: "Desgranar en Tasks", desc: "Toma una User Story y genera sus Tasks.", needsSelect: "us", promptPrefix: "Genera las Tasks para la siguiente User Story:" },
     { id: "emitir-veredicto", label: "Emitir veredicto", desc: "Revisa el trabajo del Developer sobre una US en progreso y emite veredicto estructurado.", needsSelect: "us_in_progress", promptPrefix: "Revisa el trabajo del Developer sobre esta User Story y emite tu veredicto:" },
     { id: "auditar-consistencia", label: "Auditar consistencia", desc: "Revisa todo el backlog buscando US sin Epic, Tasks sin US, formatos rotos y dependencias circulares.", needsSelect: null, promptPrefix: "Audita la consistencia del backlog completo del proyecto. Busca: User Stories sin Epic, Tasks sin User Story, formatos rotos en cualquier fichero del backlog, y dependencias circulares. Genera un informe con los hallazgos." },
-    { id: "informe-progreso", label: "Informe de progreso", desc: "Genera un resumen del pipeline: US en cada estado, bloqueos y cuellos de botella.", needsSelect: null, promptPrefix: "Genera un informe completo del estado del pipeline de desarrollo. Incluye: cuántas User Stories hay en cada estado (TO_DO, in_progress, DONE), qué bloqueos existen (dependencias sin resolver), y qué cuellos de botella detectas. Resume también el estado de cada Epic." },
+    { id: "informe-progreso", label: "Informe de progreso", desc: "Genera un resumen del pipeline: US en cada estado, bloqueos y cuellos de botella.", needsSelect: null, promptPrefix: "Genera un informe completo del estado del pipeline de desarrollo. Incluye: cuántas User Stories hay en cada estado (READY, TO_DEVELOP, IN_PROGRESS, IN_REVIEW, DONE), qué bloqueos existen (dependencias sin resolver), y qué cuellos de botella detectas. Resume también el estado de cada Epic." },
   ];
 
   var arquitectoTabState = {
@@ -672,6 +703,7 @@
     if (state.showPicker || !state.connected || !state.active) {
       stopArquitectoPolling();
       stopRolesPolling();
+      stopDispatchQueuePolling();
     }
     if (state.showPicker) {
       renderProjectPicker();
@@ -693,7 +725,7 @@
       h(
         "p",
         null,
-        "Factory Brain necesita hablar con el backend antes de poder mostrar " +
+        "Atlas Forge necesita hablar con el backend antes de poder mostrar " +
           "agentes, Jobs o el plan del Arquitecto. Comprueba que el servicio esté en " +
           "marcha y vuelve a intentarlo."
       )
@@ -701,7 +733,7 @@
     if (state.contextError) {
       wrapper.appendChild(h("p", "error-detail", "Detalle: " + state.contextError));
     }
-    // CTA directo al MISMO mecanismo de reintento de T-FB021-US02-01
+    // CTA directo al MISMO mecanismo de reintento de T-AF021-US02-01
     // (checkConnectivity), sin duplicar el flujo.
     var retry = button("Reintentar");
     retry.addEventListener("click", checkConnectivity);
@@ -722,7 +754,7 @@
           "trabajar para acceder a Agentes, Jobs, Plan y Scripts."
       )
     );
-    // CTA directo al MISMO selector de T-FB021-US02-02 (openProjectPicker).
+    // CTA directo al MISMO selector de T-AF021-US02-02 (openProjectPicker).
     var cta = button("Elegir proyecto");
     cta.addEventListener("click", function () {
       openProjectPicker("initial");
@@ -786,7 +818,7 @@
     clearRoot();
 
     // Barra de contexto persistente: proyecto activo + acceso a cambiarlo
-    // (mismo criterio de T-FB021-US02-02).
+    // (mismo criterio de T-AF021-US02-02).
     var toolbar = h("div", "context-bar");
     var name = state.active && state.active.name ? state.active.name : "ninguno";
     toolbar.appendChild(h("span", "context-chip", "Proyecto activo: " + name));
@@ -797,7 +829,7 @@
     toolbar.appendChild(changeBtn);
     ROOT.appendChild(toolbar);
 
-    // Barra de estado del Arquitecto (US-FB028-01): segunda linea bajo
+    // Barra de estado del Arquitecto (US-AF028-01): segunda linea bajo
     // proyecto activo, visible en todas las pestañas.
     var arqBar = h("div", "arquitecto-bar");
     arquitectoState._barEl = arqBar;
@@ -838,7 +870,7 @@
     return { roles: "Agentes", jobs: "Jobs", plan: "Plan", scripts: "Scripts", backlog: "Backlog", models: "Modelos", acciones: "Acciones", arquitecto: "Arquitecto", configuracion: "Configuración" }[key];
   }
 
-  // Barra de estado del Arquitecto (US-FB028-01): segunda linea bajo
+  // Barra de estado del Arquitecto (US-AF028-01): segunda linea bajo
   // proyecto activo con indicador de estado, rol y modelo. Sin boton de
   // accion: Lanzar/Detener del Arquitecto se gestiona en la pantalla Agentes.
   function renderArquitectoBar() {
@@ -862,9 +894,21 @@
     // Nombre del rol
     bar.appendChild(h("span", "arq-role-name", "Arquitecto"));
 
-    // Modelo
-    if (isActive && arq.model) {
-      bar.appendChild(h("span", "arq-model", arq.model));
+    // Runtime (2026-08-18, tras US-AF031-03: tras reconciliar el agente
+    // recupera su runtime real, y la barra superior debe reflejarlo igual
+    // que la fila de Agentes — antes solo se mostraba el modelo).
+    if (isActive && arq.runtime_id) {
+      bar.appendChild(h("span", "arq-runtime", "· " + runtimeDisplayName(arq.runtime_id)));
+    }
+
+    // Modelo (T-AF028-US01-01): se muestra el modelo activo REAL cuando es
+    // consultable — el del agente (OpenCode, lectura pasiva) o el leído bajo
+    // demanda para Claude Code (`arquitectoState.realModel`). Si no se puede
+    // conocer (agente parado o consulta no disponible), cae al modelo por
+    // defecto configurado como aproximación — nunca un valor inventado.
+    var activeModel = isActive ? (arq.model || arquitectoState.realModel) : null;
+    if (activeModel) {
+      bar.appendChild(h("span", "arq-model", catalogModelName(activeModel)));
     } else if (arquitectoState.defaultModel) {
       bar.appendChild(h("span", "arq-model", arquitectoState.defaultModel));
     } else {
@@ -926,6 +970,11 @@
       arquitectoTabState.promptText = "";
       arquitectoTabState.promptConfirmPending = false;
     }
+    if (key !== state.section && state.section === "backlog") {
+      // T-AF036-US12-01: al salir de la pestaña Backlog se detiene el
+      // polling del panel de la cola de despacho (no queda timer huérfano).
+      stopDispatchQueuePolling();
+    }
     state.section = key;
     if (!fromHistory) {
       history.pushState({ section: key }, "", pathForSection(key));
@@ -948,7 +997,7 @@
     content.appendChild(h("h3", null, SECTION_LABEL(state.section)));
 
     // Roles tiene su propio renderizado con estado (catálogo de 4 roles
-    // con modelo y descripción, T-FB024-US08-01): no pasa por la caché.
+    // con modelo y descripción, T-AF024-US08-01): no pasa por la caché.
     if (state.section === "roles") {
       ROOT.appendChild(content);
       renderRolesInto(content);
@@ -972,7 +1021,7 @@
     }
     // Scripts también tiene su propio renderizado con estado (catálogo
     // combinado + ejecución con single-flight + resultado completo,
-    // T-FB021-US06-01): no pasa por la caché única de `renderSectionData`.
+    // T-AF021-US06-01): no pasa por la caché única de `renderSectionData`.
     if (state.section === "scripts") {
       ROOT.appendChild(content);
       renderScriptsInto(content);
@@ -980,7 +1029,7 @@
     }
     // Backlog también tiene su propio renderizado con estado (listado de
     // Epics + detalle expandido en el sitio + formulario de "Lanzar
-    // desarrollo", T-FB020-US04-01): no pasa por la caché única.
+    // desarrollo", T-AF020-US04-01): no pasa por la caché única.
     if (state.section === "backlog") {
       ROOT.appendChild(content);
       renderBacklogInto(content);
@@ -992,7 +1041,7 @@
       return;
     }
     // Configuración también tiene su propio renderizado con estado
-    // (catálogo abierto de preferencias de sistema, US-FB024-12): no pasa
+    // (catálogo abierto de preferencias de sistema, US-AF024-12): no pasa
     // por la caché única.
     if (state.section === "configuracion") {
       ROOT.appendChild(content);
@@ -1065,7 +1114,7 @@
         box.appendChild(h("p", "section-line", plan.plan_id + " · " + plan.status + " · " + plan.goal));
       });
     } else if (key === "scripts") {
-      // T-FB021-US06-01: Scripts tiene su PROPIO renderizado con estado
+      // T-AF021-US06-01: Scripts tiene su PROPIO renderizado con estado
       // (catálogo + ejecución + resultado); este caso solo se alcanza si
       // por algún camino no contemplado se invoca `renderSectionData`
       // para scripts — se mantiene como respaldo legible sin romper.
@@ -1080,8 +1129,8 @@
     return box;
   }
 
-  // --------------------------------------------------- FB-028 Arquitecto
-  // Polling 3s del estado del Arquitecto (US-FB028-01): busca el agente
+  // --------------------------------------------------- AF-028 Arquitecto
+  // Polling 3s del estado del Arquitecto (US-AF028-01): busca el agente
   // con role=arquitecto en GET /agents y actualiza la barra de estado.
   // Arranca al activar proyecto y se para al cambiarlo.
 
@@ -1090,9 +1139,12 @@
     BackendClient.getModelsPreferences()
       .then(function (result) {
         arquitectoState.defaultModel = (result.defaults && result.defaults.arquitecto) || null;
+        arquitectoState.catalog = (result.models || []).map(function (m) {
+          return { id: m.id, name: m.name };
+        });
         arquitectoState.modelPreferencesReady = true;
         renderArquitectoBar();
-        // T-FB024-US11-09 criterio 1: si el usuario ya está en la pantalla
+        // T-AF024-US11-09 criterio 1: si el usuario ya está en la pantalla
         // Agentes cuando esto resuelve, el botón "Lanzar" (calculado sobre
         // arquitectoState.defaultModel en cada render) debe reflejar el
         // resultado real de inmediato, sin esperar al siguiente ciclo de
@@ -1125,6 +1177,44 @@
     arquitectoState.defaultModel = null;
   }
 
+  // T-AF028-US01-01: consulta bajo demanda del modelo activo REAL del
+  // Arquitecto (Claude Code no lo expone pasivamente). Solo se dispara
+  // cuando el agente está `idle` (NUNCA `working`), con runtime Claude Code,
+  // y una sola vez por agente (`realModelAgentId`). Si la consulta no está
+  // disponible o el agente está parado, se deja `realModel` en `null` y la
+  // barra cae al modelo por defecto como aproximación (nunca un valor
+  // inventado).
+  function refreshArquitectoRealModel() {
+    var arq = arquitectoState.agent;
+    if (!arq || arq.status === "stopped" || arq.status === "unavailable") {
+      arquitectoState.realModel = null;
+      arquitectoState.realModelPending = false;
+      arquitectoState.realModelAgentId = null;
+      return;
+    }
+    if (
+      arq.status === "idle" &&
+      arq.runtime_id === "claude-code" &&
+      arquitectoState.realModelAgentId !== arq.id &&
+      !arquitectoState.realModelPending
+    ) {
+      arquitectoState.realModelPending = true;
+      BackendClient.getAgentStatusModel(arq.id)
+        .then(function (result) {
+          arquitectoState.realModel = result.model || null;
+          arquitectoState.realModelPending = false;
+          arquitectoState.realModelAgentId = arq.id;
+          renderArquitectoBar();
+        })
+        .catch(function () {
+          arquitectoState.realModel = null;
+          arquitectoState.realModelPending = false;
+          arquitectoState.realModelAgentId = arq.id;
+          renderArquitectoBar();
+        });
+    }
+  }
+
   async function pollArquitecto() {
     if (!state.active) return;
     try {
@@ -1141,6 +1231,7 @@
       arquitectoState.agent = arq;
       arquitectoState.stale = false;
       arquitectoState.error = null;
+      refreshArquitectoRealModel();
     } catch (error) {
       if (arquitectoState.agent !== null || arquitectoState.stale) {
         arquitectoState.stale = true;
@@ -1150,7 +1241,7 @@
     }
     renderArquitectoBar();
     if (state.section === "arquitecto") renderArquitectoBody();
-    // T-FB024-US11-09 criterio 1: la fila del Arquitecto en la pantalla
+    // T-AF024-US11-09 criterio 1: la fila del Arquitecto en la pantalla
     // Agentes (rolesSection) depende de arquitectoState.agent, que este
     // poll acaba de actualizar — sin este refresco, el botón "Lanzar"
     // podía quedar desincronizado (habilitado/deshabilitado incorrecto)
@@ -1160,15 +1251,15 @@
 
   function launchArquitecto(agent) {
     if (arquitectoState.launchPending || arquitectoState.stopPending) return;
-    // T-FB005-US07-03: el runtime lo elige el usuario en la fila de la
+    // T-AF005-US07-03: el runtime lo elige el usuario en la fila de la
     // pantalla Agentes (selector obligatorio). Sin runtime elegido, no se
-    // lanza (criterio 1 de US-FB005-07).
+    // lanza (criterio 1 de US-AF005-07).
     var chosenRuntime = agent ? chosenRuntimeForRow(agent) : "";
     if (!chosenRuntime) return;
     arquitectoState.launchPending = true;
     renderArquitectoBar();
     // El runtime mandado es SIEMPRE el elegido (nunca el inferido del
-    // modelo, T-FB005-US07-02). El modelo solo se manda cuando el runtime
+    // modelo, T-AF005-US07-02). El modelo solo se manda cuando el runtime
     // lo admite (OpenCode) y el default del rol es un modelo real (no
     // "claude-code", que es un runtime, no un modelo de OpenCode).
     var arqPayload = { role: "arquitecto", runtime_type: chosenRuntime };
@@ -1231,7 +1322,7 @@
     return role.charAt(0).toUpperCase() + role.slice(1);
   }
 
-  // Nombre visible del runtime a partir de su id (T-FB024-US04-03).
+  // Nombre visible del runtime a partir de su id (T-AF024-US04-03).
   function runtimeDisplayName(runtimeId) {
     if (runtimeId === "claude-code") return "Claude Code";
     if (runtimeId === "opencode") return "OpenCode";
@@ -1259,7 +1350,7 @@
   }
 
   // ------------------------------------------------------------- JOBS
-  // (T-FB021-US04-01). Formulario de creación + seguimiento en tiempo
+  // (T-AF021-US04-01). Formulario de creación + seguimiento en tiempo
   // real por `WS /ws/jobs` + histórico recompuesto desde `GET /jobs`.
   // Ver `jobsSection` arriba.
 
@@ -1272,7 +1363,7 @@
     connectJobsWebSocket();
     refreshJobsAgents();
     refreshJobs();
-    // T-FB024-US15-02: mismo catálogo de Stories TO_DO que el selector del
+    // T-AF024-US15-02: mismo catálogo de Stories TO_DO que el selector del
     // flujo de Plan — cargado aquí también por si el usuario llega
     // directo a Jobs sin haber visitado Plan antes.
     loadTodoStories();
@@ -1288,7 +1379,7 @@
 
   // URL del canal WS desde la base del backend (mismo host/puerto, solo
   // cambia el esquema `http` -> `ws`): same-origin si la web se sirve
-  // desde el propio backend (T-FB021-US01-01), o desde `setBaseUrl`.
+  // desde el propio backend (T-AF021-US01-01), o desde `setBaseUrl`.
   function jobsWsUrl() {
     var base = BackendClient.getBaseUrl() || "";
     if (!base && window && window.location && window.location.origin) {
@@ -1634,12 +1725,12 @@
     });
     form.appendChild(prevSelect);
 
-    // T-FB024-US15-02: Story TO_DO opcional a asociar al Job — mismo
+    // T-AF024-US15-02: Story TO_DO opcional a asociar al Job — mismo
     // selector (mismo catálogo `plansSection.todoStories`, cargado por
     // `loadTodoStories`) que ya usa el flujo de Plan, no un campo de texto
     // libre nuevo (criterio de aceptación explícito de la Task). Sin
     // `story_id`, el Job se comporta exactamente igual que hoy (criterio 1
-    // de `US-FB024-15`): al cerrarse no dispara ningún veredicto
+    // de `US-AF024-15`): al cerrarse no dispara ningún veredicto
     // automático.
     form.appendChild(h("div", "field-label", "Asociar a una Story (opcional — dispara veredicto del Arquitecto al cerrar)"));
     if (plansSection.todoStoriesLoading) {
@@ -1660,12 +1751,12 @@
       todoStories.forEach(function (story, idx) {
         var o = document.createElement("option");
         o.setAttribute("value", String(idx + 1));
-        o.textContent = story.id + " (" + (story.epic || "") + ") — TO_DO";
+        o.textContent = story.id + " (" + (story.epic || "") + ") — READY";
         storySelect.appendChild(o);
       });
       if (todoStories.length === 0) {
         storySelect.disabled = true;
-        noStoryOpt.textContent = "No hay User Stories en TO_DO en el backlog";
+        noStoryOpt.textContent = "No hay User Stories en READY en el backlog";
       }
       storySelect.selectedIndex = 0;
       if (jobsSection.storySelectIndex > 0 && jobsSection.storySelectIndex <= todoStories.length) {
@@ -1730,10 +1821,10 @@
       payload.previous_job_id = prevJob.id;
     }
 
-    // T-FB024-US15-02: `storySelectIndex` 0 es "Sin Story asociada" — solo
+    // T-AF024-US15-02: `storySelectIndex` 0 es "Sin Story asociada" — solo
     // se envía `story_id` si el usuario eligió una Story real del
     // catálogo TO_DO. Sin este campo, `POST /jobs` se comporta igual que
-    // antes de `US-FB024-15` (criterio de aceptación 1).
+    // antes de `US-AF024-15` (criterio de aceptación 1).
     var todoStories = plansSection.todoStories || [];
     if (jobsSection.storySelectIndex > 0 && jobsSection.storySelectIndex <= todoStories.length) {
       var chosenStory = todoStories[jobsSection.storySelectIndex - 1];
@@ -1855,7 +1946,7 @@
   }
 
   // --------------------------------------------------------------- PLAN
-  // (T-FB021-US05-01). Solicitud (`POST /plans`), vista completa de los
+  // (T-AF021-US05-01). Solicitud (`POST /plans`), vista completa de los
   // pasos tal como los devuelve el backend (punto 4), aprobación con
   // confirmación del número de pasos / rechazo (punto 5), canal
   // `WS /ws/plans` filtrado por `plan_id` (punto 3) y recuperación de un
@@ -1953,7 +2044,7 @@
     plansSection.currentPlan = payload;
     renderPlansBody();
     // El histórico de la sesión refleja los estados terminales sin esperar
-    // a una recarga ni a una acción local (T-FB021-US05-02, punto 2): si el
+    // a una recarga ni a una acción local (T-AF021-US05-02, punto 2): si el
     // plan actual llega a `cancelled`/`blocked`, se refresca la lista.
     if (
       previousStatus !== payload.status &&
@@ -1983,9 +2074,9 @@
     if (statusText) wrap.appendChild(h("p", "ws-status-note", statusText));
   }
 
-  // T-FB024-US04-02: carga las User Stories en TO_DO desde el backlog para
+  // T-AF024-US04-02: carga las User Stories en TO_DO desde el backlog para
   // poblar el selector del formulario de Plan.
-  // T-FB024-US15-02: catálogo de User Stories TO_DO compartido entre el
+  // T-AF024-US15-02: catálogo de User Stories TO_DO compartido entre el
   // selector del flujo de Plan (`renderPlansForm`), el del formulario de
   // Job manual/suelto en la pantalla Jobs (`renderJobsForm`) y el del
   // formulario de Job manual en el detalle de una US en Backlog
@@ -2016,7 +2107,7 @@
       detail &&
       detail.id === backlogSection.selectedItemId &&
       detail.kind === "US" &&
-      detail.state === "TO_DO" &&
+      detail.state === "READY" &&
       plansSection.todoStories
     ) {
       var storyIdx = plansSection.todoStories.findIndex(function (s) { return s.id === detail.id; });
@@ -2030,7 +2121,7 @@
     BackendClient.getBacklog()
       .then(function (report) {
         var epicsWithTodo = (report.by_epic || []).filter(function (epic) {
-          return epic.user_stories && epic.user_stories.TO_DO > 0;
+          return epic.user_stories && epic.user_stories.READY > 0;
         });
         if (epicsWithTodo.length === 0) {
           plansSection.todoStories = [];
@@ -2050,7 +2141,7 @@
           BackendClient.getBacklogItem(epicId)
             .then(function (detail) {
               (detail.user_stories || []).forEach(function (us) {
-                if (us.state === "TO_DO") {
+                if (us.state === "READY") {
                   stories.push({ id: us.id, epic: epicId, state: us.state });
                 }
               });
@@ -2079,13 +2170,13 @@
   // Punto 1: formulario para pedir un plan (`POST /plans`, campo `goal`
   // con el identificador de la User Story). Single-flight en el envío
   // (mismo criterio que enviar Job/lanzar agente).
-  // T-FB024-US04-02: `goal` es un selector poblado con las Stories TO_DO
+  // T-AF024-US04-02: `goal` es un selector poblado con las Stories TO_DO
   // del backlog (no texto libre sin validar).
   function renderPlansForm(wrap) {
     var form = h("div", "plans-form");
     form.appendChild(h("div", "field-label", "Pedir un plan al Arquitecto"));
 
-    // T-FB024-US04-02: selector de User Stories TO_DO en vez de texto libre.
+    // T-AF024-US04-02: selector de User Stories TO_DO en vez de texto libre.
     if (plansSection.todoStories === null || plansSection.todoStoriesLoading) {
       form.appendChild(h("p", "section-note", "Cargando User Stories del backlog…"));
     } else if (plansSection.todoStoriesError) {
@@ -2094,14 +2185,14 @@
       var fallbackInput = document.createElement("input");
       fallbackInput.type = "text";
       fallbackInput.className = "clickable";
-      fallbackInput.placeholder = "Identificador de User Story (p. ej. US-FB008-04)";
+      fallbackInput.placeholder = "Identificador de User Story (p. ej. US-AF008-04)";
       fallbackInput.value = plansSection.goalInput;
       fallbackInput.addEventListener("input", function () {
         plansSection.goalInput = fallbackInput.value;
       });
       form.appendChild(fallbackInput);
     } else if (plansSection.todoStories.length === 0) {
-      form.appendChild(h("p", "section-note", "No hay User Stories en TO_DO en el backlog."));
+      form.appendChild(h("p", "section-note", "No hay User Stories en READY en el backlog."));
     } else {
       var select = document.createElement("select");
       select.className = "clickable launch-select";
@@ -2109,7 +2200,7 @@
       plansSection.todoStories.forEach(function (story, idx) {
         var o = document.createElement("option");
         o.setAttribute("value", String(idx));
-        o.textContent = story.id + " (" + (story.epic || "") + ") — TO_DO";
+        o.textContent = story.id + " (" + (story.epic || "") + ") — READY";
         select.appendChild(o);
       });
       select.selectedIndex = plansSection.goalSelectIndex;
@@ -2164,7 +2255,7 @@
       stepCard.appendChild(
         h("div", "plan-step-field", "Estado: " + planStatusLabel(step.status))
       );
-      // T-FB008-US04-08: si el paso falló, mostrar el motivo real bajo
+      // T-AF008-US04-08: si el paso falló, mostrar el motivo real bajo
       // el paso concreto (`step.result`, el mensaje textual de
       // `JobCreationError`/`ScribeUnavailableError` que ya rellena
       // `dispatch_plan` antes de bloquear el plan) — antes de esta Task
@@ -2182,7 +2273,7 @@
       cardEl.appendChild(h("p", "agent-error", plansSection.actionError));
     }
 
-    // T-FB021-US05-02: "Cancelar plan" SOLO mientras el plan está en curso
+    // T-AF021-US05-02: "Cancelar plan" SOLO mientras el plan está en curso
     // de despacho — estado `approved` con al menos un paso `pending`/
     // `running` (la MISMA condición que el dominio `request_cancellation`
     // exige para aceptar `POST /plans/{id}/cancel`). Un plan íntegramente
@@ -2235,7 +2326,7 @@
 
   function requestPlan() {
     if (plansSection.requesting) return; // single-flight
-    // T-FB024-US04-02: el goal se toma del selector de TO_DO stories (si
+    // T-AF024-US04-02: el goal se toma del selector de TO_DO stories (si
     // está disponible), o del input de texto libre como fallback.
     var goal;
     if (plansSection.todoStories && plansSection.todoStories.length > 0) {
@@ -2335,7 +2426,7 @@
   }
 
   // ----------------------------------------------------- cancelar plan
-  // (T-FB021-US05-02, punto 1). Confirmación de SEGUNDA pulsación en la
+  // (T-AF021-US05-02, punto 1). Confirmación de SEGUNDA pulsación en la
   // ETIQUETA del propio botón (mismo riesgo de reflow ya corregido en
   // US03-02/US04-02: el aviso crece en la etiqueta, nunca en un elemento
   // aparte que desplace el layout entre el primer y el segundo clic) +
@@ -2398,7 +2489,7 @@
   }
 
   // ----------------------------------------------------- histórico
-  // (T-FB021-US05-02, punto 2). Lista completa desde `GET /plans` —
+  // (T-AF021-US05-02, punto 2). Lista completa desde `GET /plans` —
   // incluye los planes ya decididos (aprobados/rechazados/cancelados), que
   // el backend NO purga (mismo criterio que `GET /jobs`); el detalle de un
   // plan concreto se consulta al desplegarlo vía `GET /plans/{id}`. Además
@@ -2555,7 +2646,7 @@
   }
 
   // ------------------------------------------------------------- SCRIPTS
-  // (T-FB021-US06-01). Catálogo combinado (`GET /scripts`) con origen,
+  // (T-AF021-US06-01). Catálogo combinado (`GET /scripts`) con origen,
   // ejecución con un clic (`POST /scripts/{id}/run`), resultado completo y
   // presentación legible de `backlog_status`. Ver `scriptsSection` arriba.
 
@@ -2605,7 +2696,7 @@
     renderScriptResult(wrap);
   }
 
-  // Brain)" y "Proyecto" — el origen no se mezcla en una lista
+  // Atlas Forge)" y "Proyecto" — el origen no se mezcla en una lista
   // indistinguible (mismo criterio de Android `ScriptsScreen`).
   function renderScriptsCatalog(wrap) {
     wrap.appendChild(h("div", "scripts-title", "Catálogo de scripts"));
@@ -2642,7 +2733,7 @@
     }
 
     if (generic.length > 0) {
-      wrap.appendChild(h("div", "scripts-group-title", "Genéricos (Factory Brain)"));
+      wrap.appendChild(h("div", "scripts-group-title", "Genéricos (Atlas Forge)"));
       wrap.appendChild(h("p", "section-note", "Scripts disponibles en cualquier proyecto del workspace."));
       generic.forEach(function (script) {
         wrap.appendChild(renderScriptCard(script));
@@ -2809,7 +2900,7 @@
   }
 
   // Presentación legible del informe estructurado de backlog-status
-  // (punto 4, T-FB018-US02-04): conteo por Epic, Tasks LISTA, Tasks
+  // (punto 4, T-AF018-US02-04): conteo por Epic, Tasks LISTA, Tasks
   // BLOQUEADA con su dependencia y cadena de mayor apalancamiento — el
   // usuario no tiene que leer el JSON crudo. Mismo shape que
   // `formatBacklogStatus` (Android) / `_format_backlog_status` (TUI),
@@ -2884,8 +2975,8 @@
   }
 
   // ------------------------------------------------------------- BACKLOG
-  // (T-FB020-US04-01). Consume `GET /backlog`/`GET /backlog/{item_id}`/
-  // `POST /backlog/{story_id}/launch-development` (T-FB020-US01-01/
+  // (T-AF020-US04-01). Consume `GET /backlog`/`GET /backlog/{item_id}`/
+  // `POST /backlog/{story_id}/launch-development` (T-AF020-US01-01/
   // US02-01, ambos `DONE`) — SIN cambios de backend. Patrón de
   // expandir-en-el-sitio (mismo criterio que Jobs/Plan: nunca navega a
   // otra pantalla), lista de Epics -> expandir muestra sus User Stories
@@ -2893,17 +2984,17 @@
   // Ver `backlogSection` (declarado arriba) para el shape completo del
   // estado.
 
-  // Identificador de Epic (`FB-xxx`) a partir de la etiqueta libre
-  // `**Epic:**` de una US/Task (p. ej. "FB-020 · Gestión de Backlog
-  // (alcance v1)" -> "FB-020") — mismo criterio que `epicIdFromLabel`
+  // Identificador de Epic (`AF-xxx`) a partir de la etiqueta libre
+  // `**Epic:**` de una US/Task (p. ej. "AF-020 · Gestión de Backlog
+  // (alcance v1)" -> "AF-020") — mismo criterio que `epicIdFromLabel`
   // (Android)/`_epic_id_from_label` (TUI): el PREFIJO, no el string
   // completo (distintas Tasks/US de la MISMA Epic real traen sufijos
   // distintos, verificado sobre el backlog real de este proyecto:
-  // `FB-008` con 8 variantes). `null` si el label no sigue la
+  // `AF-008` con 8 variantes). `null` si el label no sigue la
   // convención (p. ej. el caso real "(ninguna — infraestructura de
   // proyecto)").
   function epicIdFromLabel(epicLabel) {
-    var match = /^(FB-\d{3,})/.exec(String(epicLabel || "").trim());
+    var match = /^(AF-\d{3,})/.exec(String(epicLabel || "").trim());
     return match ? match[1] : null;
   }
 
@@ -2917,6 +3008,9 @@
     content.appendChild(backlogSection.bodyWrap);
     refreshBacklogReport();
     loadDispatchQueue();
+    // T-AF036-US12-01: el panel de la cola se actualiza por polling mientras
+    // la pestaña de Backlog está abierta.
+    startDispatchQueuePolling();
     renderBacklogBody();
   }
 
@@ -2924,7 +3018,7 @@
   // Jobs/Agentes (donde un 404 es "sin sesión" -> lista vacía), aquí un
   // 404 real (sin proyecto activo) SÍ es un error a mostrar — mismo
   // criterio ya fijado en Android/TUI y en el propio backend
-  // (T-FB020-US01-01). Un fallo puntual con lista previa ya vista
+  // (T-AF020-US01-01). Un fallo puntual con lista previa ya vista
   // conserva esa lista marcada `stale` (mismo criterio que Jobs/Plan).
   function refreshBacklogReport() {
     return BackendClient.getBacklog()
@@ -2949,7 +3043,10 @@
     if (!wrap || state.section !== "backlog") return;
     wrap.textContent = "";
     renderBacklogViewToggle(wrap);
-    renderBacklogFocusPanel(wrap);
+    // T-AF036-US16-05 (US-AF036-16): el panel "Próximo foco" se retiró de la
+    // pantalla Backlog por decisión de producto (2026-08-19) — no aporta el
+    // valor esperado. El dato backend `max_leverage_chain` se conserva (lo
+    // usan el CLI y otras vistas).
     renderDispatchQueuePanel(wrap);
     if (backlogSection.viewMode === "by_fase") {
       renderBacklogByFase(wrap);
@@ -2958,69 +3055,11 @@
     }
   }
 
-  // T-FB036-US01-02: panel "Próximo foco" sobre el listado de Epics, con
-  // la cadena de máximo desbloqueo (`report.max_leverage_chain`, ya
-  // calculada por el backend — mismo dato que formatea `format_human_report`
-  // en el CLI, `report.py:285-290`). No se pinta si la cadena está vacía
-  // (información neutra sin nada que aportar, no es un error). Sigue
-  // `07-informes/FB-036/especificacion-ux-backlog.md`, estado 3, punto 2.
-  function renderBacklogFocusPanel(wrap) {
-    var report = backlogSection.report;
-    if (!report || report.empty) return;
-    var chain = report.max_leverage_chain || [];
-    if (chain.length === 0) return;
-
-    var panel = h("div", "backlog-focus-panel");
-    var header = h("div", "backlog-focus-header");
-    header.appendChild(h("span", "backlog-focus-title", "Próximo foco"));
-    var toggleBtn = button(
-      backlogSection.backlogFocusCollapsed ? "Mostrar" : "Ocultar",
-      "backlog-focus-toggle"
-    );
-    toggleBtn.addEventListener("click", function () {
-      backlogSection.backlogFocusCollapsed = !backlogSection.backlogFocusCollapsed;
-      renderBacklogBody();
-    });
-    header.appendChild(toggleBtn);
-    panel.appendChild(header);
-
-    if (!backlogSection.backlogFocusCollapsed) {
-      // T-FB036-US01-10: cada ID de la cadena es un enlace clicable (antes
-      // texto plano) — reutiliza `expandEpicAndScrollToChainItem` para
-      // expandir la Epic (y, si es una Task, también su US padre) y hacer
-      // scroll hasta ese item concreto. Mismo efecto visual que antes
-      // (separados por "→"), ahora con cada ID interactivo.
-      var chainLine = h("p", "backlog-focus-chain");
-      chain.forEach(function (entry, idx) {
-        var link = h("span", "backlog-focus-chain-link", entry.id);
-        link.tabIndex = 0;
-        link.setAttribute("role", "button");
-        link.addEventListener("click", function () {
-          expandEpicAndScrollToChainItem(entry);
-        });
-        chainLine.appendChild(link);
-        if (idx < chain.length - 1) {
-          chainLine.appendChild(document.createTextNode(" → "));
-        }
-      });
-      panel.appendChild(chainLine);
-      panel.appendChild(
-        h(
-          "p",
-          "backlog-focus-note",
-          "Completar el primero desbloquea los siguientes en cascada"
-        )
-      );
-    }
-
-    wrap.appendChild(panel);
-  }
-
   function renderBacklogViewToggle(wrap) {
     var header = h("div", "context-bar");
-    // T-FB036-US02-04: botón "+ Nueva Epic" SIEMPRE visible en la barra de
+    // T-AF036-US02-04: botón "+ Nueva Epic" SIEMPRE visible en la barra de
     // controles — también con backlog vacío (es precisamente el caso donde
-    // más falta, criterio de aceptación 1 de US-FB036-02) y mientras el
+    // más falta, criterio de aceptación 1 de US-AF036-02) y mientras el
     // report sigue cargando. Abre el formulario inline (T6) sin llamada a
     // backend.
     var newEpicBtn = button("+ Nueva Epic", "backlog-new-epic-btn");
@@ -3029,7 +3068,6 @@
         id: "",
         title: "",
         objetivo: "",
-        fase: "",
         submitting: false,
         error: null,
       };
@@ -3068,15 +3106,15 @@
     }
   }
 
-  // T-FB036-US02-04: formulario inline "+ Nueva Epic" (estado 7 de la
+  // T-AF036-US02-04: formulario inline "+ Nueva Epic" (estado 7 de la
   // especificación UX, mismo patrón visual que `renderManualJobForm`).
-  // Campos: ID (`FB-xxx`, validación de formato en cliente), Título,
-  // Objetivo (textarea), Fase (opcional). "Crear" deshabilitado mientras
-  // falten ID/Título/Objetivo o el envío esté en vuelo (single-flight).
+  // Campos: ID (`AF-xxx`, validación de formato en cliente), Título,
+  // Objetivo (textarea). "Crear" deshabilitado mientras falten
+  // ID/Título/Objetivo o el envío esté en vuelo (single-flight).
   // Los valores viven en `backlogSection.newEpicForm` para sobrevivir al
   // re-render de `renderBacklogBody()` (mismo criterio que
   // `manualJobDescription`).
-  var NEW_EPIC_ID_PATTERN = /^FB-\d{3,}$/;
+  var NEW_EPIC_ID_PATTERN = /^AF-\d{3,}$/;
 
   function renderNewEpicForm() {
     var form = h("div", "jobs-form");
@@ -3097,11 +3135,11 @@
       createBtn.disabled = missingRequired || backlogSection.newEpicForm.submitting;
     }
 
-    form.appendChild(h("div", "field-label", "ID (formato FB-xxx)"));
+    form.appendChild(h("div", "field-label", "ID (formato AF-xxx)"));
     var idInput = document.createElement("input");
     idInput.type = "text";
     idInput.className = "clickable backlog-new-epic-input";
-    idInput.placeholder = "FB-999";
+    idInput.placeholder = "AF-999";
     idInput.value = backlogSection.newEpicForm.id;
     idInput.addEventListener("input", function () {
       backlogSection.newEpicForm.id = idInput.value;
@@ -3130,17 +3168,6 @@
       updateCreateBtnState();
     });
     form.appendChild(objetivoInput);
-
-    form.appendChild(h("div", "field-label", "Fase (opcional)"));
-    var faseInput = document.createElement("input");
-    faseInput.type = "text";
-    faseInput.className = "clickable backlog-new-epic-input";
-    faseInput.value = backlogSection.newEpicForm.fase;
-    faseInput.addEventListener("input", function () {
-      backlogSection.newEpicForm.fase = faseInput.value;
-      updateCreateBtnState();
-    });
-    form.appendChild(faseInput);
 
     updateCreateBtnState();
     createBtn.addEventListener("click", submitNewEpic);
@@ -3175,13 +3202,12 @@
     var id = form.id.trim();
     var title = form.title.trim();
     var objetivo = form.objetivo.trim();
-    var fase = form.fase.trim();
 
     // Validación de formato en cliente antes de enviar (patrón de la
     // especificación UX) — el servidor la repite de todos modos (nunca se
-    // confía solo en la validación de cliente, criterio de T-FB036-US02-01).
+    // confía solo en la validación de cliente, criterio de T-AF036-US02-01).
     if (!NEW_EPIC_ID_PATTERN.test(id)) {
-      form.error = "El ID debe tener formato FB-xxx (mínimo 3 dígitos tras FB-).";
+      form.error = "El ID debe tener formato AF-xxx (mínimo 3 dígitos tras AF-).";
       renderBacklogBody();
       return;
     }
@@ -3190,7 +3216,7 @@
     form.error = null;
     renderBacklogBody();
 
-    BackendClient.createEpic({ id: id, title: title, objetivo: objetivo, fase: fase })
+    BackendClient.createEpic({ id: id, title: title, objetivo: objetivo })
       .then(function (result) {
         backlogSection.newEpicForm = null;
         // Refrescar el listado completo para que la nueva Epic aparezca con
@@ -3209,15 +3235,15 @@
       });
   }
 
-  // T-FB036-US02-05: formulario inline "+ Nueva User Story" (estado 8 de
+  // T-AF036-US02-05: formulario inline "+ Nueva User Story" (estado 8 de
   // la especificación UX, mismo patrón visual que `renderNewEpicForm`).
   // Campos: ID (`US-FBxxx-nn`, validación de formato en cliente), Título,
   // Objetivo, Criterios de aceptación, Prioridad — `epic_id` mostrado
   // pero no editable (viene fijado en `newUserStoryForm.epicId` desde el
   // botón que abrió el formulario, nunca un `<input>`).
   // Mismo patrón que `US_ID_PATTERN` del backend
-  // (`brain.backlog.create`): letra final opcional (`US-FB900-01A`).
-  var NEW_US_ID_PATTERN = /^US-FB\d{3,}-\d{2}[A-Z]?$/;
+  // (`atlas_forge.backlog.create`): letra final opcional (`US-AF900-01A`).
+  var NEW_US_ID_PATTERN = /^US-AF\d{3,}-\d{2}[A-Z]?$/;
 
   function renderNewUserStoryForm() {
     var form = h("div", "jobs-form");
@@ -3241,7 +3267,7 @@
     var idInput = document.createElement("input");
     idInput.type = "text";
     idInput.className = "clickable backlog-new-epic-input";
-    idInput.placeholder = "US-FB999-01";
+    idInput.placeholder = "US-AF999-01";
     idInput.value = backlogSection.newUserStoryForm.id;
     idInput.addEventListener("input", function () {
       backlogSection.newUserStoryForm.id = idInput.value;
@@ -3344,7 +3370,7 @@
 
     // Validación de formato en cliente antes de enviar — el servidor la
     // repite de todos modos (nunca se confía solo en la validación de
-    // cliente, mismo criterio que T-FB036-US02-01/-02).
+    // cliente, mismo criterio que T-AF036-US02-01/-02).
     if (!NEW_US_ID_PATTERN.test(id)) {
       form.error = "El ID debe tener formato US-FBxxx-nn.";
       renderBacklogBody();
@@ -3385,12 +3411,12 @@
       });
   }
 
-  // T-FB036-US02-06: formulario inline "+ Nueva Task" (mismo patrón que
+  // T-AF036-US02-06: formulario inline "+ Nueva Task" (mismo patrón que
   // `renderNewUserStoryForm`). Campos: ID (formato `T-FBxxx-USnn-mm`),
   // Título, Objetivo, Criterios de aceptación, Prioridad, Dependencias
   // (opcional) — `us_id`/`epic_id` mostrados pero no editables (heredados
   // del contexto de la US expandida).
-  var NEW_TASK_ID_PATTERN = /^T-FB\d{3,}-US\d{2}[A-Z]?-\d{2}[A-Z]?$/;
+  var NEW_TASK_ID_PATTERN = /^T-AF\d{3,}-US\d{2}[A-Z]?-\d{2}[A-Z]?$/;
 
   function renderNewTaskForm() {
     var form = h("div", "jobs-form");
@@ -3418,7 +3444,7 @@
     var idInput = document.createElement("input");
     idInput.type = "text";
     idInput.className = "clickable backlog-new-epic-input";
-    idInput.placeholder = "T-FB999-US01-01";
+    idInput.placeholder = "T-AF999-US01-01";
     idInput.value = backlogSection.newTaskForm.id;
     idInput.addEventListener("input", function () {
       backlogSection.newTaskForm.id = idInput.value;
@@ -3562,16 +3588,17 @@
       });
   }
 
-  // T-FB036-US01-01: barra de controles con buscador + filtro de
+  // T-AF036-US01-01: barra de controles con buscador + filtro de
   // estado + filtro de prioridad, sobre el listado raíz de Epics.
-  // Sigue `07-informes/FB-036/especificacion-ux-backlog.md` (estados 3-4,
+  // Sigue `07-informes/AF-036/especificacion-ux-backlog.md` (estados 3-4,
   // transiciones T1-T3, "Casos borde" sobre la limitación real del
   // filtro de prioridad).
   var BACKLOG_STATE_OPTIONS = [
     { value: "all", label: "Todos" },
-    { value: "TO_DO", label: "TO_DO" },
+    { value: "READY", label: "READY" },
+    { value: "TO_DEVELOP", label: "TO_DEVELOP" },
     { value: "IN_PROGRESS", label: "IN_PROGRESS" },
-    { value: "REVIEW", label: "REVIEW" },
+    { value: "IN_REVIEW", label: "IN_REVIEW" },
     { value: "DONE", label: "DONE" },
     { value: "blocked", label: "Bloqueadas" },
   ];
@@ -3584,11 +3611,51 @@
     { value: "none", label: "Sin prioridad" },
   ];
 
+  // T-AF036-US11-01: opciones del selector de fase — construidas
+  // dinámicamente a partir del informe ya cargado (las fases del roadmap
+  // no son un conjunto fijo ni hardcodeable). La primera opción es
+  // "Todas" (`value: "all"`); le siguen las fases presentes en
+  // `epic.fase` de `by_epic` y en `fase` de los items de
+  // `items_lista`/`items_bloqueada`, deduplicadas y ordenadas; se añade
+  // "SIN_ASIGNAR" al final si hay alguna Epic/item sin fase.
+  function backlogFaseOptions() {
+    var report = backlogSection.report;
+    var byEpic = (report && report.by_epic) || [];
+    var items = ((report && report.items_lista) || []).concat(
+      (report && report.items_bloqueada) || []
+    );
+    var phases = {};
+    var hasUnassigned = false;
+    byEpic.forEach(function (epic) {
+      if (epic.fase) {
+        phases[epic.fase] = true;
+      } else {
+        hasUnassigned = true;
+      }
+    });
+    items.forEach(function (item) {
+      if (item.fase) {
+        phases[item.fase] = true;
+      } else {
+        hasUnassigned = true;
+      }
+    });
+    var opts = [{ value: "all", label: "Todas" }];
+    Object.keys(phases).sort().forEach(function (fase) {
+      opts.push({ value: fase, label: fase });
+    });
+    if (hasUnassigned) {
+      opts.push({ value: "SIN_ASIGNAR", label: "SIN_ASIGNAR" });
+    }
+    return opts;
+  }
+
   function backlogFiltersActive() {
     return (
       backlogSection.filterText !== "" ||
       backlogSection.filterState !== "all" ||
-      backlogSection.filterPriority !== "all"
+      backlogSection.filterPriority !== "all" ||
+      backlogSection.filterFase !== "all"
     );
   }
 
@@ -3597,6 +3664,7 @@
     backlogSection.filterTextInput = "";
     backlogSection.filterState = "all";
     backlogSection.filterPriority = "all";
+    backlogSection.filterFase = "all";
     if (backlogSection.filterTextDebounceTimer) {
       clearTimeout(backlogSection.filterTextDebounceTimer);
       backlogSection.filterTextDebounceTimer = null;
@@ -3660,9 +3728,28 @@
     });
     priorityWrap.appendChild(prioritySelect);
     priorityWrap.appendChild(
-      h("p", "backlog-filter-priority-note", "El filtro de prioridad solo considera items pendientes (TO_DO).")
+      h("p", "backlog-filter-priority-note", "El filtro de prioridad solo considera items pendientes (READY).")
     );
     bar.appendChild(priorityWrap);
+
+    // T-AF036-US11-01: selector de fase del roadmap, después del de
+    // prioridad — mismo patrón (change -> actualiza estado -> re-render).
+    // Las opciones son dinámicas (`backlogFaseOptions`), así que el
+    // <select> se reconstruye en cada render de la barra.
+    var faseSelect = document.createElement("select");
+    faseSelect.className = "clickable backlog-filter-select";
+    backlogFaseOptions().forEach(function (opt) {
+      var o = document.createElement("option");
+      o.setAttribute("value", opt.value);
+      o.textContent = opt.label;
+      faseSelect.appendChild(o);
+    });
+    faseSelect.value = backlogSection.filterFase;
+    faseSelect.addEventListener("change", function () {
+      backlogSection.filterFase = faseSelect.value;
+      renderBacklogBody();
+    });
+    bar.appendChild(faseSelect);
 
     if (backlogFiltersActive()) {
       var clearBtn = button("Limpiar filtros", "backlog-filter-clear");
@@ -3692,7 +3779,7 @@
     });
   }
 
-  // T-FB036-US01-04: items de `report.items_bloqueada` que pertenecen a
+  // T-AF036-US01-04: items de `report.items_bloqueada` que pertenecen a
   // la Epic `epicLabel` — mismo cruce por prefijo ya validado arriba.
   // `items_bloqueada` no trae el campo `user_story` de cada Task (solo
   // `id`/`kind`/`epic`, ver `report.py:_summary`), así que el conteo a
@@ -3701,8 +3788,8 @@
   // padre de una Task bloqueada en frontend — decisión explícita
   // (2026-08-16): no se deriva por regex sobre el id (`T-FBxxx-USnn-mm`
   // -> `US-FBxxx-nn`), verificado que esa convención NO es universal en
-  // el backlog real (p. ej. `T-FB016-US01-15` pertenece realmente a
-  // `US-FB008-05`, no a `US-FB016-01`) — un cruce no fiable sería peor
+  // el backlog real (p. ej. `T-AF016-US01-15` pertenece realmente a
+  // `US-AF008-05`, no a `US-AF016-01`) — un cruce no fiable sería peor
   // que no cruzar. Ver `expandEpicAndScrollToBlocked` para cómo se
   // resuelve el scroll cuando el bloqueo es solo de Tasks.
   function blockedItemsForEpic(epicLabel, report) {
@@ -3755,6 +3842,24 @@
       if (!priorityMatches) return false;
     }
 
+    // T-AF036-US11-01: filtro por fase del roadmap. La fase de la Epic es
+    // `epic.fase` (campo presente solo si la Epic la tiene, ver
+    // `report.py`); `SIN_ASIGNAR` cubre `fase` ausente/vacía — mismo
+    // criterio de agrupación que la vista `by_fase` (que agrupa por
+    // `epic.fase || "SIN_ASIGNAR"`). Las vistas que filtran por item (p.
+    // ej. los TO_DO de `items_lista`) comparan la fase del item, pero el
+    // listado raíz de Epics y la vista `by_fase` filtran a nivel de Epic.
+    if (backlogSection.filterFase !== "all") {
+      var epicFase = epic.fase || "";
+      var faseMatches;
+      if (backlogSection.filterFase === "SIN_ASIGNAR") {
+        faseMatches = !epicFase;
+      } else {
+        faseMatches = epicFase === backlogSection.filterFase;
+      }
+      if (!faseMatches) return false;
+    }
+
     return true;
   }
 
@@ -3786,29 +3891,131 @@
     }
   }
 
+  // T-AF036-US15-02: clave de orden natural de una fase — "Fase 0.9" ->
+  // [0, 9], "Fase 0.9.1" -> [0, 9, 1], ...; cualquier otra fase (incluida
+  // "SIN_ASIGNAR") recibe Infinity para quedar al final.
+  function _faseOrderKey(fase) {
+    var m = /^Fase\s+(\d+(?:\.\d+)*)$/i.exec(String(fase || "").trim());
+    if (!m) return [Infinity, String(fase || "")];
+    return m[1].split(".").map(Number);
+  }
+
+  // Comparador de fases por orden natural (numérico por componentes), con
+  // "SIN_ASIGNAR"/otras fases no numeradas al final.
+  function _compareFases(a, b) {
+    var ka = _faseOrderKey(a);
+    var kb = _faseOrderKey(b);
+    var len = Math.max(ka.length, kb.length);
+    for (var i = 0; i < len; i++) {
+      var va = i < ka.length ? ka[i] : 0;
+      var vb = i < kb.length ? kb[i] : 0;
+      if (va < vb) return -1;
+      if (va > vb) return 1;
+    }
+    return 0;
+  }
+
+  // T-AF036-US15-06 (US-AF036-15 criterio 5): clave de orden natural de una
+  // VERSION de Epic — "0.9" -> [0, 9], "0.9.1" -> [0, 9, 1], "1.2" -> [1, 2];
+  // cualquier versión no numérica (incluida "SIN_VERSION") recibe Infinity
+  // para quedar al final.
+  function _versionOrderKey(version) {
+    var m = /^(\d+(?:\.\d+)*)$/.exec(String(version || "").trim());
+    if (!m) return [Infinity, String(version || "")];
+    return m[1].split(".").map(Number);
+  }
+
+  // Comparador de versiones por orden natural (numérico por componentes),
+  // con "SIN_VERSION"/versiones no numéricas al final.
+  function _compareVersions(a, b) {
+    var ka = _versionOrderKey(a);
+    var kb = _versionOrderKey(b);
+    var len = Math.max(ka.length, kb.length);
+    for (var i = 0; i < len; i++) {
+      var va = i < ka.length ? ka[i] : 0;
+      var vb = i < kb.length ? kb[i] : 0;
+      if (va < vb) return -1;
+      if (va > vb) return 1;
+    }
+    return 0;
+  }
+
+  // T-AF036-US15-02: ¿todas las User Stories de la Epic están fuera del
+  // roadmap (OUT_OF_SCOPE/FUERA_ROADMAP)? Usa `user_stories_detail` (US15-01)
+  // cuando está disponible; si no, cae a los conteos `user_stories`.
+  function epicAllOutOfRoadmap(epic) {
+    var detail = epic.user_stories_detail;
+    if (detail && detail.length > 0) {
+      return detail.every(function (us) { return isFueraRoadmapState(us.state); });
+    }
+    var us = epic.user_stories || {};
+    var keys = Object.keys(us);
+    if (keys.length === 0) return false;
+    return keys.every(function (k) { return isFueraRoadmapState(k); });
+  }
+
+  // Renderiza un bloque colapsable de Epics al final de un grupo de fase
+  // (patrón de "Terminadas (N)" de la vista plana), colapsado por defecto.
+  function _renderByFaseCollapsedGroup(wrap, fase, kind, label, epics, faseGroup) {
+    if (epics.length === 0) return;
+    if (!backlogSection.byFaseOpen[fase]) backlogSection.byFaseOpen[fase] = {};
+    var open = !!backlogSection.byFaseOpen[fase][kind];
+    var header = button(
+      (open ? "▼ " : "▶ ") + label + " (" + epics.length + ")",
+      "backlog-done-header"
+    );
+    header.addEventListener("click", function () {
+      backlogSection.byFaseOpen[fase][kind] = !backlogSection.byFaseOpen[fase][kind];
+      renderBacklogBody();
+    });
+    wrap.appendChild(header);
+    if (open) {
+      epics.forEach(function (epic) { renderBacklogEpicCard(wrap, epic, faseGroup); });
+    }
+  }
+
   function renderBacklogByFase(wrap) {
     var allEpics = backlogSection.report.by_epic || [];
     var byEpic = filterBacklogEpics(allEpics, backlogSection.report);
     renderBacklogFilterSummary(wrap, byEpic.length, allEpics.length);
     var groups = {};
     byEpic.forEach(function (epic) {
-      var fase = epic.fase || "SIN_ASIGNAR";
-      if (!groups[fase]) groups[fase] = [];
-      groups[fase].push(epic);
+      // T-AF036-US15-06 (US-AF036-15 criterio 5): la vista "Por Fase" agrupa
+      // las Epics por su `version` (US-AF036-18: la fase es de la US, la Epic
+      // se versiona), no por `epic.fase`. Las Epics sin `version` van a
+      // "SIN_VERSION" al final.
+      var version = epic.version || "SIN_VERSION";
+      if (!groups[version]) groups[version] = [];
+      groups[version].push(epic);
     });
-    var ordered = Object.keys(groups).sort();
-    ordered.forEach(function (fase) {
+    var ordered = Object.keys(groups).sort(_compareVersions);
+    ordered.forEach(function (version) {
       var groupWrap = h("div", "backlog-fase-group");
-      groupWrap.appendChild(h("div", "backlog-fase-title", fase));
-      groups[fase].forEach(function (epic) {
-        renderBacklogEpicCard(groupWrap, epic);
+      groupWrap.appendChild(h("div", "backlog-fase-title", version));
+      // T-AF036-US15-02: dentro de cada grupo, Epics abiertas primero; al
+      // final (colapsadas) las terminadas y las con todas sus US fuera del
+      // roadmap.
+      var open = [];
+      var done = [];
+      var deferred = [];
+      groups[version].forEach(function (epic) {
+        if (epicAllOutOfRoadmap(epic)) {
+          deferred.push(epic);
+        } else if (epicIsDone(epic)) {
+          done.push(epic);
+        } else {
+          open.push(epic);
+        }
       });
+      open.forEach(function (epic) { renderBacklogEpicCard(groupWrap, epic, version); });
+      _renderByFaseCollapsedGroup(groupWrap, version, "deferred", "Todas fuera de roadmap", deferred, version);
+      _renderByFaseCollapsedGroup(groupWrap, version, "done", "Terminadas", done, version);
       wrap.appendChild(groupWrap);
     });
   }
 
   // Listado raíz de Epics (criterio de aceptación 1/2): conteo por
-  // estado, igual que Android/TUI (T-FB020-US01-02). Cada fila expande/
+  // estado, igual que Android/TUI (T-AF020-US01-02). Cada fila expande/
   // colapsa su detalle de User Stories in-place (criterio de aceptación
   // 2), sin navegar a otra pantalla.
   function renderBacklogEpicList(wrap) {
@@ -3827,7 +4034,7 @@
     }
     var allByEpic = backlogSection.report.by_epic || [];
     if (backlogSection.report.empty || allByEpic.length === 0) {
-      // T-FB036-US02-04, caso borde de la especificación UX: en backlog
+      // T-AF036-US02-04, caso borde de la especificación UX: en backlog
       // vacío el botón "+ Nueva Epic" sí se muestra (ya está en la barra de
       // controles, renderBacklogViewToggle) con el mensaje adaptado.
       wrap.appendChild(
@@ -3840,7 +4047,7 @@
     var realEpics = byEpic.filter(function (e) { return epicIdFromLabel(e.epic) !== null; });
     var orphanItems = byEpic.filter(function (e) { return epicIdFromLabel(e.epic) === null; });
 
-    // T-FB036-US01-04, criterio 3: Epics con `todoCount === 0` (mismo
+    // T-AF036-US01-04, criterio 3: Epics con `todoCount === 0` (mismo
     // cálculo ya usado para `doneClass` en `renderBacklogEpicCard`)
     // quedan agrupadas bajo un separador "Terminadas (N)", plegado por
     // defecto — el foco por defecto es siempre el trabajo pendiente.
@@ -3878,7 +4085,7 @@
 
   // `todoCount === 0` — extraída para reutilizar tanto en `doneClass`
   // como en la agrupación "Terminadas" sin duplicar la fórmula.
-  // T-FB036-US02-04: una Epic SIN items (recién creada, sin US/Tasks aún)
+  // T-AF036-US02-04: una Epic SIN items (recién creada, sin US/Tasks aún)
   // no cuenta como "terminada" — no hay nada DONE que celebrar, es una
   // Epic pendiente vacía: debe renderizarse como tarjeta activa (y no
   // quedar oculta bajo el grupo "Terminadas (N)" plegado por defecto,
@@ -3888,25 +4095,25 @@
     // Bug corregido (2026-08-17, encontrado end-to-end vía el formulario
     // real de "+ Nueva User Story"): antes solo contaba `TO_DO` como
     // "pendiente" — una US recién creada nace en `NO_TASKS`
-    // (T-FB008-US15-01), no `TO_DO`, así que la Epic con una única US
+    // (T-AF008-US15-01), no `TO_DO`, así que la Epic con una única US
     // nueva se consideraba erróneamente "Terminada" (`todoCount === 0`)
     // y quedaba oculta bajo el grupo plegado "Terminadas (N)", pese a no
     // tener NADA completado — la Epic recién creada literalmente
-    // desaparecía del listado visible. `NO_TASKS`/`EN_DISEÑO` cuentan
-    // igual que `TO_DO`: cualquier estado que no sea `DONE` es trabajo
-    // pendiente.
+    // desaparecía del listado visible. `NO_TASKS`/`TO_PLAN` cuentan
+    // igual que `READY`: cualquier estado que no sea `DONE` es trabajo
+    // pendiente (AF-040; OUT_OF_SCOPE no es pendiente).
     var pendingCount =
-      (epic.user_stories && (epic.user_stories.TO_DO || 0) + (epic.user_stories.NO_TASKS || 0) + (epic.user_stories["EN_DISEÑO"] || 0) + (epic.user_stories.EN_DESARROLLO || 0) + (epic.user_stories.IN_PROGRESS || 0) + (epic.user_stories.REVIEW || 0) || 0) +
-      (epic.tasks && (epic.tasks.TO_DO || 0) + (epic.tasks.EN_DESARROLLO || 0) + (epic.tasks.IN_PROGRESS || 0) + (epic.tasks.REVIEW || 0) || 0);
+      (epic.user_stories && (epic.user_stories.READY || 0) + (epic.user_stories.NO_TASKS || 0) + (epic.user_stories.TO_PLAN || 0) + (epic.user_stories.TO_DEVELOP || 0) + (epic.user_stories.IN_PROGRESS || 0) + (epic.user_stories.IN_REVIEW || 0) || 0) +
+      (epic.tasks && (epic.tasks.READY || 0) + (epic.tasks.TO_DEVELOP || 0) + (epic.tasks.IN_PROGRESS || 0) + (epic.tasks.IN_REVIEW || 0) || 0);
     return totalCount > 0 && pendingCount === 0;
   }
 
-  function renderBacklogEpicCard(wrap, epic) {
+  function renderBacklogEpicCard(wrap, epic, faseGroup) {
       var epicId = epicIdFromLabel(epic.epic);
       var selected = epicId !== null && backlogSection.selectedEpicId === epicId;
       var doneClass = epicIsDone(epic) ? " backlog-epic-done" : " backlog-epic-active";
       var card = h("div", "job-card" + doneClass + (selected ? " job-card-selected" : ""));
-      // T-FB036-US01-08: regresión de T-FB018-US02-06 — al corregir
+      // T-AF036-US01-08: regresión de T-AF018-US02-06 — al corregir
       // epic_label (pasó de devolver el id a devolver el título real),
       // esta línea sustituyó por completo el id visible por el título,
       // en vez de mostrar ambos. `epicTitleText` junta id+título con
@@ -3914,7 +4121,7 @@
       // propio ya devuelve epic_id como fallback de epic_label desde el
       // backend (mismo caso documentado más abajo en `epicIdFromLabel`
       // -> `null`), así que id === epic_label ahí y no debe duplicarse
-      // ("FB-999 · FB-999"). `epicIdFromLabel` más abajo sigue usando
+      // ("AF-999 · AF-999"). `epicIdFromLabel` más abajo sigue usando
       // `epic.epic` (el id crudo), no este texto compuesto, para el
       // cruce de prefijos.
       var epicLabel = epic.epic_label || epic.epic;
@@ -3937,8 +4144,8 @@
       line.tabIndex = 0;
       line.setAttribute("role", "button");
       if (epicId === null) {
-        // T-FB036-US01-05: el label libre "(sin epic)" no sigue la
-        // convención `FB-xxx` (`epicIdFromLabel` -> `null`) — no hay
+        // T-AF036-US01-05: el label libre "(sin epic)" no sigue la
+        // convención `AF-xxx` (`epicIdFromLabel` -> `null`) — no hay
         // ningún `item_id` de Epic real que pedir a
         // `GET /backlog/{item_id}`, así que en vez de `toggleEpicDetail`
         // se alterna `backlogSection.orphanExpanded` (booleano local,
@@ -3964,7 +4171,7 @@
       });
       card.appendChild(line);
 
-      // T-FB036-US01-04, criterio 1: badge "N bloqueadas" si la Epic
+      // T-AF036-US01-04, criterio 1: badge "N bloqueadas" si la Epic
       // tiene al menos un item en `items_bloqueada` — conteo 100%
       // fiable (cuenta total de la Epic, sin necesitar saber a qué US
       // pertenece cada Task, ver `blockedItemsForEpic`).
@@ -3992,7 +4199,7 @@
       renderProgressBar(card, epic);
       card.appendChild(h("div", "job-hint", selected ? "▲ Plegar detalle" : "▼ Ver detalle"));
       if (selected) {
-        card.appendChild(renderEpicDetail());
+        card.appendChild(renderEpicDetail(faseGroup));
       }
       wrap.appendChild(card);
   }
@@ -4017,11 +4224,14 @@
       backlogSection.selectedEpicId = null;
       backlogSection.epicDetail = null;
       backlogSection.epicDetailError = null;
-      // T-FB036-US10-01: al plegar la Epic se limpia el estado de
+      // T-AF036-US10-01: al plegar la Epic se limpia el estado de
       // "Proponer User Stories" — un error/resultado previo no debe
       // reaparecer al reexpandir la misma Epic.
       backlogSection.proposeStoriesError = null;
       backlogSection.proposeStoriesResult = null;
+      // T-AF036-US05-01: mismo criterio para "Revisar cobertura".
+      backlogSection.coverageError = null;
+      backlogSection.coverageResult = null;
       closeItemDetail();
       renderBacklogBody();
       return;
@@ -4029,11 +4239,14 @@
     backlogSection.selectedEpicId = epicId;
     backlogSection.epicDetail = null;
     backlogSection.epicDetailError = null;
-    // T-FB036-US10-01: el error/resultado de "Proponer User Stories"
+    // T-AF036-US10-01: el error/resultado de "Proponer User Stories"
     // solo tiene sentido asociado al detalle de la Epic que lo generó —
     // se limpia al abrir una Epic distinta.
     backlogSection.proposeStoriesError = null;
     backlogSection.proposeStoriesResult = null;
+    // T-AF036-US05-01: mismo criterio para "Revisar cobertura".
+    backlogSection.coverageError = null;
+    backlogSection.coverageResult = null;
     closeItemDetail();
     renderBacklogBody();
 
@@ -4047,17 +4260,6 @@
           backlogSection.pendingBlockedScrollEpicId = null;
           backlogSection.pendingBlockedScrollItems = null;
         }
-        // T-FB036-US01-10: si hay un scroll pendiente hacia una fila de
-        // User Story concreta (panel "Próximo foco"), dispararlo ahora
-        // que `epicDetail` ya se renderizó. El caso de una Task
-        // pendiente (que necesita además expandir su US padre) lo
-        // resuelve `expandEpicAndScrollToChainItem` por su cuenta, no
-        // aquí.
-        if (backlogSection.pendingChainScrollElementId !== null) {
-          var pendingId = backlogSection.pendingChainScrollElementId;
-          backlogSection.pendingChainScrollElementId = null;
-          scrollToBacklogElementById(pendingId);
-        }
       })
       .catch(function (error) {
         if (backlogSection.selectedEpicId !== epicId) return;
@@ -4066,12 +4268,11 @@
           backlogSection.pendingBlockedScrollEpicId = null;
           backlogSection.pendingBlockedScrollItems = null;
         }
-        backlogSection.pendingChainScrollElementId = null;
         renderBacklogBody();
       });
   }
 
-  // T-FB036-US01-04, criterio 2 / transición T7: pulsar el badge "N
+  // T-AF036-US01-04, criterio 2 / transición T7: pulsar el badge "N
   // bloqueadas" expande la Epic (si no lo estaba ya) y hace scroll a la
   // primera User Story bloqueada dentro de su detalle. Si ya estaba
   // expandida, solo hace scroll (sin repetir el fetch de
@@ -4113,48 +4314,6 @@
     }
   }
 
-  // T-FB036-US01-10: scroll genérico a un elemento del DOM ya renderizado
-  // por su id — envoltura fina sobre `scrollIntoView`, reutilizada por
-  // `expandEpicAndScrollToChainItem` (panel "Próximo foco") para US y,
-  // tras expandir también la US padre, para Task.
-  function scrollToBacklogElementById(elementId) {
-    var target = document.getElementById(elementId);
-    if (target) {
-      target.scrollIntoView({ behavior: "smooth", block: "center" });
-    }
-  }
-
-  // T-FB036-US01-10: pulsar un ID del panel "Próximo foco" expande su
-  // Epic (si no lo estaba) y hace scroll hasta ese item concreto — mismo
-  // patrón de "expandir + scroll pendiente" que
-  // `expandEpicAndScrollToBlocked`, pero apuntando a UN id concreto de la
-  // cadena en vez de "el primero bloqueado", y con soporte explícito
-  // para Task (criterio de aceptación: "expande su Epic y la User Story
-  // padre correspondiente, y hace scroll hasta esa Task concreta").
-  //
-  // `chainItem` es una entrada de `report.max_leverage_chain`
-  // (`{id, kind, epic, priority, fase}`, `brain.backlog.report._summary`
-  // — no requiere ampliar el backend, tal como pide la Task).
-  function expandEpicAndScrollToChainItem(chainItem) {
-    var epicId = epicIdFromLabel(chainItem.epic);
-    if (!epicId) return; // item "(sin epic)": no hay Epic real que expandir.
-
-    if (chainItem.kind === "T") {
-      expandEpicAndScrollToChainTask(epicId, chainItem.id);
-      return;
-    }
-
-    var targetElementId = "backlog-us-" + chainItem.id;
-    var epicAlreadyExpanded = backlogSection.selectedEpicId === epicId &&
-      backlogSection.epicDetail !== null;
-    if (epicAlreadyExpanded) {
-      scrollToBacklogElementById(targetElementId);
-      return;
-    }
-    backlogSection.pendingChainScrollElementId = targetElementId;
-    toggleEpicDetail(epicId);
-  }
-
   // Resuelve la User Story padre de `taskId` SIN ampliar el backend
   // (`GET /backlog/{task_id}` nunca expone `user_story` para una Task,
   // confirmado leyendo `build_item_detail` antes de implementar — la
@@ -4164,7 +4323,7 @@
   // lista `taskId` entre sus `tasks[]`, expande esa US concreta
   // (`toggleItemDetail`) y hace scroll a la Task ya visible dentro de su
   // detalle. Nunca adivina la US por convención de nombre de fichero
-  // (`T-<epic>-US<nn>-<mm>`) — ya verificado en `T-FB036-US01-04` que
+  // (`T-<epic>-US<nn>-<mm>`) — ya verificado en `T-AF036-US01-04` que
   // esa convención no es universal en el backlog real.
   function expandEpicAndScrollToChainTask(epicId, taskId) {
     var epicAlreadyExpanded = backlogSection.selectedEpicId === epicId &&
@@ -4261,16 +4420,14 @@
     backlogSection.manualJobAgents = null;
     backlogSection.manualJobError = null;
     backlogSection.manualJobResult = null;
-    // T-FB008-US10-03: no se limpia `enqueueTaskInFlight` (single-flight
+    // T-AF008-US10-03: no se limpia `enqueueTaskInFlight` (single-flight
     // real, sigue en curso aunque el usuario cierre el detalle) — sí se
-    // limpian el error y el resultado de "encolar toda la Story", que
-    // solo tienen sentido asociados al detalle que se está cerrando.
+    // limpia el error de encolar una Task concreta, que solo tiene sentido
+    // asociado al detalle que se está cerrando.
     backlogSection.enqueueTaskError = null;
-    backlogSection.enqueueAllError = null;
-    backlogSection.enqueueAllResult = null;
-    // T-FB036-US10-01: el error/resultado de "Aterrizar en Tasks" solo
+    // T-AF036-US10-01: el error/resultado de "Aterrizar en Tasks" solo
     // tiene sentido asociado al detalle de la US que lo generó — se
-    // limpia al cerrarlo, igual que `enqueueAllError`/`launchResult`.
+    // limpia al cerrarlo, igual que `launchResult`.
     backlogSection.proposeTasksError = null;
     backlogSection.proposeTasksResult = null;
     // Cerrar la US padre también cierra cualquier Task anidada expandida
@@ -4278,6 +4435,14 @@
     backlogSection.selectedNestedTaskId = null;
     backlogSection.nestedTaskDetail = null;
     backlogSection.nestedTaskDetailError = null;
+    // T-AF036-US06-01: el informe de cierre solo tiene sentido asociado al
+    // detalle de la US que lo cargó — se limpia al cerrarlo, mismo criterio
+    // que `proposeTasksError`/`launchResult` de arriba.
+    backlogSection.closingReportUsId = null;
+    backlogSection.closingReportLoading = false;
+    backlogSection.closingReportError = null;
+    backlogSection.closingReport = null;
+    backlogSection.closingReportScrollTaskId = null;
   }
 
   // Aviso explícito de sección mal formada (criterio de aceptación 5,
@@ -4289,7 +4454,7 @@
     wrap.appendChild(h("p", "stale-note", "⚠ " + detail.parse_warning));
   }
 
-  // T-FB036-US01-05: detalle agregado en línea de la tarjeta "(sin
+  // T-AF036-US01-05: detalle agregado en línea de la tarjeta "(sin
   // epic)" — sin `epicId` real no hay `GET /backlog/{item_id}` posible
   // (no existe ningún `item_id` de Epic que pedir), así que el detalle
   // es directamente el desglose por estado que el propio `epic` de
@@ -4319,7 +4484,7 @@
   // Detalle de la Epic expandida (criterio de aceptación 2): objetivo +
   // desglose de sus User Stories con estado — tocar una US expande su
   // detalle completo (criterio de aceptación 3), sin navegar.
-  function renderEpicDetail() {
+  function renderEpicDetail(faseGroup) {
     var box = h("div", "job-detail");
     if (backlogSection.epicDetailError) {
       box.appendChild(h("p", "agent-error", backlogSection.epicDetailError));
@@ -4333,11 +4498,18 @@
     renderParseWarning(box, detail);
     box.appendChild(h("div", "job-detail-field", "Objetivo: " + (detail.objetivo || "(sin objetivo declarado)")));
 
+    // T-AF036-US18-02: la Epic muestra su VERSION (no su fase) y NO ofrece
+    // editor de fase — la fase solo se edita en User Stories (US-AF036-14).
+    box.appendChild(h("div", "job-detail-field", "Versión: " + (detail.version || "(sin versión)")));
+    if (backlogSection.editItemError && backlogSection.editItemErrorFor === detail.id) {
+      box.appendChild(h("p", "agent-error", backlogSection.editItemError));
+    }
+
     var userStories = detail.user_stories || [];
     var usListLabel = h("div", "job-detail-label backlog-us-list-label", "User Stories:");
     box.appendChild(usListLabel);
 
-    // T-FB036-US01-07: aplicar filtro de estado a las User Stories en el
+    // T-AF036-US01-07: aplicar filtro de estado a las User Stories en el
     // detalle expandido, igual que en el listado raíz (epicMatchesBacklogFilters).
     var filteredUserStories = userStories.filter(function (userStory) {
       if (backlogSection.filterState === "all") {
@@ -4352,8 +4524,24 @@
       return userStory.state === backlogSection.filterState;
     });
 
+    // T-AF036-US15-06 (US-AF036-15 criterio 4): la vista "Por Fase" agrupa
+    // las Epics por VERSION (US-AF036-18), ya no por fase — por tanto no hay
+    // "fase de grupo" que filtrar al expandir. El filtrado por fase sigue
+    // funcionando vía el filtro de fase global (`filterFase`) de la barra de
+    // controles, aplicado sobre la fase de cada User Story (la fase es de la
+    // US). Cada US sigue mostrando su fase en su fila (US-AF036-13).
+    if (backlogSection.filterFase !== "all") {
+      filteredUserStories = filteredUserStories.filter(function (userStory) {
+        var usFase = userStory.fase || "";
+        if (backlogSection.filterFase === "SIN_ASIGNAR") {
+          return !usFase;
+        }
+        return usFase === backlogSection.filterFase;
+      });
+    }
+
     if (filteredUserStories.length === 0) {
-      // T-FB036-US01-07: mensaje explícito cuando no hay User Stories que
+      // T-AF036-US01-07: mensaje explícito cuando no hay User Stories que
       // coincidan con el filtro activo.
       if (backlogFiltersActive()) {
         box.appendChild(h("div", "job-detail-field", "(ninguna que coincida con el filtro activo)"));
@@ -4364,12 +4552,16 @@
     filteredUserStories.forEach(function (userStory) {
       var selected = backlogSection.selectedItemId === userStory.id;
       var todoClass = userStory.state === "DONE" ? " backlog-epic-done" : " backlog-epic-active";
-      var itemCard = h("div", "job-card" + todoClass + (selected ? " job-card-selected" : ""));
-      // T-FB036-US01-04, T7: id de anclaje para el scroll del badge "N
+      // T-AF036-US09-01: User Story postergada (OUT_OF_SCOPE/FUERA_ROADMAP)
+      // -> clase de tarjeta propia con color/atenuación distintivos, no
+      // confundible con el resto de estados.
+      var fueraRoadmapClass = isFueraRoadmapState(userStory.state) ? " backlog-fuera-roadmap" : "";
+      var itemCard = h("div", "job-card" + todoClass + fueraRoadmapClass + (selected ? " job-card-selected" : ""));
+      // T-AF036-US01-04, T7: id de anclaje para el scroll del badge "N
       // bloqueadas" (ver `scrollToFirstBlockedUS`).
       itemCard.id = "backlog-us-" + userStory.id;
-      // T-FB036-US01-09: indicador de número de Tasks visible antes de
-      // expandir la US — mismo criterio de layout que T-FB036-US01-08
+      // T-AF036-US01-09: indicador de número de Tasks visible antes de
+      // expandir la US — mismo criterio de layout que T-AF036-US01-08
       // (id/estado a la izquierda, indicador a la derecha, misma
       // línea). `task_count` viene ya calculado por el backend
       // (`build_epic_detail`), sin fetch adicional.
@@ -4378,13 +4570,37 @@
       var taskCountClass = taskCount === 0 ? "backlog-us-task-count-zero" : "backlog-us-task-count-some";
       var itemLine = h("div", "job-line backlog-us-line" + (selected ? " job-line-selected" : ""));
       itemLine.appendChild(
-        h("span", "backlog-us-line-title", userStory.id + " (" + userStory.state + ")")
+        h(
+          "span",
+          "backlog-us-line-title" + (isFueraRoadmapState(userStory.state) ? " backlog-us-line-title--fuera-roadmap" : ""),
+          // T-AF036-US19-02: ID + nombre (título); el estado genérico ya NO va
+          // en el texto de la línea (queda solo en el `<select>`). Excepción:
+          // el estado especial "fuera de roadmap" (OUT_OF_SCOPE) conserva su
+          // etiqueta visible, tal como exige US-AF036-09. Si el `title` es
+          // null/vacío, se muestra solo el ID. T-AF036-US19-03: el backend
+          // rellena `title` con el `id` cuando el frontmatter no declara
+          // `title` (fallback T-AF036-US19-01); por eso además del null/vacío
+          // se compara `title !== userStory.id` para no duplicar el ID.
+          (userStory.title && userStory.title !== userStory.id
+            ? userStory.id + " · " + userStory.title
+            : userStory.id)
+            + (isFueraRoadmapState(userStory.state) ? " — Fuera de roadmap" : "")
+        )
+      );
+      // T-AF036-US13-03: fase del roadmap y fecha de última transición de la
+      // US en el encabezado (servidas por el backend, T-AF036-US13-02).
+      itemLine.appendChild(
+        h(
+          "span",
+          "backlog-us-line-meta",
+          " [fase: " + faseHeaderLabel(userStory.fase) + "] [última actualización: " + formatUpdatedAt(userStory.updated_at) + "]"
+        )
       );
       itemLine.appendChild(h("span", "backlog-us-line-taskcount " + taskCountClass, taskCountText));
-      // T-FB036-US08-01: controles de prioridad/estado en la propia línea
+      // T-AF036-US08-01: controles de prioridad/estado en la propia línea
       // de título, sin desplegar el detalle — `stopPropagation` en ambos
       // `<select>` evita que tocarlos también dispare `toggleItemDetail`.
-      itemLine.appendChild(renderPriorityStateControls(userStory.id, userStory.priority, userStory.state));
+      itemLine.appendChild(renderPriorityStateControls(userStory.id, userStory.priority, userStory.state, "US"));
       itemLine.tabIndex = 0;
       itemLine.setAttribute("role", "button");
       itemLine.setAttribute("aria-expanded", selected ? "true" : "false");
@@ -4402,12 +4618,15 @@
       box.appendChild(itemCard);
     });
 
-    // T-FB036-US02-05: botón "+ Nueva User Story" al final de la lista de
-    // User Stories — siempre visible (incluso con lista vacía o filtrada a
-    // cero, igual que "+ Nueva Epic" siempre visible con backlog vacío),
-    // nunca dentro del bucle de arriba. Abre el formulario inline (T8) con
-    // `epic_id` heredado del contexto (`detail.id`), mostrado pero no
-    // editable — no hay ningún `<input>` de Epic en este formulario.
+    // T-AF036-US16-06: los tres botones de acción del detalle de Epic —
+    // "+ Nueva User Story", "Proponer User Stories" y "Revisar cobertura" —
+    // se agrupan en UN solo `.accion-controls` (flex row + wrap + gap) para
+    // que queden alineados en una fila horizontal, no apilados. Cada botón
+    // conserva su acción y single-flight; los mensajes de error/resultado se
+    // pintan debajo de la fila (sin romper el layout).
+
+    // T-AF036-US02-05: "+ Nueva User Story" — abre el formulario inline
+    // (T8) con `epic_id` heredado del contexto (`detail.id`).
     var newUsBtn = button("+ Nueva User Story", "backlog-new-epic-btn");
     newUsBtn.addEventListener("click", function () {
       backlogSection.newUserStoryForm = {
@@ -4422,19 +4641,9 @@
       };
       renderBacklogBody();
     });
-    box.appendChild(newUsBtn);
-    if (backlogSection.newUserStoryForm !== null && backlogSection.newUserStoryForm.epicId === detail.id) {
-      box.appendChild(renderNewUserStoryForm());
-    }
 
-    // T-FB036-US10-01, criterio 1: botón "Proponer User Stories" en el
-    // detalle de Epic — vía automática/alternativa a los formularios
-    // manuales (`US-FB036-02`), conviven sin sustituirse (criterio 5 de
-    // la Task). Invoca `POST /backlog/epic/{epic_id}/propose-stories`
-    // con single-flight por epic_id (etiqueta de progreso + botón
-    // deshabilitado mientras está en vuelo, mismo patrón que el resto de
-    // acciones de esta pantalla, criterio 4).
-    var proposeStoriesWrap = h("div", "accion-controls");
+    // T-AF036-US10-01: "Proponer User Stories" — vía automática/alternativa
+    // a los formularios manuales, con single-flight por epic_id.
     var proposeStoriesBtn = button(
       backlogSection.proposeStoriesInFlight === detail.id ? "Proponiendo User Stories…" : "Proponer User Stories",
       "accion-run"
@@ -4443,18 +4652,38 @@
     proposeStoriesBtn.addEventListener("click", function () {
       proposeStoriesAction(detail.id);
     });
-    proposeStoriesWrap.appendChild(proposeStoriesBtn);
+
+    // T-AF036-US05-01: "Revisar cobertura" — single-flight por epic_id.
+    var coverageBtn = button(
+      backlogSection.coverageInFlight === detail.id ? "Revisando cobertura…" : "Revisar cobertura",
+      "accion-run"
+    );
+    if (backlogSection.coverageInFlight === detail.id) coverageBtn.disabled = true;
+    coverageBtn.addEventListener("click", function () {
+      reviewCoverageAction(detail.id);
+    });
+
+    var actionRow = h("div", "accion-controls");
+    actionRow.appendChild(newUsBtn);
+    actionRow.appendChild(proposeStoriesBtn);
+    actionRow.appendChild(coverageBtn);
+    box.appendChild(actionRow);
+
+    // Formulario inline de nueva User Story (aparece tras la fila de
+    // acciones).
+    if (backlogSection.newUserStoryForm !== null && backlogSection.newUserStoryForm.epicId === detail.id) {
+      box.appendChild(renderNewUserStoryForm());
+    }
+
+    // Mensajes de "Proponer User Stories" (error/resultado verbatim).
     if (backlogSection.proposeStoriesError) {
-      // Criterio 3: motivo verbatim del backend (validation_errors /
-      // self_audit.justification) cuando el pipeline no se aprobó — nada
-      // se escribió a disco.
-      proposeStoriesWrap.appendChild(h("p", "agent-error", backlogSection.proposeStoriesError));
+      box.appendChild(h("p", "agent-error", backlogSection.proposeStoriesError));
     }
     if (backlogSection.proposeStoriesResult) {
       var storiesResult = backlogSection.proposeStoriesResult;
       var storyIds = (storiesResult.stories || []).map(function (s) { return s.id; }).join(", ");
       var storyWord = storiesResult.num_stories === 1 ? "User Story" : "User Stories";
-      proposeStoriesWrap.appendChild(
+      box.appendChild(
         h(
           "p",
           "job-hint",
@@ -4465,12 +4694,49 @@
         )
       );
     }
-    box.appendChild(proposeStoriesWrap);
+
+    // Mensajes de "Revisar cobertura" (error/resultado verbatim).
+    if (backlogSection.coverageError) {
+      box.appendChild(h("p", "agent-error", backlogSection.coverageError));
+    }
+    if (backlogSection.coverageResult) {
+      box.appendChild(renderCoverageResult(backlogSection.coverageResult));
+    }
 
     return box;
   }
 
-  // T-FB008-US10-03: carga (o recarga) el snapshot de GET /backlog/queue
+  // T-AF036-US05-01: pinta el resultado del detector de cobertura de una
+  // Epic. Cuando la Epic no declara alcance (`declared_alcance: null`) se
+  // muestra el mensaje explícito del backend — nunca un resultado vacío
+  // ambiguo. Con alcance, se muestra el texto crudo, los huecos detectados
+  // (si los hay) y el aviso de aproximación.
+  function renderCoverageResult(result) {
+    var box = h("div", "accion-result");
+    if (result.declared_alcance === null || result.declared_alcance === undefined) {
+      box.appendChild(h("p", "section-note", result.message || "No se puede calcular cobertura."));
+      return box;
+    }
+    box.appendChild(h("div", "accion-result-title", "Alcance v1 declarado"));
+    box.appendChild(h("pre", "accion-result-code", result.declared_alcance));
+    var gaps = result.gaps || [];
+    if (gaps.length === 0) {
+      box.appendChild(h("p", "job-hint", "Sin huecos detectados: cada punto del alcance tiene cobertura clara en las User Stories/Tasks reales."));
+    } else {
+      box.appendChild(h("div", "accion-result-title", "Huecos detectados (sin cobertura clara)"));
+      var gapList = h("ul", "accion-result-gaps");
+      gaps.forEach(function (gap) {
+        gapList.appendChild(h("li", null, gap));
+      });
+      box.appendChild(gapList);
+    }
+    if (result.message) {
+      box.appendChild(h("p", "section-note", result.message));
+    }
+    return box;
+  }
+
+  // T-AF008-US10-03: carga (o recarga) el snapshot de GET /backlog/queue
   // — se dispara al entrar a la sección Backlog, y de nuevo tras cada
   // acción de encolar/desencolar con éxito (mismo criterio de refresco
   // que el resto de esta pantalla: éxito refresca el listado/detalle
@@ -4491,6 +4757,43 @@
       });
   }
 
+  // T-AF036-US12-01: ciclo de polling del panel de la cola de despacho —
+  // re-renderiza `renderDispatchQueuePanel` SOLO si el contenido cambió
+  // (comparación del nuevo GET /backlog/queue con el estado actual), para no
+  // perturbar el scroll ni hacer parpadear la interfaz en cada ciclo.
+  function pollDispatchQueue() {
+    BackendClient.getDispatchQueue()
+      .then(function (queue) {
+        backlogSection.dispatchQueueError = null;
+        if (JSON.stringify(queue) === JSON.stringify(backlogSection.dispatchQueue)) {
+          return; // sin cambios: no re-renderiza (preserva scroll/colapso)
+        }
+        backlogSection.dispatchQueue = queue;
+        if (state.section === "backlog") renderBacklogBody();
+      })
+      .catch(function (error) {
+        backlogSection.dispatchQueueError = buildErrorMessage(error);
+        if (state.section === "backlog") renderBacklogBody();
+      });
+  }
+
+  // T-AF036-US12-01: timer de polling mientras la pestaña de Backlog está
+  // abierta — mismo patrón de `startRolesPolling`/`stopRolesPolling`.
+  function startDispatchQueuePolling() {
+    if (backlogSection.dispatchQueuePollTimer) return;
+    backlogSection.dispatchQueuePollTimer = setInterval(function () {
+      if (state.section !== "backlog") { stopDispatchQueuePolling(); return; }
+      pollDispatchQueue();
+    }, POLL_INTERVAL_MILLIS);
+  }
+
+  function stopDispatchQueuePolling() {
+    if (backlogSection.dispatchQueuePollTimer) {
+      clearInterval(backlogSection.dispatchQueuePollTimer);
+      backlogSection.dispatchQueuePollTimer = null;
+    }
+  }
+
   // `null` si `taskId` no aparece en ningún grupo de la cola cargada —
   // usado tanto para decidir el texto del botón ("Marcar para
   // desarrollo" vs. "Quitar de la cola") como para el propio panel de
@@ -4509,7 +4812,7 @@
     return null;
   }
 
-  // T-FB036-US08-01: recarga cualquier detalle expandido que pueda estar
+  // T-AF036-US08-01: recarga cualquier detalle expandido que pueda estar
   // mostrando `itemId` en este momento — una User Story vive tanto en
   // `epicDetail.user_stories[]` (fila dentro de la Epic) como, si está
   // ella misma expandida, en `itemDetail`; una Task vive en
@@ -4545,7 +4848,7 @@
     }
   }
 
-  // T-FB036-US08-01, criterio de aceptación 1: cambia la prioridad de una
+  // T-AF036-US08-01, criterio de aceptación 1: cambia la prioridad de una
   // User Story/Task desde el `<select>` de su línea de título, sin
   // desplegar el detalle. Single-flight por `itemId` (mismo criterio que
   // `enqueueTaskAction`). Éxito: refresca el listado raíz completo
@@ -4577,7 +4880,63 @@
       });
   }
 
-  // T-FB036-US08-01, criterio de aceptación 1/2: cambia el estado de una
+  // T-AF036-US14-02: cambia la fase de una Epic/User Story desde el editor
+  // inline del detalle, sin recargar la página. Single-flight por `itemId`
+  // (mismo criterio que `setItemPriorityAction`). Éxito: refresca el
+  // informe (`refreshBacklogReport`, la vista "Por Fase" reagrupa el item
+  // en su nueva fase) y cualquier detalle expandido. Error: se muestra
+  // verbatim sin romper la fila.
+  function setItemFaseAction(itemId, newFase) {
+    if (backlogSection.editItemInFlight) return;
+    backlogSection.editItemInFlight = itemId;
+    backlogSection.editItemError = null;
+    backlogSection.editItemErrorFor = null;
+    renderBacklogBody();
+
+    BackendClient.setBacklogItemFase(itemId, newFase)
+      .then(function () {
+        backlogSection.editItemInFlight = null;
+        refreshBacklogReport();
+        refreshOpenDetailsFor(itemId);
+        renderBacklogBody();
+      })
+      .catch(function (error) {
+        backlogSection.editItemInFlight = null;
+        backlogSection.editItemError = buildErrorMessage(error);
+        backlogSection.editItemErrorFor = itemId;
+        renderBacklogBody();
+      });
+  }
+
+  // T-AF036-US14-02: editor inline de fase (input de texto libre + botón
+  // Guardar) para el detalle expandido de una Epic/User Story — muestra el
+  // valor actual (placeholder "SIN_ASIGNAR" si ausente/vacío) y persiste vía
+  // `PUT /backlog/{item_id}/fase`. `stopPropagation` para no plegar el
+  // detalle al interactuar.
+  function renderFaseEditor(itemId, currentFase) {
+    var wrap = h("div", "job-detail-field backlog-fase-editor");
+    wrap.appendChild(h("span", "job-detail-label", "Fase: "));
+    var input = document.createElement("input");
+    input.type = "text";
+    input.className = "backlog-fase-input";
+    input.placeholder = "SIN_ASIGNAR";
+    input.value = currentFase || "";
+    input.addEventListener("click", function (event) { event.stopPropagation(); });
+    input.addEventListener("keydown", function (event) {
+      event.stopPropagation();
+      if (event.key === "Enter") setItemFaseAction(itemId, input.value.trim() || null);
+    });
+    wrap.appendChild(input);
+    var btn = button("Guardar");
+    btn.addEventListener("click", function (event) {
+      event.stopPropagation();
+      setItemFaseAction(itemId, input.value.trim() || null);
+    });
+    wrap.appendChild(btn);
+    return wrap;
+  }
+
+  // T-AF036-US08-01, criterio de aceptación 1/2: cambia el estado de una
   // User Story/Task desde el `<select>` de su línea de título. Si el
   // backend reporta `promoted_epics` no vacío (US marcada DONE dejó a su
   // Epic con todos los hijos DONE), el refresco del listado raíz ya basta
@@ -4594,16 +4953,14 @@
     BackendClient.setBacklogItemState(itemId, newState)
       .then(function (result) {
         backlogSection.editItemInFlight = null;
-        // T-FB008-US14-04: marcar una User Story como EN_DESARROLLO desde
+        // T-AF008-US14-04: marcar una User Story como EN_DESARROLLO desde
         // este selector es un atajo del mismo efecto que "Marcar toda la
         // Story para desarrollo" — el backend devuelve `enqueued`/
-        // `skipped_already_queued` en ese caso; se reutiliza el mismo
-        // estado/feedback que ya usa `enqueueAllTasksAction`, para que el
-        // mensaje "N Tasks encoladas" aparezca igual sin importar el
-        // camino que lo disparó.
+        // `skipped_already_queued` en ese caso (T-AF036-US16-02: se retiró
+        // el botón/acción explícita; el atajo por estado se conserva como
+        // único camino). Se refresca la cola de despacho al detectar que se
+        // encolaron tasks.
         if (result && result.enqueued) {
-          backlogSection.enqueueAllResult = result;
-          backlogSection.enqueueAllError = null;
           loadDispatchQueue();
         }
         refreshBacklogReport();
@@ -4619,23 +4976,101 @@
   }
 
   var EDITABLE_PRIORITIES = ["Crítica", "Alta", "Media", "Baja"];
-  // T-FB008-US14-01: EN_DESARROLLO añadido al conjunto editable — alineado con
+  // T-AF008-US14-01: EN_DESARROLLO añadido al conjunto editable — alineado con
   // `validator_v2._VALID_STATES`/`backlog/edit.py::VALID_STATES`
-  // (backend). FUERA_ROADMAP queda fuera deliberadamente: ya se gestiona
-  // con su propio control dedicado (US-FB036-09), no por este selector
-  // genérico.
+  // (backend).
   //
-  // T-FB008-US15-01/-02 (2026-08-17): `NO_TASKS`/`EN_DISEÑO` incluidos
-  // como `<option>` — necesario para que el `<select>` HTML muestre
-  // correctamente el estado ACTUAL de una User Story recién creada (nace
-  // en `NO_TASKS`) o en tránsito (`EN_DISEÑO`), aunque el flujo normal
-  // para entrar/salir de esos estados es el botón único "Progresar"
-  // (`renderProgresarUserStoryControls`), no este selector — mismo
-  // criterio que ya aplica a `EN_DESARROLLO`/`DONE`: el selector permite
-  // corrección manual excepcional, no sustituye el flujo guiado.
-  var EDITABLE_STATES = ["NO_TASKS", "EN_DISEÑO", "TO_DO", "EN_DESARROLLO", "IN_PROGRESS", "REVIEW", "DONE"];
+  // T-AF008-US15-01/-02 (2026-08-17): `NO_TASKS`/`TO_PLAN` (AF-040;
+  // antes EN_DISEÑO) incluidos como `<option>` — necesario para que el
+  // `<select>` HTML muestre correctamente el estado ACTUAL de una User
+  // Story recién creada (nace en `NO_TASKS`) o en tránsito (`TO_PLAN`),
+  // aunque el flujo normal para entrar/salir de esos estados es el botón
+  // único "Progresar" (`renderProgresarUserStoryControls`), no este
+  // selector — mismo criterio que ya aplica a `TO_DEVELOP`/`DONE`: el
+  // selector permite corrección manual excepcional, no sustituye el flujo
+  // guiado.
+  //
+  // T-AF036-US09-01 (US-AF036-09, criterio 3): `OUT_OF_SCOPE` (AF-040;
+  // antes FUERA_ROADMAP) AÑADIDO como `<option>` — el selector de estado
+  // genérico de US-AF036-08 es el control reutilizado para marcar/
+  // desmarcar "fuera de roadmap" (no se duplica ningún control). El
+  // backend lo acepta (`set_item_state` valida contra `VALID_STATES`,
+  // que incluye OUT_OF_SCOPE).
+  var EDITABLE_STATES = ["NO_TASKS", "TO_PLAN", "READY", "TO_DEVELOP", "IN_PROGRESS", "IN_REVIEW", "DONE", "OUT_OF_SCOPE"];
 
-  // T-FB036-US08-01, criterio de aceptación 1/5: los dos `<select>` de
+  // T-AF036-US22-02: réplica en cliente de las transiciones legales de la
+  // máquina canónica (`atlas_forge/core/state_machines.py`) — usada para
+  // DESHABILITAR en el selector de estado las opciones no permitidas desde
+  // el estado actual. La fuente de verdad sigue siendo el backend
+  // (T-AF036-US22-01 lo rechaza con 400), así que si esta réplica se
+  // desincronizara, el backend corta la transición ilegal.
+  var STATE_TRANSITIONS = {
+    T: {
+      "READY": ["TO_DEVELOP"],
+      "TO_DEVELOP": ["READY", "IN_PROGRESS"],
+      "IN_PROGRESS": ["IN_REVIEW"],
+      "IN_REVIEW": ["IN_PROGRESS", "DONE"],
+      "DONE": [],
+    },
+    US: {
+      "NO_TASKS": ["TO_PLAN", "OUT_OF_SCOPE"],
+      "TO_PLAN": ["READY", "TO_DEVELOP", "IN_PROGRESS", "IN_REVIEW", "OUT_OF_SCOPE"],
+      "READY": ["TO_DEVELOP", "IN_PROGRESS", "IN_REVIEW", "OUT_OF_SCOPE"],
+      "TO_DEVELOP": ["READY", "IN_PROGRESS", "IN_REVIEW", "OUT_OF_SCOPE"],
+      "IN_PROGRESS": ["READY", "TO_DEVELOP", "IN_REVIEW", "OUT_OF_SCOPE"],
+      "IN_REVIEW": ["DONE", "OUT_OF_SCOPE"],
+      "DONE": ["OUT_OF_SCOPE"],
+      "OUT_OF_SCOPE": [],
+    },
+  };
+  function isLegalStateTransition(kind, fromState, toState) {
+    var transitions = (STATE_TRANSITIONS[kind] || {})[fromState] || [];
+    return transitions.indexOf(toState) !== -1;
+  }
+
+  // T-AF036-US09-01: estados "fuera de roadmap" (postergada). El
+  // vocabulario canónico de User Story es `OUT_OF_SCOPE` (AF-040; antes
+  // FUERA_ROADMAP); las Epics conservan `FUERA_ROADMAP`
+  // (`EPIC_STATES`). Ambos se muestran igual: etiqueta "Fuera de
+  // roadmap" + color/badge propio no confundible con el resto de estados.
+  var FUERA_ROADMAP_STATES = { "OUT_OF_SCOPE": true, "FUERA_ROADMAP": true };
+  function isFueraRoadmapState(state) {
+    return FUERA_ROADMAP_STATES[state] === true;
+  }
+  // Etiqueta legible para el estado de un item — los estados "fuera de
+  // roadmap" se muestran como "Fuera de roadmap" en vez del valor crudo.
+  function stateDisplayLabel(state) {
+    return isFueraRoadmapState(state) ? "Fuera de roadmap" : (state || "desconocido");
+  }
+
+  // T-AF036-US13-03: fase del roadmap legible para el encabezado — el valor
+  // crudo si existe, "SIN_ASIGNAR" si está ausente/vacío (mismo criterio de
+  // agrupación que la vista "Por Fase").
+  function faseHeaderLabel(fase) {
+    return fase ? fase : "SIN_ASIGNAR";
+  }
+
+  // T-AF036-US13-03: convierte el timestamp ISO-8601 UTC de `updated_at` a
+  // fecha/hora local legible "YYYY-MM-DD HH:MM" (mismo criterio que el resto
+  // de timestamps que la web ya formatea). Devuelve "—" si es `null`/inválido
+  // (retrocompatibilidad con items creados antes de la US-AF036-13).
+  function formatUpdatedAt(updatedAt) {
+    if (!updatedAt) return "—";
+    try {
+      var when = new Date(updatedAt);
+      if (isNaN(when.getTime())) return "—";
+      var y = when.getFullYear();
+      var m = String(when.getMonth() + 1).padStart(2, "0");
+      var d = String(when.getDate()).padStart(2, "0");
+      var hh = String(when.getHours()).padStart(2, "0");
+      var mm = String(when.getMinutes()).padStart(2, "0");
+      return y + "-" + m + "-" + d + " " + hh + ":" + mm;
+    } catch (_e) {
+      return "—";
+    }
+  }
+
+  // T-AF036-US08-01, criterio de aceptación 1/5: los dos `<select>` de
   // prioridad/estado en la línea de título — solo para User Story/Task
   // (nunca Epic, que ni siquiera llega a llamar a esta función: su
   // `priority` no existe en el esquema y su `state` solo cambia por
@@ -4644,7 +5079,7 @@
   // `toggleItemDetail`/`toggleNestedTaskDetail`), y estos controles viven
   // DENTRO de esa línea — sin cortar la propagación, tocar el `<select>`
   // también desplegaría/plegaría el detalle.
-  function renderPriorityStateControls(itemId, currentPriority, currentState) {
+  function renderPriorityStateControls(itemId, currentPriority, currentState, kind) {
     var wrap = h("span", "backlog-edit-controls");
     var inFlight = backlogSection.editItemInFlight === itemId;
 
@@ -4673,24 +5108,35 @@
     wrap.appendChild(prioritySelect);
 
     var stateSelect = document.createElement("select");
-    // T-FB008-US14-01, criterio "distinguible visualmente": clase
-    // modificadora cuando el estado ACTUAL es EN_DESARROLLO — mismo patrón que
-    // el resto de la pantalla, un color propio no confundible con
-    // TO_DO/IN_PROGRESS/REVIEW/DONE (ver `.backlog-edit-state--en-desarrollo`
-    // en style.css). T-FB008-US15-01/-02: mismo criterio para
-    // NO_TASKS/EN_DISEÑO, cada uno con su propia clase/color.
+    // T-AF008-US14-01, criterio "distinguible visualmente": clase
+    // modificadora cuando el estado ACTUAL es TO_DEVELOP (AF-040; antes
+    // EN_DESARROLLO) — mismo patrón que el resto de la pantalla, un color
+    // propio no confundible con READY/IN_PROGRESS/IN_REVIEW/DONE (ver
+    // `.backlog-edit-state--to-develop` en style.css). T-AF008-US15-01/-02:
+    // mismo criterio para NO_TASKS/TO_PLAN, cada uno con su propia
+    // clase/color.
+    // T-AF008-US15-01/-02: mismo criterio para NO_TASKS/TO_PLAN, cada
+    // uno con su propia clase/color. T-AF036-US09-01: mismo criterio
+    // para OUT_OF_SCOPE (US postergada), con su color propio.
     var STATE_CSS_CLASS = {
-      "EN_DESARROLLO": "backlog-edit-state--en-desarrollo",
+      "TO_DEVELOP": "backlog-edit-state--to-develop",
       "NO_TASKS": "backlog-edit-state--no-tasks",
-      "EN_DISEÑO": "backlog-edit-state--en-diseno",
+      "TO_PLAN": "backlog-edit-state--to-plan",
+      "OUT_OF_SCOPE": "backlog-edit-state--out-of-scope",
     };
     stateSelect.className = "backlog-edit-state" + (STATE_CSS_CLASS[currentState] ? " " + STATE_CSS_CLASS[currentState] : "");
     stateSelect.disabled = inFlight;
+    // T-AF036-US22-02: deshabilitar las opciones que NO son transiciones
+    // legales desde el estado actual (adelante y atrás), según `kind`. El
+    // estado actual queda seleccionable (es el valor mostrado).
     EDITABLE_STATES.forEach(function (s) {
       var option = document.createElement("option");
       option.value = s;
       option.textContent = s;
       if (currentState === s) option.selected = true;
+      if (s !== currentState && !isLegalStateTransition(kind, currentState, s)) {
+        option.disabled = true;
+      }
       stateSelect.appendChild(option);
     });
     stateSelect.addEventListener("click", function (event) {
@@ -4705,7 +5151,7 @@
     return wrap;
   }
 
-  // T-FB008-US10-03, criterio de aceptación 1: marca/desmarca una Task
+  // T-AF008-US10-03, criterio de aceptación 1: marca/desmarca una Task
   // TO_DO para desarrollo. Single-flight por `task_id` (guarda el id en
   // vuelo, no un booleano — mismo criterio ya usado por
   // `proposeStoriesInFlight`). Éxito: refresca la cola completa (para
@@ -4722,7 +5168,7 @@
       .then(function () {
         backlogSection.enqueueTaskInFlight = null;
         loadDispatchQueue();
-        // T-FB008-US14-01: encolar ahora también escribe `state: EN_DESARROLLO`
+        // T-AF008-US14-01: encolar ahora también escribe `state: EN_DESARROLLO`
         // en el fichero real — se refresca el detalle ya cargado de esta
         // Task para que el selector de estado de la línea de título
         // muestre el valor real de inmediato, sin esperar a un refresco
@@ -4747,7 +5193,7 @@
       .then(function () {
         backlogSection.enqueueTaskInFlight = null;
         loadDispatchQueue();
-        // T-FB008-US14-01: desencolar revierte `state` a `TO_DO` — mismo
+        // T-AF008-US14-01: desencolar revierte `state` a `TO_DO` — mismo
         // motivo que en enqueueTaskAction, refrescar el detalle ya
         // cargado.
         refreshOpenDetailsFor(taskId);
@@ -4760,35 +5206,7 @@
       });
   }
 
-  // T-FB008-US10-03, criterio de aceptación 2: encola todas las Tasks
-  // TO_DO de una User Story de una sola llamada. Single-flight por
-  // `us_id`.
-  function enqueueAllTasksAction(usId) {
-    if (backlogSection.enqueueAllInFlight) return;
-    backlogSection.enqueueAllInFlight = usId;
-    backlogSection.enqueueAllError = null;
-    backlogSection.enqueueAllResult = null;
-    renderBacklogBody();
-
-    BackendClient.enqueueAllTasks(usId)
-      .then(function (result) {
-        backlogSection.enqueueAllInFlight = null;
-        backlogSection.enqueueAllResult = result;
-        loadDispatchQueue();
-        // T-FB008-US14-01: mismo motivo que enqueueTaskAction — refresca
-        // cualquier detalle ya abierto (la propia US, o alguna de sus
-        // Tasks) para reflejar `state: EN_DESARROLLO` de inmediato.
-        refreshOpenDetailsFor(usId);
-        renderBacklogBody();
-      })
-      .catch(function (error) {
-        backlogSection.enqueueAllInFlight = null;
-        backlogSection.enqueueAllError = buildErrorMessage(error);
-        renderBacklogBody();
-      });
-  }
-
-  // T-FB036-US10-01: motivo real de un pipeline no aprobado, verbatim del
+  // T-AF036-US10-01: motivo real de un pipeline no aprobado, verbatim del
   // backend (criterio 3 de la Task — "no un mensaje genérico"). Se junta
   // solo lo que el backend trae: `validation_errors` (lista de strings)
   // si la validación falló, y `self_audit.justification`/`suggestions`
@@ -4818,7 +5236,7 @@
     return parts.join("\n");
   }
 
-  // T-FB036-US10-01: refresco del detalle de la Epic abierta tras un
+  // T-AF036-US10-01: refresco del detalle de la Epic abierta tras un
   // pipeline aprobado — mismo patrón lazy-fetch + guard de respuesta
   // obsoleta que `toggleEpicDetail`, para que las User Stories recién
   // escritas a disco aparezcan en el listado SIN recargar la página
@@ -4844,13 +5262,18 @@
         if (backlogSection.selectedItemId !== usId) return;
         backlogSection.itemDetail = detail;
         renderBacklogBody();
+        // T-AF036-US06-01: al refrescar el detalle de una US (p. ej. tras
+        // aterrizar Tasks) se recarga también su informe de cierre.
+        if (detail.kind === "US") {
+          loadUsClosingReport(usId);
+        }
       })
       .catch(function () {
         // Mismo criterio de robustez que `refreshEpicDetail`.
       });
   }
 
-  // T-FB036-US10-01, "Proponer User Stories": invoca el pipeline
+  // T-AF036-US10-01, "Proponer User Stories": invoca el pipeline
   // Epic→User Story del backend con single-flight por epic_id. Éxito
   // (APROBADO): refresca el detalle de la Epic + el listado raíz.
   // Pipeline no aprobado (o validación fallida): muestra el motivo
@@ -4882,7 +5305,34 @@
       });
   }
 
-  // DEPRECATED (T-FB008-US15-02, 2026-08-17): "Aterrizar en Tasks"
+  // T-AF036-US05-01: revisa la cobertura del alcance v1 de una Epic
+  // (`GET /backlog/epic/{epic_id}/coverage`, detector determinista-
+  // aproximado). Single-flight por epic_id — el botón se deshabilita y
+  // muestra "Revisando cobertura…" mientras la petición está en vuelo.
+  // El resultado (o el error verbatim del backend, p. ej. el 404 de una
+  // Epic sin fichero propio) se guarda en `coverageResult`/`coverageError`
+  // y se pinta SOLO en el detalle de la Epic que lo generó.
+  function reviewCoverageAction(epicId) {
+    if (backlogSection.coverageInFlight) return;
+    backlogSection.coverageInFlight = epicId;
+    backlogSection.coverageError = null;
+    backlogSection.coverageResult = null;
+    renderBacklogBody();
+
+    BackendClient.getEpicCoverage(epicId)
+      .then(function (result) {
+        backlogSection.coverageInFlight = null;
+        backlogSection.coverageResult = result;
+        renderBacklogBody();
+      })
+      .catch(function (error) {
+        backlogSection.coverageInFlight = null;
+        backlogSection.coverageError = buildErrorMessage(error);
+        renderBacklogBody();
+      });
+  }
+
+  // DEPRECATED (T-AF008-US15-02, 2026-08-17): "Aterrizar en Tasks"
   // llamaba SIEMPRE de forma síncrona a `propose-tasks` desde el
   // navegador — sustituido por el botón único "Progresar"
   // (`renderProgresarUserStoryControls`), que marca `EN_DISEÑO` y deja
@@ -4918,16 +5368,18 @@
       });
   }
 
-  // T-FB008-US10-03, criterio 3/6 de US-FB008-10: panel de la cola de
+  // T-AF008-US10-03, criterio 3/6 de US-AF008-10: panel de la cola de
   // despacho dentro de la propia pantalla Backlog — lista las Tasks
   // encoladas (ordenadas por prioridad, ya así en la respuesta del
   // backend, `GET /backlog/queue`), con su estado y agente asignado si
   // aplica, sin necesitar la pantalla Plan ni Agentes por separado.
   // Colapsable (mismo patrón que el panel "Próximo foco",
-  // T-FB036-US01-02), expandido por defecto.
+  // T-AF036-US01-02), expandido por defecto.
   var QUEUE_STATUS_LABEL = {
     queued: "Pendiente",
     dispatched: "En curso",
+    awaiting_tester: "Esperando al Tester",
+    completed: "Completada",
     failed: "Fallida",
   };
 
@@ -4939,10 +5391,22 @@
     if (backlogSection.dispatchQueue === null) return;
 
     var queue = backlogSection.dispatchQueue;
-    var allEntries = (queue.queued || [])
-      .map(function (e) { return { entry: e, status: "queued" }; })
-      .concat((queue.dispatched || []).map(function (e) { return { entry: e, status: "dispatched" }; }))
-      .concat((queue.failed || []).map(function (e) { return { entry: e, status: "failed" }; }));
+    // T-AF008-US10-04: el backend ya deriva `effective_status` por
+    // entrada cruzando la cola con el estado real del fichero de la Task
+    // (GET /backlog/queue) — la UI solo pinta los grupos derivados y no
+    // lista nunca una Task DONE/READY como "En curso". `awaiting_tester`
+    // distingue el caso de retención (Developer esperando al Tester).
+    var groups = [
+      { key: "queued", entries: queue.queued || [] },
+      { key: "dispatched", entries: queue.dispatched || [] },
+      { key: "awaiting_tester", entries: queue.awaiting_tester || [] },
+      { key: "completed", entries: queue.completed || [] },
+      { key: "failed", entries: queue.failed || [] },
+    ];
+    var allEntries = [];
+    groups.forEach(function (group) {
+      group.entries.forEach(function (e) { allEntries.push({ entry: e, status: e.effective_status || group.key }); });
+    });
 
     if (allEntries.length === 0) return;
 
@@ -4958,6 +5422,30 @@
       renderBacklogBody();
     });
     header.appendChild(toggleBtn);
+    // T-AF036-US17-04: botón "Borrar histórico" — visible solo si hay
+    // entradas terminales (`completed`/`failed`). Pide confirmación y llama
+    // a `DELETE /backlog/queue/history`; tras borrar refresca la cola y
+    // re-renderiza. Las entradas en curso no se tocan. Error: se muestra sin
+    // romper el panel.
+    var hasTerminal =
+      (queue.completed || []).length + (queue.failed || []).length > 0;
+    if (hasTerminal) {
+      var clearHistoryBtn = button("Borrar histórico", "backlog-focus-toggle");
+      clearHistoryBtn.addEventListener("click", function () {
+        if (!window.confirm("¿Borrar el histórico de la cola de despacho (entradas completadas y fallidas)?")) {
+          return;
+        }
+        BackendClient.clearQueueHistory()
+          .then(function () {
+            loadDispatchQueue();
+          })
+          .catch(function (error) {
+            backlogSection.dispatchQueueError = buildErrorMessage(error);
+            renderBacklogBody();
+          });
+      });
+      header.appendChild(clearHistoryBtn);
+    }
     panel.appendChild(header);
 
     if (!backlogSection.dispatchQueueCollapsed) {
@@ -4965,14 +5453,62 @@
         var entry = item.entry;
         var row = h("div", "backlog-queue-row");
         var statusClass =
-          item.status === "dispatched" ? "job-status-run" :
-          item.status === "failed" ? "job-status-ko" : "job-status-run";
+          item.status === "failed" ? "job-status-ko" :
+          item.status === "completed" ? "job-status-ok" : "job-status-run";
         var titleParts = [entry.task_id];
         if (entry.priority) titleParts.push(entry.priority);
-        row.appendChild(h("span", "backlog-queue-row-title", titleParts.join(" · ")));
+        var titleEl = h("span", "backlog-queue-row-title", titleParts.join(" · "));
+        row.appendChild(titleEl);
         var statusText = QUEUE_STATUS_LABEL[item.status] || item.status;
         if (entry.agent_name) statusText += " — " + entry.agent_name;
         row.appendChild(h("span", "backlog-queue-row-status " + statusClass, statusText));
+        // T-AF036-US17-03: fechas de las transiciones de la entrada — se
+        // muestran las que existen (encolada, despachada/working, terminada);
+        // una entrada sin `finished_at` (en curso o legacy) omite ese campo.
+        var dateParts = [];
+        if (entry.enqueued_at) dateParts.push("encolada " + formatUpdatedAt(entry.enqueued_at));
+        if (entry.dispatched_at) dateParts.push("despachada " + formatUpdatedAt(entry.dispatched_at));
+        if (entry.finished_at) dateParts.push("terminada " + formatUpdatedAt(entry.finished_at));
+        if (dateParts.length > 0) {
+          row.appendChild(h("span", "backlog-queue-row-dates", dateParts.join(" · ")));
+        }
+        // T-AF036-US17-06: botón "Quitar de la cola" solo para filas
+        // `queued` — invoca `DELETE /backlog/{task_id}/enqueue` (retira la
+        // entrada y revierte la task real a `READY`) y refresca la cola y el
+        // listado del Backlog. `stopPropagation` para no disparar la
+        // navegación de la fila (si es clicable). 404/409 se muestran
+        // verbatim sin romper el panel.
+        if (item.status === "queued") {
+          var dequeueBtn = button("Quitar de la cola", "backlog-focus-toggle");
+          dequeueBtn.addEventListener("click", function (event) {
+            event.stopPropagation();
+            if (!window.confirm("¿Quitar '" + entry.task_id + "' de la cola de despacho?")) {
+              return;
+            }
+            BackendClient.dequeueTask(entry.task_id)
+              .then(function () {
+                loadDispatchQueue();
+                refreshBacklogReport();
+              })
+              .catch(function (error) {
+                backlogSection.dispatchQueueError = buildErrorMessage(error);
+                renderBacklogBody();
+              });
+          });
+          row.appendChild(dequeueBtn);
+        }
+        // T-AF036-US12-02: cada fila con `us_id` resoluble (la Task pertenece
+        // a una User Story) es clicable y navega directamente a la tarea en
+        // el listado del Backlog (expande la Epic, la US padre y hace scroll).
+        // Si no se puede resolver (`us_id` ausente), la fila se muestra sin
+        // enlace y sin acción de clic — no rompe el render del panel.
+        if (entry.us_id) {
+          row.className += " backlog-queue-row-link";
+          titleEl.textContent += "  →";
+          row.addEventListener("click", function () {
+            navigateToQueueTask(entry);
+          });
+        }
         panel.appendChild(row);
         if (item.status === "failed" && entry.result) {
           panel.appendChild(h("div", "plan-step-error", entry.result));
@@ -4981,6 +5517,27 @@
     }
 
     wrap.appendChild(panel);
+  }
+
+  // T-AF036-US12-02: navega desde una fila de la cola de despacho hasta la
+  // tarea concreta en el listado del Backlog, reutilizando
+  // `expandEpicAndScrollToChainTask` (expande la Epic, la US padre y hace
+  // scroll a la task). Resuelve la Epic de la Task a través de su User Story
+  // padre (`us_id` de la entrada de cola). No cambia el estado del panel de
+  // la cola. Si la resolución falla (tarea no resoluble), no hace nada — no
+  // rompe el render.
+  function navigateToQueueTask(entry) {
+    if (!entry.us_id) return;
+    BackendClient.getBacklogItem(entry.us_id)
+      .then(function (usDetail) {
+        if (!usDetail || !usDetail.epic) return;
+        var epicId = epicIdFromLabel(usDetail.epic);
+        if (!epicId) return;
+        expandEpicAndScrollToChainTask(epicId, entry.task_id);
+      })
+      .catch(function () {
+        // Tarea/Epic no resoluble: sin acción, sin romper el render.
+      });
   }
 
   // Despliegue del detalle completo de una User Story/Task (criterio de
@@ -4999,16 +5556,16 @@
     backlogSection.itemDetailError = null;
     backlogSection.launchError = null;
     backlogSection.launchResult = null;
-    // T-FB036-US07-01: cada detalle nuevo empieza con "Opciones avanzadas"
+    // T-AF036-US07-01: cada detalle nuevo empieza con "Opciones avanzadas"
     // colapsado — no se arrastra el estado abierto/cerrado de la US/Task
     // anterior.
     backlogSection.advancedOptionsCollapsed = true;
-    // T-FB024-US15-02: reinicia el selector de Story del formulario de Job
+    // T-AF024-US15-02: reinicia el selector de Story del formulario de Job
     // manual al abrir cualquier detalle nuevo — se recalcula abajo si la
     // Story recién abierta está en TO_DO.
     backlogSection.manualJobStorySelectIndex = 0;
     renderBacklogBody();
-    // T-FB024-US15-02: mismo catálogo de Stories TO_DO que el flujo de
+    // T-AF024-US15-02: mismo catálogo de Stories TO_DO que el flujo de
     // Plan/Jobs — necesario aquí para poder preseleccionar la propia US
     // del detalle si aplica (justo debajo).
     loadTodoStories();
@@ -5017,18 +5574,22 @@
       .then(function (detail) {
         if (backlogSection.selectedItemId !== itemId) return;
         backlogSection.itemDetail = detail;
-        // T-FB024-US15-02: si la US recién abierta está en TO_DO y ya
+        // T-AF024-US15-02: si la US recién abierta está en TO_DO y ya
         // figura en el catálogo cargado, se preselecciona por defecto en
         // el formulario de Job manual — es la Story del propio contexto
         // donde vive ese formulario, desmarcable por el humano si quiere
         // un Job suelto sin veredicto automático.
-        if (detail.kind === "US" && detail.state === "TO_DO" && plansSection.todoStories) {
+        if (detail.kind === "US" && detail.state === "READY" && plansSection.todoStories) {
           var storyIdx = plansSection.todoStories.findIndex(function (s) { return s.id === itemId; });
           if (storyIdx >= 0) backlogSection.manualJobStorySelectIndex = storyIdx + 1;
         }
         renderBacklogBody();
         if (detail.kind === "US") {
           refreshDeveloperAgents();
+          // T-AF036-US06-01: la carga del informe de cierre es automática
+          // al expandir el detalle de una User Story (sin clic explícito),
+          // igual que las demás sub-secciones del detalle.
+          loadUsClosingReport(itemId);
         }
       })
       .catch(function (error) {
@@ -5038,7 +5599,36 @@
       });
   }
 
-  // T-FB008-US10-03: expande/pliega el detalle de una Task DENTRO del
+  // T-AF036-US06-01: carga el informe de cierre real de la User Story
+  // `usId` (GET /backlog/us/{us_id}/report) — single-flight por US, con
+  // indicador de carga mientras la petición está en vuelo. El caso
+  // "informe ausente" (`{exists: false}`) es un resultado VÁLIDO, no un
+  // error: solo las respuestas con error real llegan a
+  // `closingReportError`.
+  function loadUsClosingReport(usId) {
+    backlogSection.closingReportUsId = usId;
+    backlogSection.closingReportLoading = true;
+    backlogSection.closingReportError = null;
+    backlogSection.closingReport = null;
+    backlogSection.closingReportScrollTaskId = null;
+    renderBacklogBody();
+
+    BackendClient.getUsClosingReport(usId)
+      .then(function (data) {
+        if (backlogSection.closingReportUsId !== usId) return;
+        backlogSection.closingReportLoading = false;
+        backlogSection.closingReport = data;
+        renderBacklogBody();
+      })
+      .catch(function (error) {
+        if (backlogSection.closingReportUsId !== usId) return;
+        backlogSection.closingReportLoading = false;
+        backlogSection.closingReportError = buildErrorMessage(error);
+        renderBacklogBody();
+      });
+  }
+
+  // T-AF008-US10-03: expande/pliega el detalle de una Task DENTRO del
   // detalle ya expandido de su propia User Story — slot de estado
   // separado de `toggleItemDetail` (ver comentario en
   // `selectedNestedTaskId`, arriba en `backlogSection`).
@@ -5055,7 +5645,7 @@
     backlogSection.nestedTaskDetail = null;
     backlogSection.nestedTaskDetailError = null;
     backlogSection.enqueueTaskError = null;
-    // T-FB036-US07-01: mismo criterio que `toggleItemDetail` — cada detalle
+    // T-AF036-US07-01: mismo criterio que `toggleItemDetail` — cada detalle
     // nuevo (aquí, una Task anidada) empieza con el desplegable colapsado.
     backlogSection.advancedOptionsCollapsed = true;
     renderBacklogBody();
@@ -5089,11 +5679,11 @@
     }
     var detail = backlogSection.nestedTaskDetail;
     renderParseWarning(box, detail);
-    box.appendChild(h("div", "job-detail-field", "Estado: " + (detail.state || "desconocido")));
+    box.appendChild(h("div", "job-detail-field", "Estado: " + stateDisplayLabel(detail.state)));
     if (detail.epic) {
       box.appendChild(h("div", "job-detail-field", "Epic: " + detail.epic));
     }
-    // T-FB008-US11-02: mismo criterio que `renderItemDetail` — esta Task
+    // T-AF008-US11-02: mismo criterio que `renderItemDetail` — esta Task
     // anidada es siempre `kind === "T"` (nunca una User Story llega
     // aquí), así que se muestra sin condición extra.
     box.appendChild(h("div", "job-detail-field", "Dificultad: " + (detail.difficulty || "Sin puntuar")));
@@ -5113,7 +5703,7 @@
   // objetivo, criterios de aceptación, y — solo para una User Story — la
   // lista de sus Tasks con estado + el formulario "Lanzar desarrollo"
   // (criterio de aceptación 4).
-  // T-FB036-US07-01: desplegable "Opciones avanzadas" del detalle de una
+  // T-AF036-US07-01: desplegable "Opciones avanzadas" del detalle de una
   // User Story — agrupa "Lanzar desarrollo" (Job directo) y "Crear Job
   // manual" (genérico), que pasan a ser acciones secundarias tras la
   // consolidación que deja "Marcar para desarrollo" como acción principal.
@@ -5146,6 +5736,93 @@
     return panel;
   }
 
+  // T-AF036-US06-01: bloque "Informe de cierre" del detalle de una User
+  // Story — solo lectura (criterio 7). Estados explícitos, nunca un hueco
+  // vacío: cargando -> indicador; error real -> motivo verbatim; informe
+  // ausente -> texto explícito; informe presente -> contenido literal con
+  // saltos de línea preservados + enlace por Task cerrada a su sección
+  // (scroll dentro del bloque ya cargado, sin fetch adicional).
+  function renderUsClosingReport(detail) {
+    var wrap = h("div", "us-closing-report");
+    wrap.appendChild(h("div", "job-detail-label", "Informe de cierre:"));
+
+    if (backlogSection.closingReportUsId !== detail.id) {
+      // El informe pertenece a otra US (o aún no se disparó su carga) — no
+      // se pinta nada bajo el bloque hasta que llegue.
+      return wrap;
+    }
+
+    if (backlogSection.closingReportLoading) {
+      wrap.appendChild(h("p", "section-note", "Cargando informe de cierre…"));
+      return wrap;
+    }
+
+    if (backlogSection.closingReportError) {
+      wrap.appendChild(h("p", "agent-error", backlogSection.closingReportError));
+      return wrap;
+    }
+
+    var report = backlogSection.closingReport;
+    if (!report || !report.exists) {
+      wrap.appendChild(
+        h(
+          "p",
+          "section-note",
+          "Sin informe de cierre — ninguna Task de esta User Story se ha cerrado todavía"
+        )
+      );
+      return wrap;
+    }
+
+    // Enlace por Task cerrada a su sección dentro del informe ya cargado —
+    // scroll puro a un ancla del propio bloque, sin fetch adicional
+    // (criterio 3).
+    var closedTasks = (detail.tasks || []).filter(function (t) {
+      return t.state === "DONE";
+    });
+    if (closedTasks.length > 0) {
+      var links = h("div", "us-closing-report-task-links");
+      closedTasks.forEach(function (t) {
+        var a = h("a", "us-closing-report-task-link", t.id);
+        a.href = "#us-report-task-" + t.id;
+        a.addEventListener("click", function (ev) {
+          ev.preventDefault();
+          scrollToReportTask(t.id);
+        });
+        links.appendChild(a);
+      });
+      wrap.appendChild(links);
+    }
+
+    var content = h("div", "us-closing-report-content");
+    // Texto literal, saltos de línea preservados (sin renderer Markdown
+    // completo); cada encabezado `## <task_id> · ...` de una Task cerrada
+    // recibe un ancla para el scroll de arriba.
+    content.style.whiteSpace = "pre-wrap";
+    var lines = report.content.split("\n");
+    lines.forEach(function (line) {
+      var taskMatch = /^##\s+(T-AF\d+(?:-US\d+)?-\d+)\s*(?:·|\.|:|-|$)/.exec(line);
+      var isClosedTaskHeading =
+        taskMatch !== null && closedTasks.some(function (t) { return t.id === taskMatch[1]; });
+      if (isClosedTaskHeading) {
+        var heading = h("div", "us-closing-report-task-heading", line);
+        heading.id = "us-report-task-" + taskMatch[1];
+        content.appendChild(heading);
+      } else {
+        content.appendChild(document.createTextNode(line + "\n"));
+      }
+    });
+    wrap.appendChild(content);
+    return wrap;
+  }
+
+  function scrollToReportTask(taskId) {
+    var el = document.getElementById("us-report-task-" + taskId);
+    if (el) {
+      el.scrollIntoView({ behavior: "smooth", block: "start" });
+    }
+  }
+
   function renderItemDetail() {
     var box = h("div", "job-detail");
     if (backlogSection.itemDetailError) {
@@ -5158,11 +5835,19 @@
     }
     var detail = backlogSection.itemDetail;
     renderParseWarning(box, detail);
-    box.appendChild(h("div", "job-detail-field", "Estado: " + (detail.state || "desconocido")));
+    box.appendChild(h("div", "job-detail-field", "Estado: " + stateDisplayLabel(detail.state)));
     if (detail.epic) {
       box.appendChild(h("div", "job-detail-field", "Epic: " + detail.epic));
     }
-    // T-FB008-US11-02: solo para Task (el campo no existe en el esquema
+    // T-AF036-US14-02: editor inline de fase de la User Story (persiste vía
+    // `PUT /backlog/{item_id}/fase` y reagrupa la vista "Por Fase").
+    if (detail.kind === "US") {
+      box.appendChild(renderFaseEditor(detail.id, detail.fase));
+      if (backlogSection.editItemError && backlogSection.editItemErrorFor === detail.id) {
+        box.appendChild(h("p", "agent-error", backlogSection.editItemError));
+      }
+    }
+    // T-AF008-US11-02: solo para Task (el campo no existe en el esquema
     // de User Story, `build_item_detail` siempre devuelve `null` ahí) —
     // "Sin puntuar" explícito en vez de omitir el campo en silencio
     // (criterio de aceptación explícito de la Task).
@@ -5180,7 +5865,7 @@
 
     // Solo presente para una User Story (`kind === "US"`) — una Task no
     // trae este campo (backend: `build_item_detail`,
-    // `brain/backlog/detail.py`). "Lanzar desarrollo" es también
+    // `atlas_forge/backlog/detail.py`). "Lanzar desarrollo" es también
     // exclusivo de una User Story, mismo criterio: el endpoint
     // `POST /backlog/{story_id}/launch-development` solo acepta ids de
     // User Story.
@@ -5203,7 +5888,7 @@
           box.appendChild(h("div", "job-detail-field", "El Arquitecto no ha desgranado esta Story todavía"));
         }
       } else {
-        // T-FB008-US10-03: cada Task listada aquí pasa a ser expandible
+        // T-AF008-US10-03: cada Task listada aquí pasa a ser expandible
         // (antes texto plano, `.job-detail-field` sin listener) — sin
         // esto, no existía ninguna forma de llegar al detalle de una
         // Task individual desde la UI, así que el botón "Marcar para
@@ -5216,17 +5901,45 @@
         // cuanto se expandiera una de sus Tasks.
         tasks.forEach(function (task) {
           var taskSelected = backlogSection.selectedNestedTaskId === task.id;
-          var taskCard = h("div", "job-card" + (taskSelected ? " job-card-selected" : ""));
-          // T-FB036-US01-10: id de anclaje para el scroll del panel
+          // T-AF036-US09-01: Task postergada (OUT_OF_SCOPE/FUERA_ROADMAP)
+          // -> clase propia, mismo criterio que la fila de User Story.
+          var taskFueraRoadmap = isFueraRoadmapState(task.state) ? " backlog-fuera-roadmap" : "";
+          var taskCard = h("div", "job-card" + taskFueraRoadmap + (taskSelected ? " job-card-selected" : ""));
+          // T-AF036-US01-10: id de anclaje para el scroll del panel
           // "Próximo foco" a una Task concreta — mismo patrón que
           // `itemCard.id = "backlog-us-" + userStory.id` para User Story.
           taskCard.id = "backlog-task-" + task.id;
           var taskLine = h("div", "job-line" + (taskSelected ? " job-line-selected" : ""));
-          taskLine.appendChild(h("span", null, task.id + " — " + task.state));
-          // T-FB036-US08-01: mismos controles en línea que la fila de
+          taskLine.appendChild(
+            h(
+              "span",
+              "backlog-task-line-title" + (isFueraRoadmapState(task.state) ? " backlog-us-line-title--fuera-roadmap" : ""),
+              // T-AF036-US19-02: ID + nombre (título); el estado genérico ya
+              // NO va en el texto de la línea (queda solo en el `<select>`).
+              // Excepción: "fuera de roadmap" conserva su etiqueta visible
+              // (US-AF036-09). Si el `title` es null/vacío, solo el ID.
+              // T-AF036-US19-03: el backend rellena `title` con el `id`
+              // cuando falta `title:` (fallback T-AF036-US19-01); se compara
+              // `title !== task.id` para no duplicar el ID.
+              (task.title && task.title !== task.id
+                ? task.id + " · " + task.title
+                : task.id)
+                + (isFueraRoadmapState(task.state) ? " — Fuera de roadmap" : "")
+            )
+          );
+          // T-AF036-US13-03: fase y fecha de última transición de la Task en
+          // el encabezado (servidas por el backend, T-AF036-US13-02).
+          taskLine.appendChild(
+            h(
+              "span",
+              "backlog-task-line-meta",
+              " [fase: " + faseHeaderLabel(task.fase) + "] [última actualización: " + formatUpdatedAt(task.updated_at) + "]"
+            )
+          );
+          // T-AF036-US08-01: mismos controles en línea que la fila de
           // User Story, aquí para la Task anidada — closure captura `task`
           // del `forEach`, no `userStory` del scope exterior.
-          taskLine.appendChild(renderPriorityStateControls(task.id, task.priority, task.state));
+          taskLine.appendChild(renderPriorityStateControls(task.id, task.priority, task.state, "T"));
           taskLine.tabIndex = 0;
           taskLine.setAttribute("role", "button");
           taskLine.setAttribute("aria-expanded", taskSelected ? "true" : "false");
@@ -5244,7 +5957,7 @@
           box.appendChild(taskCard);
         });
       }
-      // T-FB036-US02-06: botón "+ Nueva Task" al final de la lista de
+      // T-AF036-US02-06: botón "+ Nueva Task" al final de la lista de
       // Tasks — siempre visible (incluso con lista vacía), nunca dentro del
       // bucle de arriba. Abre el formulario inline (T9) con `us_id`/`epic_id`
       // heredados del contexto (`detail.id` es la US, `detail.epic` es la
@@ -5265,35 +5978,27 @@
         };
         renderBacklogBody();
       });
-      box.appendChild(newTaskBtn);
+
+      // T-AF036-US07-02 (bug 2026-08-17): los controles de acción
+      // principal del detalle ("+ Nueva Task"; "Progresar" se eliminó en
+      // T-AF036-US16-01 y "Marcar toda la Story" en T-AF036-US16-02) se
+      // unen en un ÚNICO contenedor `.accion-controls` flex para que se
+      // alineen en
+      // una sola fila, con el mismo alto y espaciado consistente. Los
+      // mensajes de error/resultado de cada acción se añaden DESPUÉS de la
+      // fila de botones, no dentro de ella.
+      var actionControls = h("div", "accion-controls");
+      actionControls.appendChild(newTaskBtn);
+      box.appendChild(actionControls);
       if (backlogSection.newTaskForm !== null && backlogSection.newTaskForm.usId === detail.id) {
         box.appendChild(renderNewTaskForm());
       }
 
-      // T-FB008-US15-02 (2026-08-17): botón único "Progresar" sustituye
-      // a "Aterrizar en Tasks" (que llamaba SIEMPRE disponible, de forma
-      // síncrona, directo a propose-tasks) — su acción depende del
-      // estado real de la User Story: en `NO_TASKS` marca `EN_DISEÑO`
-      // (el Dispatcher reparte el aterrizaje al Arquitecto libre,
-      // `run_us_landing_dispatch_cycle`); en `EN_DISEÑO` queda
-      // deshabilitado ("esperando al Arquitecto"); en `TO_DO` (ya con
-      // Tasks) es el mismo atajo que "Marcar toda la Story para
-      // desarrollo" (`T-FB008-US14-04`, marca `EN_DESARROLLO`).
-      box.appendChild(renderProgresarUserStoryControls(detail));
-
-      // "Marcar para desarrollo" (`T-FB036-US07-01`) sigue disponible
-      // como acción explícita independiente del botón único "Progresar"
-      // — mismo mecanismo, ambos caminos coordinados
-      // (`setItemStateAction`/`enqueueAllTasksAction` comparten estado y
-      // feedback).
-      box.appendChild(renderEnqueueAllControls(detail.id));
-
-      // T-FB036-US07-01: "Lanzar desarrollo" y "Crear Job manual" quedan
-      // agrupados bajo "Opciones avanzadas", colapsado por defecto — siguen
-      // accesibles con un clic (criterio de aceptación 2), mismo patrón
-      // visual que el resto de colapsables de esta pantalla (panel "Próximo
-      // foco"/"Cola de despacho").
       box.appendChild(renderAdvancedOptionsCollapsible(detail.id));
+
+      // T-AF036-US06-01: bloque "Informe de cierre" — bajo el bloque de
+      // Tasks, con indicador de carga automático (sin clic explícito).
+      box.appendChild(renderUsClosingReport(detail));
     } else {
       // Task individual: botón "Marcar para desarrollo" (si TO_DO y no
       // encolada) / "Quitar de la cola" (si ya encolada) — criterio de
@@ -5310,8 +6015,8 @@
     var inFlight = backlogSection.enqueueTaskInFlight === detail.id;
 
     if (queueEntry === null) {
-      if (detail.state !== "TO_DO") {
-        // Fuera de TO_DO no tiene sentido encolar (mismo criterio 400
+      if (detail.state !== "READY") {
+        // Fuera de READY no tiene sentido encolar (mismo criterio 400
         // que ya aplica el backend) — no se muestra ningún botón en vez
         // de mostrar uno que siempre fallaría al pulsarlo.
         return wrap;
@@ -5343,80 +6048,11 @@
     return wrap;
   }
 
-  // T-FB008-US15-02 (2026-08-17): botón único "Progresar" en el detalle
-  // de una User Story — su texto/acción depende del `state` real:
-  // `NO_TASKS` -> marca `EN_DISEÑO` (el Dispatcher reparte el
-  // aterrizaje al Arquitecto); `EN_DISEÑO` -> deshabilitado, esperando
-  // al Arquitecto; `TO_DO` (con Tasks) -> marca `EN_DESARROLLO`, mismo
-  // atajo que `T-FB008-US14-04`; cualquier otro estado (`EN_DESARROLLO`,
-  // `REVIEW`, `DONE`, `FUERA_ROADMAP`) -> el botón no se muestra, no define
-  // ninguna acción "Progresar" ahí (fuera de alcance de esta Task).
-  function renderProgresarUserStoryControls(detail) {
-    var wrap = h("div", "accion-controls");
-    var inFlight = backlogSection.editItemInFlight === detail.id;
-
-    if (detail.state === "NO_TASKS") {
-      var progresarBtn = button(inFlight ? "Progresando…" : "Progresar", "accion-run");
-      if (inFlight) progresarBtn.disabled = true;
-      progresarBtn.addEventListener("click", function () {
-        setItemStateAction(detail.id, "EN_DISEÑO");
-      });
-      wrap.appendChild(progresarBtn);
-    } else if (detail.state === "EN_DISEÑO") {
-      var waitingBtn = button("Progresar", "accion-run");
-      waitingBtn.disabled = true;
-      waitingBtn.title = "Esperando a que el Arquitecto la desgrane en Tasks.";
-      wrap.appendChild(waitingBtn);
-      wrap.appendChild(h("p", "section-note", "Esperando al Arquitecto."));
-    } else if (detail.state === "TO_DO") {
-      var progresarToDevBtn = button(inFlight ? "Progresando…" : "Progresar", "accion-run");
-      if (inFlight) progresarToDevBtn.disabled = true;
-      progresarToDevBtn.addEventListener("click", function () {
-        setItemStateAction(detail.id, "EN_DESARROLLO");
-      });
-      wrap.appendChild(progresarToDevBtn);
-    }
-
-    if (backlogSection.editItemError && backlogSection.editItemErrorFor === detail.id) {
-      wrap.appendChild(h("p", "agent-error", backlogSection.editItemError));
-    }
-    return wrap;
-  }
-
-  function renderEnqueueAllControls(usId) {
-    var wrap = h("div", "accion-controls");
-    var inFlight = backlogSection.enqueueAllInFlight === usId;
-    var enqueueAllBtn = button(
-      inFlight ? "Encolando…" : "Marcar toda la Story para desarrollo",
-      "accion-run"
-    );
-    if (inFlight) enqueueAllBtn.disabled = true;
-    enqueueAllBtn.addEventListener("click", function () {
-      enqueueAllTasksAction(usId);
-    });
-    wrap.appendChild(enqueueAllBtn);
-
-    if (backlogSection.enqueueAllError) {
-      wrap.appendChild(h("p", "agent-error", backlogSection.enqueueAllError));
-    }
-    if (backlogSection.enqueueAllResult) {
-      var result = backlogSection.enqueueAllResult;
-      var enqueuedCount = (result.enqueued || []).length;
-      var skippedCount = (result.skipped_already_queued || []).length;
-      var summary = enqueuedCount + " Task" + (enqueuedCount === 1 ? "" : "s") + " encolada" + (enqueuedCount === 1 ? "" : "s");
-      if (skippedCount > 0) {
-        summary += " (" + skippedCount + " ya estaba" + (skippedCount === 1 ? "" : "n") + " en la cola)";
-      }
-      wrap.appendChild(h("p", "job-hint", summary));
-    }
-    return wrap;
-  }
-
-  // Catálogo de agentes Developer ya lanzados (criterio de aceptación 4:
-  // "mismo catálogo que la sección Agentes/Jobs") — recompuesto cada vez
-  // que se abre el detalle de una User Story, mismo criterio que
-  // `refreshJobsAgents`, filtrado a `role === "developer"` (mismo
-  // criterio que `BacklogViewModel.refreshDeveloperAgents`, Android).
+  // T-AF036-US07-02: los controles de acción principal del detalle de la
+  // User Story ("+ Nueva Task", y el atajo por estado) se unen en una única
+  // fila `.accion-controls`. El botón "Marcar toda la Story para desarrollo"
+  // se retiró en T-AF036-US16-02: el encolado de las Tasks de la US se hace
+  // vía el selector de estado (mover la US a TO_DEVELOP).
   function refreshDeveloperAgents() {
     backlogSection.developerAgentsError = null;
     BackendClient.getAgents()
@@ -5436,14 +6072,14 @@
       });
   }
 
-  // T-FB036-US01-03: % DONE real de la Epic = (US done + Task done) /
+  // T-AF036-US01-03: % DONE real de la Epic = (US done + Task done) /
   // (US total + Task total), calculado en frontend a partir de los
   // conteos ya presentes en `by_epic` (sin backend nuevo) — sustituye a
-  // `unblock_degree` (T-FB024-US07-01, grado de desbloqueo por
+  // `unblock_degree` (T-AF024-US07-01, grado de desbloqueo por
   // dependencias) como barra PRINCIPAL de cada tarjeta de Epic, porque
   // `unblock_degree` no mide progreso: una Epic con Tasks TO_DO sin
   // dependencias entre sí marca 100% sin nada hecho (diagnóstico de
-  // `07-informes/FB-036/especificacion-ux-backlog.md`, estado 3 punto 3).
+  // `07-informes/AF-036/especificacion-ux-backlog.md`, estado 3 punto 3).
   function sumCounts(counts) {
     if (!counts) return 0;
     return Object.keys(counts).reduce(function (total, state) {
@@ -5473,7 +6109,7 @@
     card.appendChild(bar);
   }
 
-  // Degradada a barra SECUNDARIA (T-FB036-US01-03): `unblock_degree`
+  // Degradada a barra SECUNDARIA (T-AF036-US01-03): `unblock_degree`
   // sigue siendo una señal real y útil ("¿cuánto de esta Epic puedo
   // empezar a trabajar ya mismo?"), pero nunca se muestra sin la
   // etiqueta explícita "Desbloqueo: N%" — para que no se confunda con
@@ -5501,7 +6137,7 @@
       return dep.state !== "DONE";
     });
   }
-  // T-FB024-US09-03: carga los agentes activos (sin stopped) de la sesion
+  // T-AF024-US09-03: carga los agentes activos (sin stopped) de la sesion
   // para el formulario manual de Job.
   function loadManualJobAgents() {
     backlogSection.manualJobAgents = null;
@@ -5524,7 +6160,7 @@
   }
 
   // Formulario "Lanzar desarrollo" (criterio de aceptación 4, consume
-  // `POST /backlog/{story_id}/launch-development`, T-FB020-US02-01): el
+  // `POST /backlog/{story_id}/launch-development`, T-AF020-US02-01): el
   // backend resuelve el contexto completo (objetivo + Tasks TO_DO), aquí
   // solo se elige el agente Developer destinatario y se despacha — sin
   // escribir ninguna descripción a mano.
@@ -5593,7 +6229,7 @@
       // Criterio de aceptación explícito: el motivo REAL del backend
       // (400 sin Tasks TO_DO, 404 agente inválido) — `buildErrorMessage`
       // ya surge del `detail` verbatim de `BackendRequestError`, nunca
-      // un mensaje genérico (mismo patrón que T-FB021-US04-01).
+      // un mensaje genérico (mismo patrón que T-AF021-US04-01).
       form.appendChild(h("p", "agent-error", backlogSection.launchError));
     }
     if (backlogSection.launchResult) {
@@ -5607,7 +6243,7 @@
     }
     return form;
   }
-  // T-FB024-US09-03: formulario manual de creacion de Job como accion
+  // T-AF024-US09-03: formulario manual de creacion de Job como accion
   // secundaria en el detalle de la US.
   function renderManualJobForm(usId) {
     var form = h("div", "jobs-form");
@@ -5659,7 +6295,7 @@
     });
     form.appendChild(descArea);
 
-    // T-FB024-US15-02: Story TO_DO opcional a asociar al Job — mismo
+    // T-AF024-US15-02: Story TO_DO opcional a asociar al Job — mismo
     // selector/catálogo (`plansSection.todoStories`) que ya usa el flujo
     // de Plan, no un campo de texto libre nuevo. Preseleccionada a la
     // propia US de este detalle si está en TO_DO (`toggleItemDetail`/
@@ -5681,12 +6317,12 @@
       todoStoriesForManual.forEach(function (story, idx) {
         var o = document.createElement("option");
         o.setAttribute("value", String(idx + 1));
-        o.textContent = story.id + " (" + (story.epic || "") + ") — TO_DO";
+        o.textContent = story.id + " (" + (story.epic || "") + ") — READY";
         storySelect.appendChild(o);
       });
       if (todoStoriesForManual.length === 0) {
         storySelect.disabled = true;
-        noStoryOpt.textContent = "No hay User Stories en TO_DO en el backlog";
+        noStoryOpt.textContent = "No hay User Stories en READY en el backlog";
       }
       storySelect.selectedIndex = 0;
       if (
@@ -5739,7 +6375,7 @@
     renderBacklogBody();
 
     var payload = { agent_id: agent.id, description: description };
-    // T-FB024-US15-02: 0 es "Sin Story asociada" — solo se envía
+    // T-AF024-US15-02: 0 es "Sin Story asociada" — solo se envía
     // `story_id` si el humano eligió (o dejó preseleccionada) una Story
     // real del catálogo TO_DO.
     var todoStoriesForManual = plansSection.todoStories || [];
@@ -5766,7 +6402,7 @@
   }
 
   // Despacho single-flight (criterio de aceptación explícito de
-  // T-FB020-US02-02, reutilizado aquí: "un segundo clic mientras la
+  // T-AF020-US02-02, reutilizado aquí: "un segundo clic mientras la
   // petición anterior sigue en vuelo no despacha un segundo Job") —
   // mismo guard hand-rolled que el resto de acciones de esta web
   // (`launching`/`createInFlight`/`runningScriptId`): primera línea
@@ -5796,7 +6432,7 @@
   }
 
   // --------------------------------------------------------------- AGENTES
-  // US-FB024-11 (reescritura completa): pantalla unificada — una fila por
+  // US-AF024-11 (reescritura completa): pantalla unificada — una fila por
   // instancia de cada rol de gobierno (Arquitecto, Developer×N,
   // Auditor-OSS, UX, Tester). Mismos 4 campos (nombre, estado, tiempo desde
   // última orden, modelo) y mismas acciones para todos los roles, sin
@@ -5837,7 +6473,7 @@
         rolesSection.error = buildErrorMessage(error);
         renderRolesBody();
       });
-    // Límite de Developer simultáneos (US-FB024-12 criterio 6): carga
+    // Límite de Developer simultáneos (US-AF024-12 criterio 6): carga
     // independiente de la de arriba — un fallo aquí no debe bloquear el
     // resto de la pantalla, buildUnifiedRows ya tiene su propio fallback
     // al default mientras esto no haya respondido.
@@ -5911,7 +6547,7 @@
 
   // ── construcción de filas unificadas ────────────────────────────────────
 
-  // Default local (US-FB024-12): solo se usa mientras `GET
+  // Default local (US-AF024-12): solo se usa mientras `GET
   // /system/preferences` no ha respondido todavía (ver
   // `loadRolesPreferences`) — coincide con
   // `system_preferences.DEFAULT_MAX_SIMULTANEOUS_DEVELOPERS` en backend,
@@ -5940,11 +6576,11 @@
     // Developer: filas FIJAS e independientes — una por número
     // (Developer-1, Developer-2, ..., Developer-N con N = límite
     // configurado, `rolesSection.maxSimultaneousDevelopers`,
-    // US-FB024-12). Cada fila es un "slot" estable: si existe una
+    // US-AF024-12). Cada fila es un "slot" estable: si existe una
     // instancia real con ESE nombre se muestra; si no, fila sintética
     // "stopped" con el MISMO nombre, lanzable por su cuenta — mismo
     // patrón que Auditor-OSS/UX (agentes no relacionados que comparten
-    // rol). T-FB005-US01-08 (2026-08-18): matar un Developer NO renumera
+    // rol). T-AF005-US01-08 (2026-08-18): matar un Developer NO renumera
     // las filas ni hace aparecer "Developer-4" — la fila de la instancia
     // muerta vuelve a su estado lanzable con su nombre original, y
     // lanzar desde ella crea la instancia con ese número (el backend lo
@@ -5969,7 +6605,7 @@
       }
     }
 
-    // UX y Auditor-OSS (T-FB024-US13-01/-02/-03): igual que Arquitecto,
+    // UX y Auditor-OSS (T-AF024-US13-01/-02/-03): igual que Arquitecto,
     // instancia única — se reutiliza la instancia real si ya está
     // lanzada, o una fila sintética "stopped" (Lanzar habilitado, el rol
     // sí está registrado en el backend) si no. A diferencia de
@@ -5980,12 +6616,15 @@
       rows.push(existing || syntheticRow(role, "stopped"));
     });
 
-    // Tester: rol SÍ registrado en el backend (`brain/agents/tester.py`,
-    // T-FB022-US15-01) — fila sintética "stopped" (Lanzar habilitado al
-    // elegir runtime, igual que Auditor-OSS/UX/Developer). Bug corregido
-    // 2026-08-18: se trataba como "unregistered", por lo que el botón
-    // Lanzar quedaba siempre deshabilitado incluso tras elegir runtime.
-    rows.push(syntheticRow("tester", "stopped"));
+    // Tester: rol SÍ registrado en el backend (`atlas_forge/agents/tester.py`,
+    // T-AF022-US15-01) — instancia única, mismo patrón que Auditor-OSS/UX:
+    // se reutiliza la instancia real si ya está lanzada, o una fila
+    // sintética "stopped" (Lanzar habilitado al elegir runtime) si no.
+    // Bug corregido 2026-08-18 (segundo): se pintaba SIEMPRE como fila
+    // sintética, ignorando la instancia real — tras reiniciar atlas_forge el
+    // Tester vivo aparecía como "detenido".
+    var realTester = agents.filter(function (a) { return a.role === "tester"; })[0];
+    rows.push(realTester || syntheticRow("tester", "stopped"));
 
     return rows;
   }
@@ -5999,7 +6638,7 @@
       role: role,
       status: status || "unregistered",
       runtime_id: null,
-      // T-FB024-US11-03: la fila sintética refleja el default del rol
+      // T-AF024-US11-03: la fila sintética refleja el default del rol
       // (compartido por todas sus instancias) en vez de hardcodear null,
       // para que "Guardar modelo" sea visible de inmediato.
       model: defaultModelLabelFor(role),
@@ -6010,7 +6649,7 @@
   // Clave única y estable por fila. Para instancias reales, el id del
   // agente; para filas sintéticas (id null), la posición
   // "synthetic:<role>:<name>" — de modo que Developer-1/2/3 sean filas
-  // distintas aunque compartan id null (T-FB024-US11-03).
+  // distintas aunque compartan id null (T-AF024-US11-03).
   function rowKeyFor(agent) {
     if (agent && agent.id) return "agent:" + agent.id;
     return "synthetic:" + agent.role + ":" + agent.name;
@@ -6031,7 +6670,22 @@
     return match ? match.name : null;
   }
 
-  // T-FB005-US07-03: runtime elegido para la fila ANTES de lanzar. Si el
+  // Nombre amigable de un id de modelo del catálogo (para mostrar el
+  // modelo concreto de un agente vivo como "DeepSeek V4 Flash" en vez de
+  // "opencode-go/deepseek-v4-flash"). Busca en el catálogo de la pestaña
+  // Agentes y, si no está cargado (el usuario está en otra pestaña), en el
+  // catálogo propio de la barra del Arquitecto. Si el id no está en
+  // ninguno, devuelve el id tal cual — nunca null para no ocultar el dato.
+  function catalogModelName(modelId) {
+    if (!modelId) return modelId;
+    var source = rolesSection.models && rolesSection.models.length
+      ? rolesSection.models
+      : (arquitectoState.catalog || []);
+    var match = source.filter(function (m) { return m.id === modelId; })[0];
+    return match ? match.name : modelId;
+  }
+
+  // T-AF005-US07-03: runtime elegido para la fila ANTES de lanzar. Si el
   // usuario ya eligió uno en el selector, ese gana; si no, se usa como
   // fallback VISIBLE (no silencioso) el runtime implícito del default de
   // modelo del rol; si tampoco hay, devuelve "" (lanzamiento bloqueado
@@ -6052,7 +6706,7 @@
     delete rolesSection.chosenModelByRow[rowKeyFor(agent)];
   }
 
-  // T-FB024-US11-13 (2026-08-17, tercera revisión): modelo elegido para
+  // T-AF024-US11-13 (2026-08-17, tercera revisión): modelo elegido para
   // la fila ANTES de lanzar, para OpenCode Y Claude Code (el cambio en
   // caliente queda bloqueado). Sin fallback al default del rol aquí —
   // a diferencia del runtime, el modelo simplemente queda "sin elegir"
@@ -6113,7 +6767,7 @@
   }
 
   // Selector de runtime para una fila NO lanzada — el runtime es una
-  // elección obligatoria y explícita (criterio 1 de US-FB005-07): nunca se
+  // elección obligatoria y explícita (criterio 1 de US-AF005-07): nunca se
   // lanza con un runtime asumido en silencio, y nunca se infiere del modelo.
   function renderRuntimeSelector(agent) {
     var wrap = h("div", "agent-runtime");
@@ -6169,6 +6823,10 @@
       statusLabel = "activo";
     } else if (agent.status === "limited") {
       statusLabel = "sin límite de sesión";
+    } else if (isUnavailable) {
+      // T-AF024-US11-16: un Developer `unavailable` (proceso caído fuera de
+      // atlas_forge) muestra un aviso de conexión perdida, no el valor crudo.
+      statusLabel = "caído · conexión perdida";
     } else {
       statusLabel = agent.status;
     }
@@ -6179,19 +6837,30 @@
     statusRow.appendChild(h("span", "status-text", "Estado: " + statusLabel));
     info.appendChild(statusRow);
 
-    // T-FB024-US21-01: hora de recuperación visible (no solo tooltip)
+    // T-AF024-US21-01: hora de recuperación visible (no solo tooltip)
     // mientras el agente está `limited`.
     if (agent.status === "limited" && agent.limited_until) {
       info.appendChild(h("div", "agent-limited-until", formatLimitedUntil(agent.limited_until)));
     }
 
+    // T-AF024-US11-16: aviso en el detalle de un agente caído (`unavailable`)
+    // — el operador debe saber que la conexión se perdió y cómo liberar la
+    // plaza para reutilizarla.
+    if (isUnavailable) {
+      info.appendChild(
+        h("div", "agent-unavailable-note",
+          "El proceso del agente se detuvo fuera de atlas_forge — se ha perdido la conexión. " +
+          "Usa 'Liberar' para reutilizar su plaza.")
+      );
+    }
+
     // 3. Tiempo desde la última orden
     info.appendChild(h("div", "agent-model", formatLastCommand(agent.last_command_at)));
 
-    // 4. Runtime (T-FB005-US07-03, T-FB024-US11-01): dos campos separados.
+    // 4. Runtime (T-AF005-US07-03, T-AF024-US11-01): dos campos separados.
     // - Agente NO lanzado: el runtime es una elección OBLIGATORIA y
     //   explícita (selector) — nunca se infiere en silencio del modelo, y
-    //   el lanzamiento se bloquea hasta elegirlo (criterio 1 de US-FB005-07).
+    //   el lanzamiento se bloquea hasta elegirlo (criterio 1 de US-AF005-07).
     // - Agente VIVO: el runtime queda FIJO, se muestra como texto sin
     //   ningún control de cambio en caliente (criterio 2).
     var isLiveRow = !!(agent.id && agent.status !== "stopped" && agent.status !== "unregistered" && agent.status !== "unavailable");
@@ -6203,7 +6872,7 @@
       info.appendChild(renderRuntimeSelector(agent));
     }
 
-    // Modelo (decisión de producto 2026-08-17, T-FB024-US11-13 —
+    // Modelo (decisión de producto 2026-08-17, T-AF024-US11-13 —
     // segundo cambio de criterio en la misma Task): el cambio de modelo
     // EN CALIENTE queda BLOQUEADO por ahora para todos los runtimes (el
     // mecanismo real resultó frágil en ambos — atajos de OpenCode
@@ -6234,10 +6903,10 @@
       var claudeModelText = isPending || isUndef ? "cargando…" : (rolesSection.statusModelByAgentId[agent.id] || "sin modelo");
       info.appendChild(h("div", "agent-model", "Modelo: " + claudeModelText));
     } else if (isLiveRow) {
-      var modelLabel = agent.model || "sin modelo";
+      var modelLabel = catalogModelName(agent.model) || "sin modelo";
       info.appendChild(h("div", "agent-model", "Modelo: " + modelLabel));
     } else {
-      // No lanzado: selector de modelo por fila (T-FB024-US11-13,
+      // No lanzado: selector de modelo por fila (T-AF024-US11-13,
       // 2026-08-17, tercera revisión — el modelo se elige AL LANZAR
       // para OpenCode y Claude Code, no en caliente). Solo aparece si el
       // runtime elegido tiene catálogo; si no hay ninguno elegido
@@ -6269,14 +6938,14 @@
     actions.appendChild(renderLanzarDetenerBtn(agent));
 
     // (b) Cambiar modelo — SOLO cuando la capacidad del runtime + estado lo
-    // permite (criterio 3 de US-FB005-07 / T-FB005-US07-03): OpenCode vivo
+    // permite (criterio 3 de US-AF005-07 / T-AF005-US07-03): OpenCode vivo
     // en idle (cambio en caliente real), o no lanzado con runtime OpenCode
     // elegido (default de modelo para el lanzamiento). Nunca para Claude
     // Code (no admite cambio de modelo) ni para un runtime no elegido.
     var changeModelBtn = renderCambiarModeloBtn(agent);
     if (changeModelBtn) actions.appendChild(changeModelBtn);
 
-    // (c) Ver log en vivo (T-FB032-US02-01)
+    // (c) Ver log en vivo (T-AF032-US02-01)
     actions.appendChild(renderVerLogEnVivoBtn(agent));
 
     // (d) Despertar — siempre visible, deshabilitado salvo cuando el
@@ -6292,7 +6961,7 @@
       renderDefaultModelEditorInline(editorWrap, agent.role);
     }
 
-    // Error de lanzar/detener del Arquitecto (T-FB024-US11-09 criterio 2):
+    // Error de lanzar/detener del Arquitecto (T-AF024-US11-09 criterio 2):
     // antes solo se veía en la barra superior — invisible si el usuario
     // está en la pantalla Agentes, que es desde donde se pulsa "Lanzar".
     // Se traduce el 400 crudo del backend a un mensaje accionable.
@@ -6324,7 +6993,7 @@
     }
   }
 
-  // Hora legible de recuperación de un agente `limited` (T-FB024-US21-01,
+  // Hora legible de recuperación de un agente `limited` (T-AF024-US21-01,
   // criterio de aceptación: "la pantalla Agentes muestra la hora de
   // recuperación de forma visible... no solo en un tooltip") — formato
   // corto de hora local del navegador, mismo criterio de legibilidad que
@@ -6341,7 +7010,7 @@
   }
 
   // ── botón Cambiar modelo ────────────────────────────────────────────────
-  // Cambio de criterio (T-FB024-US11-13, 2026-08-17, tercera revisión):
+  // Cambio de criterio (T-AF024-US11-13, 2026-08-17, tercera revisión):
   // el cambio de modelo EN CALIENTE queda BLOQUEADO para todos los
   // runtimes — el mecanismo real resultó frágil tanto en OpenCode
   // (atajos de teclado rotos con la CLI actual, navegación por índice de
@@ -6359,14 +7028,14 @@
   // Cambia el modelo de un agente VIVO (idle), con single-flight y
   // feedback del resultado real. `model` viene ya resuelto del `<select>`
   // inline (`renderLiveModelSelectorInline`), no de un `prompt()` —
-  // T-FB024-US11-12, ajuste de diseño del usuario.
+  // T-AF024-US11-12, ajuste de diseño del usuario.
   //
-  // Un único endpoint para ambos runtimes (T-FB024-US11-13, decisión de
+  // Un único endpoint para ambos runtimes (T-AF024-US11-13, decisión de
   // producto 2026-08-17): `PUT /agents/{id}/model` — el backend resuelve
   // internamente el mecanismo real según el runtime (atajos de teclado
   // para OpenCode, comando interno '/model <id>' + confirmación de
   // diálogo para Claude Code, `set_active_model`/
-  // `set_active_model_claude_code` en `brain/agent_model.py`).
+  // `set_active_model_claude_code` en `atlas_forge/agent_model.py`).
   function changeLiveAgentModel(agent, model) {
     if (rolesSection.changeModelInFlight === agent.id) return;
     if (!model) return;
@@ -6397,7 +7066,7 @@
   }
 
   // Selector de modelo INLINE para un agente OpenCode vivo en idle
-  // (T-FB024-US11-12, ajuste de diseño del usuario, 2026-08-17): mismo
+  // (T-AF024-US11-12, ajuste de diseño del usuario, 2026-08-17): mismo
   // patrón visual que `renderRuntimeSelector` (dropdown directo en la
   // fila, sin botón previo que abrir) — un `<select>` con el catálogo
   // real de modelos disponibles para ese agente
@@ -6594,9 +7263,9 @@
       }
       // ¿es sintético (no está lanzado) o stopped?
       var launchBtn = button(isUnregistered ? "Lanzar" : "Lanzar");
-      // T-FB005-US07-03: el lanzamiento exige un runtime elegido — si no
+      // T-AF005-US07-03: el lanzamiento exige un runtime elegido — si no
       // hay ninguno, se bloquea con un aviso explícito (criterio 1 de
-      // US-FB005-07: nunca se lanza con un runtime asumido en silencio).
+      // US-AF005-07: nunca se lanza con un runtime asumido en silencio).
       if (isUnregistered) {
         launchBtn.disabled = true;
         launchBtn.title = "rol no disponible todavía: pendiente de registrar en el backend";
@@ -6625,17 +7294,28 @@
       return devStop;
     }
 
+    // T-AF024-US11-16: un agente caído (`unavailable`, proceso muerto fuera
+    // de atlas_forge) se LIBERA, no se lanza — retira su plaza del límite vía
+    // `POST /agents/{id}/release` (backend T-AF005-US01-09). A diferencia de
+    // "Lanzar" (que el backend rechazaría por plaza ocupada), liberar deja
+    // la fila en estado lanzable de nuevo.
+    if (isUnavailable) {
+      var releaseBtn = button("Liberar", "agent-release");
+      releaseBtn.addEventListener("click", function () { releaseCrashedAgent(agent); });
+      return releaseBtn;
+    }
+
     // Stopped, unavailable o unregistered
     var devLaunch = button("Lanzar");
     if (isUnregistered) {
       devLaunch.disabled = true;
       devLaunch.title = "rol no disponible todavía: pendiente de registrar en el backend";
     } else if (!chosenRuntimeForRow(agent)) {
-      // T-FB005-US07-03: el lanzamiento exige un runtime elegido — se
+      // T-AF005-US07-03: el lanzamiento exige un runtime elegido — se
       // bloquea con aviso explícito si no hay ninguno (criterio 1 de
-      // US-FB005-07). Cada fila de Developer/Tester/UX/Auditor-OSS es un
+      // US-AF005-07). Cada fila de Developer/Tester/UX/Auditor-OSS es un
       // slot independiente lanzable por su cuenta cuando se elige runtime
-      // (T-FB005-US01-08, 2026-08-18).
+      // (T-AF005-US01-08, 2026-08-18).
       devLaunch.disabled = true;
       devLaunch.title = "Elige un runtime antes de lanzar";
     } else if (isStopped || isUnavailable) {
@@ -6659,7 +7339,31 @@
       });
   }
 
-  // T-FB005-US07-02: resuelve el runtime REAL de un id de modelo del
+  // T-AF024-US11-16: libera un Developer caído (`unavailable`). Retira su
+  // plaza del límite vía `POST /agents/{id}/release` (backend
+  // T-AF005-US01-09). Tras el éxito se refresca la lista: el agente ya no
+  // está en la sesión, la fila vuelve a ser sintética "stopped" lanzable
+  // con su nombre original y reaparece el botón "Lanzar" con su selector de
+  // runtime/modelo intactos. Si el backend falla (p. ej. endpoint aún no
+  // disponible), se muestra el error del 400/404 sin romper la fila.
+  function releaseCrashedAgent(agent) {
+    if (!agent.id) return;
+    if (rolesSection.releaseInFlight) return;
+    rolesSection.releaseInFlight = true;
+    BackendClient.releaseAgent(agent.id)
+      .then(function () {
+        rolesSection.releaseInFlight = false;
+        rolesSection.actionMessage = agent.name + " liberado — plaza reutilizable.";
+        return pollRolesAgents();
+      })
+      .catch(function (error) {
+        rolesSection.releaseInFlight = false;
+        rolesSection.actionMessage = buildErrorMessage(error);
+        renderRolesBody();
+      });
+  }
+
+  // T-AF005-US07-02: resuelve el runtime REAL de un id de modelo del
   // catálogo (`rolesSection.models`, `{id, name, runtime}` — el campo
   // `runtime` del catálogo usa snake_case: `claude_code` → `claude-code`).
   // Devuelve `null` si el modelo no está en el catálogo (p. ej. un modelo
@@ -6672,7 +7376,7 @@
 
 function launchStoppedDev(agent) {
     var payload = { role: agent.role };
-    // T-FB005-US01-08 (2026-08-18): para Developer se envía el número de
+    // T-AF005-US01-08 (2026-08-18): para Developer se envía el número de
     // slot de la fila pulsada (`developer_number`), de modo que el agente
     // nace con el nombre de ESA fila ("Developer-N"), no con el que el
     // conteo del backend decida en ese instante. Cada slot es
@@ -6683,7 +7387,7 @@ function launchStoppedDev(agent) {
         payload.developer_number = parseInt(devMatch[1], 10);
       }
     }
-    // T-FB005-US07-02/-03: el runtime se manda SIEMPRE explícito en
+    // T-AF005-US07-02/-03: el runtime se manda SIEMPRE explícito en
     // `POST /agents` (contrato: runtime separado del modelo), y es la
     // elección OBLIGATORIA de esta pantalla — se toma del selector de la
     // fila (`chosenRuntimeForRow`), nunca se infiere del modelo. Sin
@@ -6697,12 +7401,12 @@ function launchStoppedDev(agent) {
     }
     payload.runtime_type = chosenRuntime;
 
-    // El modelo elegido POR FILA en el selector (T-FB024-US11-13,
+    // El modelo elegido POR FILA en el selector (T-AF024-US11-13,
     // 2026-08-17, tercera revisión: ahora tanto OpenCode como Claude
     // Code admiten elegir modelo al lanzar — antes solo OpenCode, y
     // tomado del default del rol en vez de una elección explícita por
     // instancia). Nunca el modelo recordado de una instancia anterior
-    // (criterio 3 de US-FB005-07: tras detener un agente, no se reutiliza
+    // (criterio 3 de US-AF005-07: tras detener un agente, no se reutiliza
     // el modelo recordado como si siguiera siendo válido) — el
     // `chosenModelByRow` se limpia al detener/cambiar runtime. Opcional:
     // si no se elige nada, se lanza sin `model_id` (el runtime arranca
@@ -6729,7 +7433,12 @@ function launchStoppedDev(agent) {
   // ── botón Copiar comando de conexión ────────────────────────────────────
 
   function renderCommandoConexionDetalle(agent) {
-    var comando = "tmux -L factory-brain attach -t " + agent.session_name;
+    // Híbrido (T-AF023-US04, decisión del usuario): el `opencode run` del
+    // agente OpenCode vive en una sesión tmux determinista
+    // (`developer-1-<proyecto>`), así que el comando de conexión es SIEMPRE
+    // el tmux clásico — el `session_name` del agente es un nombre de sesión
+    // tmux real que conecta.
+    var comando = "tmux -L atlas-forge attach -t " + agent.session_name;
     var wrap = h("div", "agent-comando-conexion");
     wrap.appendChild(h("span", null, "Comando conexión: "));
 
@@ -6754,7 +7463,7 @@ function launchStoppedDev(agent) {
     return wrap;
   }
 
-  // ── botón Ver log en vivo (T-FB032-US02-01) ─────────────────────────────
+  // ── botón Ver log en vivo (T-AF032-US02-01) ─────────────────────────────
 
   function renderVerLogEnVivoBtn(agent) {
     var isLive = agent.id && agent.status !== "stopped" && agent.status !== "unregistered" && agent.status !== "unavailable";
@@ -6781,7 +7490,7 @@ function launchStoppedDev(agent) {
   // la que enviar nada (stopped/unregistered/unavailable) — decisión de
   // producto 2026-08-17: el estado `working` del backend es una
   // transición manual que solo dispara el Dispatcher al despachar un Job
-  // formal (`mark_working`, `brain/agents/lifecycle.py`), no una
+  // formal (`mark_working`, `atlas_forge/agents/lifecycle.py`), no una
   // detección real de actividad en el pane; un agente puede estar
   // realmente ocupado (conversación directa por tmux, fuera del
   // mecanismo de Jobs) mientras el backend lo sigue reportando `idle`.
@@ -6839,7 +7548,7 @@ function launchStoppedDev(agent) {
     wrap.appendChild(h("p", "section-note",
       "Modelo por defecto del rol " + role + " (compartido por todas sus instancias al lanzarlas)."));
 
-    // T-FB024-US11-09 criterio 3: Arquitecto es un rol de instancia única
+    // T-AF024-US11-09 criterio 3: Arquitecto es un rol de instancia única
     // sin fila sintética alternativa — dejarlo sin default bloquea "Lanzar"
     // sin que el usuario entienda por qué. A diferencia de Developer (varias
     // filas, tiene sentido dejar alguna sin default entre lanzamientos), aquí
@@ -6861,7 +7570,7 @@ function launchStoppedDev(agent) {
       noneOpt.title = "Arquitecto no puede quedar sin modelo por defecto";
     }
     sel.appendChild(noneOpt);
-    // T-FB024-US11-07: mientras el usuario no haya interactuado con el
+    // T-AF024-US11-07: mientras el usuario no haya interactuado con el
     // <select> (`modelIndexDirty` false), cada reconstrucción refleja el
     // default real del backend, igual que antes. En cuanto interactúa,
     // cualquier reconstrucción posterior (incluido un tick de polling con
@@ -6883,7 +7592,7 @@ function launchStoppedDev(agent) {
       rolesSection.modelIndex = parseInt(sel.value, 10) || 0;
       rolesSection.modelIndexDirty = true;
     });
-    // T-FB024-US11-08: comportamiento nativo del <select> HTML — con el
+    // T-AF024-US11-08: comportamiento nativo del <select> HTML — con el
     // elemento enfocado, el scroll-wheel del navegador cambia la opción
     // resaltada (y dispara "change") sin que el usuario haya abierto el
     // desplegable ni confirmado nada. Bloquear el evento "wheel" mientras
@@ -6930,7 +7639,7 @@ function launchStoppedDev(agent) {
       modelId = undefined;
     }
 
-    // T-FB024-US11-09 criterio 3 (defensa en profundidad): el <select> ya
+    // T-AF024-US11-09 criterio 3 (defensa en profundidad): el <select> ya
     // deshabilita "— sin default —" para Arquitecto, pero si de todos modos
     // no hay ningún modelo real seleccionable (p. ej. catálogo sin modelos
     // habilitados), no se guarda un default vacío en silencio.
@@ -7136,7 +7845,7 @@ function launchStoppedDev(agent) {
   }
 
   // ------------------------------------------------------- Configuración
-  // (US-FB024-12): catálogo abierto de preferencias de sistema. Hoy solo
+  // (US-AF024-12): catálogo abierto de preferencias de sistema. Hoy solo
   // el límite de Developer simultáneos; el siguiente valor configurable
   // que aparezca se añade como otra fila del mismo formulario.
 
@@ -7252,18 +7961,18 @@ function launchStoppedDev(agent) {
     form.appendChild(h(
       "p",
       "section-note",
-      "Si está activo, un Developer con una Task suya todavía en REVIEW no recibe una Task EN_DESARROLLO nueva hasta que el Tester la resuelva."
+      "Si está activo, un Developer con una Task suya todavía en IN_REVIEW no recibe una Task TO_DEVELOP nueva hasta que el Tester la resuelva."
     ));
     if (configuracionSection.reviewPreferenceSaveError) {
       form.appendChild(h("p", "agent-error", configuracionSection.reviewPreferenceSaveError));
     }
 
-    form.appendChild(h("div", "jobs-form-title", "Reiniciar Brain"));
+    form.appendChild(h("div", "jobs-form-title", "Reiniciar Atlas Forge"));
 
     form.appendChild(h(
       "p",
       "section-note",
-      "Reinicia el servicio brain-api. Durante unos segundos la web no podrá contactar con el backend y los agentes quedarán momentáneamente inaccesibles desde la web (sus sesiones tmux sobreviven al reinicio)."
+      "Reinicia el servicio atlas-forge-api. Durante unos segundos la web no podrá contactar con el backend y los agentes quedarán momentáneamente inaccesibles desde la web (sus sesiones tmux sobreviven al reinicio)."
     ));
 
     if (configuracionSection.restarting) {
@@ -7273,7 +7982,7 @@ function launchStoppedDev(agent) {
       restartConfirm.addEventListener("click", requestSystemRestart);
       form.appendChild(restartConfirm);
     } else {
-      var restartBtn = button("Reiniciar Brain", "agent-stop");
+      var restartBtn = button("Reiniciar Atlas Forge", "agent-stop");
       restartBtn.addEventListener("click", function () {
         configuracionSection.restartPendingFor = true;
         renderConfiguracionBody();
@@ -7337,7 +8046,7 @@ function launchStoppedDev(agent) {
       });
   }
 
-  // Reinicio del servicio (T-FB037-US05-02): captura el nº de agentes
+  // Reinicio del servicio (T-AF037-US05-02): captura el nº de agentes
   // antes, lanza `POST /system/restart` (fire-and-forget, 202) y hace
   // polling a `GET /agents` hasta que el backend vuelve a responder. Los
   // errores de conexión durante la caída son esperados, no un fallo.
@@ -7393,7 +8102,7 @@ function launchStoppedDev(agent) {
             configuracionSection.restarting = false;
             configuracionSection.restartPollTimer = null;
             configuracionSection.restartError =
-              "El backend no ha vuelto a responder tras " + Math.round(RESTART_POLL_TIMEOUT_MILLIS / 1000) + "s. Comprueba el estado del servicio (systemctl status factory-brain-api).";
+              "El backend no ha vuelto a responder tras " + Math.round(RESTART_POLL_TIMEOUT_MILLIS / 1000) + "s. Comprueba el estado del servicio (systemctl status atlas-forge-api).";
             renderConfiguracionBody();
             return;
           }
@@ -7404,8 +8113,8 @@ function launchStoppedDev(agent) {
     configuracionSection.restartPollTimer = setTimeout(poll, RESTART_POLL_MILLIS);
   }
 
-  // ------------------------------------------------------------- FB-025
-  // Acciones transversales de proyecto (US-FB025-01 a US-FB025-07):
+  // ------------------------------------------------------------- AF-025
+  // Acciones transversales de proyecto (US-AF025-01 a US-AF025-07):
   // botones directos que despachan Jobs al Arquitecto o ejecutan scripts
   // deterministas, sin pasar por el modo conversacional del Arquitecto.
 
@@ -7415,7 +8124,7 @@ function launchStoppedDev(agent) {
     { id: "sugerir-ideas", label: "Sugerir ideas para el backlog", desc: "Propone ideas candidatas de Epics/User Stories a partir del estado actual del proyecto. No escribe a 02-backlog/." },
     { id: "testear", label: "Testear todo", desc: "Ejecuta la suite completa de tests del proyecto. Resultado determinista (pasa/falla), sin corrección automática." },
     { id: "auditar-ux", label: "Auditar UX de la web", desc: "Lanza una auditoría UX headless de la interfaz web con opencode run --auto (sin tmux). Sigue el protocolo de 00-gobierno/UX.md." },
-    { id: "auditar-oss", label: "Auditar imagen open source", desc: "Audita Factory Brain como lo haría un maintainer senior de open source: imagen pública del repositorio en GitHub y auditoría de la interfaz web navegando contra el backend real. Sigue 00-gobierno/AUDITOR-OSS.md." },
+    { id: "auditar-oss", label: "Auditar imagen open source", desc: "Audita Atlas Forge como lo haría un maintainer senior de open source: imagen pública del repositorio en GitHub y auditoría de la interfaz web navegando contra el backend real. Sigue 00-gobierno/AUDITOR-OSS.md." },
     { id: "indexar", label: "Indexar proyecto (Scribe)", desc: "Genera un índice temático del proyecto usando el modelo local de Ollama. Sin gastar tokens de los agentes principales." },
   ];
 
@@ -7568,15 +8277,18 @@ function launchStoppedDev(agent) {
     BackendClient.getBacklog()
       .then(function (report) {
         var count = 0;
-        // T-FB008-US15-01/-02 (2026-08-17): NO_TASKS/EN_DISEÑO también
-        // son trabajo pendiente real (una US recién creada, o esperando
-        // al Arquitecto) — antes solo contaba TO_DO, dejando el badge en
-        // 0 pese a haber Epics/US con trabajo real por hacer.
+        // T-AF008-US15-01/-02 (2026-08-17): NO_TASKS/TO_PLAN (AF-040;
+        // antes EN_DISEÑO) también son trabajo pendiente real (una US
+        // recién creada, o esperando al Arquitecto) — antes solo contaba
+        // TO_DO, dejando el badge en 0 pese a haber Epics/US con trabajo
+        // real por hacer.
         (report.by_epic || []).forEach(function (epic) {
-          count += (epic.user_stories && epic.user_stories.TO_DO || 0)
+          count += (epic.user_stories && epic.user_stories.READY || 0)
                  + (epic.user_stories && epic.user_stories.NO_TASKS || 0)
-                 + (epic.user_stories && epic.user_stories["EN_DISEÑO"] || 0)
-                 + (epic.tasks && epic.tasks.TO_DO || 0);
+                 + (epic.user_stories && epic.user_stories.TO_PLAN || 0)
+                 + (epic.user_stories && epic.user_stories.TO_DEVELOP || 0)
+                 + (epic.tasks && epic.tasks.READY || 0)
+                 + (epic.tasks && epic.tasks.TO_DEVELOP || 0);
         });
         state.pendingBacklogCount = count;
         render();
@@ -7591,7 +8303,7 @@ function launchStoppedDev(agent) {
     return String(error);
   }
 
-  // T-FB024-US11-09 criterio 2: traduce el 400 crudo de
+  // T-AF024-US11-09 criterio 2: traduce el 400 crudo de
   // LaunchAgentRequest.resolved_runtime_type ("Se requiere 'runtime_type' o
   // 'model_id'/'model' para lanzar un agente.") a un mensaje accionable que
   // le dice al usuario exactamente qué hacer, en vez de mostrar el texto
@@ -7636,8 +8348,8 @@ function launchStoppedDev(agent) {
       });
   }
 
-  // ------------------------------------------------- FB-028 Pestaña Arquitecto
-  // (US-FB028-02): 5 órdenes deterministas, prompt libre e historial de
+  // ------------------------------------------------- AF-028 Pestaña Arquitecto
+  // (US-AF028-02): 5 órdenes deterministas, prompt libre e historial de
   // últimas 10 respuestas del Arquitecto.
 
   function renderArquitectoInto(content) {
@@ -7971,14 +8683,14 @@ function launchStoppedDev(agent) {
       });
   }
 
-  // T-FB021-US02-04: enlace "Factory Brain" de la cabecera hacia la
+  // T-AF021-US02-04: enlace "Atlas Forge" de la cabecera hacia la
   // sección de inicio (backlog). Listener registrado una sola vez aquí
   // (fuera de renderOperational, que se re-ejecuta en cada cambio de
   // sección) porque el elemento vive en index.html, no en el árbol
   // gestionado por app.js.
-  var brainHomeLink = document.getElementById("brain-home-link");
-  if (brainHomeLink) {
-    brainHomeLink.addEventListener("click", function (event) {
+  var atlasForgeHomeLink = document.getElementById("atlas-forge-home-link");
+  if (atlasForgeHomeLink) {
+    atlasForgeHomeLink.addEventListener("click", function (event) {
       event.preventDefault();
       switchSection("backlog");
     });

@@ -1,4 +1,4 @@
-"""Tests de US-FB024-12: persistencia de preferencias de sistema
+"""Tests de US-AF024-12: persistencia de preferencias de sistema
 (limite de Developer simultaneos, primer valor del catalogo abierto)."""
 
 from __future__ import annotations
@@ -6,7 +6,7 @@ from __future__ import annotations
 import tempfile
 from pathlib import Path
 
-from brain.system_preferences import (
+from atlas_forge.system_preferences import (
     DEFAULT_DEVELOPER_WAITS_FOR_TESTER_REVIEW,
     DEFAULT_MAX_SIMULTANEOUS_DEVELOPERS,
     get_developer_waits_for_tester_review,

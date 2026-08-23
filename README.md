@@ -1,12 +1,12 @@
-# Factory Brain
+# Atlas Forge
 
 **AI-assisted software development coordination from a single platform.**
 
-Factory Brain orchestrates projects, agents, runtimes, Jobs and development pipelines without replacing the developer's decision-making ability. It is not an IDE, not an agent framework: it is the coordination layer that keeps context alive between agents, avoids repetitive manual work and minimizes token consumption from remote models.
+Atlas Forge orchestrates projects, agents, runtimes, Jobs and development pipelines without replacing the developer's decision-making ability. It is not an IDE, not an agent framework: it is the coordination layer that keeps context alive between agents, avoids repetitive manual work and minimizes token consumption from remote models.
 
 ## What it solves
 
-Factory Brain centralizes that flow:
+Atlas Forge centralizes that flow:
 
 - **Discovers** the Git repositories in your workspace automatically.
 - **Coordinates** specialized agents (Developer, Architect, and other governance roles) on real runtimes (Claude Code, OpenCode) in persistent tmux sessions.
@@ -16,26 +16,26 @@ Factory Brain centralizes that flow:
 - **Delegates reads/summaries to a local model** (Scribe + Ollama) to reduce remote token consumption.
 - **Exposes everything** through a single HTTP/WebSocket API consumed by the web interface.
 
-## What Factory Brain really is
+## What Atlas Forge really is
 
-Factory Brain is a **coordination layer between defined work and the agents that execute it** — not another project tracker, and not another coding agent. The backlog (Epic → User Story → Task) is the language used to describe work; the persistent development session, Jobs and pipelines are the mechanism used to execute and verify it.
+Atlas Forge is a **coordination layer between defined work and the agents that execute it** — not another project tracker, and not another coding agent. The backlog (Epic → User Story → Task) is the language used to describe work; the persistent development session, Jobs and pipelines are the mechanism used to execute and verify it.
 
 - **vs. Jira/Linear**: those describe work for humans to do. Here the backlog is *executable* — a Task can go from a Markdown file to verified, tested code without a human writing a line.
-- **vs. Claude Code/Codex/OpenCode**: those execute work but don't know what work exists, don't persist across sessions, and don't validate their own output. Factory Brain is the layer that turns a coding agent into a factory.
+- **vs. Claude Code/Codex/OpenCode**: those execute work but don't know what work exists, don't persist across sessions, and don't validate their own output. Atlas Forge is the layer that turns a coding agent into a factory.
 - **What's genuinely differential**: the adversarial verification cycle (Developer implements → Architect independently re-verifies with real evidence → structured verdict) and "deterministic automation first" as a real operating discipline, not a slogan.
 
-See [What Factory Brain really is](docs/en/index.md#what-factory-brain-really-is) in the full documentation for the complete picture, including market positioning.
+See [What Atlas Forge really is](docs/en/index.md#what-atlas-forge-really-is) in the full documentation for the complete picture, including market positioning.
 
 ## What sets it apart
 
-- **Coordination over execution**: Factory Brain decides *who does what and when*; agents execute with their own runtimes and models.
+- **Coordination over execution**: Atlas Forge decides *who does what and when*; agents execute with their own runtimes and models.
 - **Deterministic automation first**: scripts → automations → local model → remote model, in that priority order.
 - **Persistent context**: agents are not destroyed when a Job finishes; the session and its history stay alive.
-- **A single process of truth** (`brain-api`) with a single client (the web interface).
+- **A single process of truth** (`atlas-forge-api`) with a single client (the web interface).
 
 ## Current status
 
-Factory Brain has completed Phases 0.1–0.4 and the bulk of Phase 1.0 of the roadmap: Workspace, Session, Runtime, Agents, Dispatcher (Jobs/plans/cancellation), Scribe, backend API, generic scripts, backlog management, web interface, backlog-centric pipeline (Architect role, Epic→US→Task generators, verdicts, structured backlog format), simultaneous multi-project sessions, agent reconciliation on backend restart, live agent log in the web, and web UX improvements. Context Engine, Knowledge Engine, Capability Engine, Plugin System and Automation Engine remain in the backlog unimplemented.
+Atlas Forge has completed Phases 0.1–0.4 and the bulk of Phase 0.9 of the roadmap: Workspace, Session, Runtime, Agents, Dispatcher (Jobs/plans/cancellation), Scribe, backend API, generic scripts, backlog management, web interface, backlog-centric pipeline (Architect role, Epic→US→Task generators, verdicts, structured backlog format), simultaneous multi-project sessions, agent reconciliation on backend restart, live agent log in the web, and web UX improvements. Context Engine, Knowledge Engine, Capability Engine, Plugin System and Automation Engine remain in the backlog unimplemented.
 
 See the [full roadmap](docs/en/roadmap.md) and the [status by Epic](docs/en/roadmap.md#estado-por-epic) for details.
 
@@ -55,15 +55,15 @@ pip install -e ".[dev]"
 The backend (single process of truth, exposes API + web interface):
 
 ```bash
-brain-api
+atlas-forge-api
 ```
 
 The web interface is served from the backend itself at `http://<tailscale-ip>:8000/ui/`. On a `systemd` system it is installed as a service:
 
 ```bash
-sudo cp deploy/systemd/factory-brain-api.service /etc/systemd/system/
+sudo cp deploy/systemd/atlas-forge-api.service /etc/systemd/system/
 sudo systemctl daemon-reload
-sudo systemctl enable --now factory-brain-api.service
+sudo systemctl enable --now atlas-forge-api.service
 ```
 
 ## Testing

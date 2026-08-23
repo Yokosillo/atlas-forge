@@ -1,4 +1,4 @@
-"""Tests para T-FB008-US11-03: difficulty en propose_tasks_from_user_story.
+"""Tests para T-AF008-US11-03: difficulty en propose_tasks_from_user_story.
 
 Verifica que:
 1. ProposedTask incluye difficulty
@@ -11,9 +11,9 @@ from pathlib import Path
 
 import pytest
 
-from brain.architect.review_user_story import USReviewResult
-from brain.architect.propose_tasks import propose_tasks_from_user_story
-from brain.architect.task_pipeline import (
+from atlas_forge.architect.review_user_story import USReviewResult
+from atlas_forge.architect.propose_tasks import propose_tasks_from_user_story
+from atlas_forge.architect.task_pipeline import (
     _build_task_content,
     run_task_pipeline,
 )
@@ -25,7 +25,7 @@ class TestDifficultyInProposedTasks:
     def test_proposed_tasks_have_difficulty_field(self, tmp_path: Path):
         """Cada Task generada debe tener difficulty asignado."""
         review = USReviewResult(
-            story_id="US-FB-999-01",
+            story_id="US-AF-999-01",
             has_gaps=False,
             gaps=[],
             ready_for_tasks=True,
@@ -35,12 +35,12 @@ class TestDifficultyInProposedTasks:
             "## Historia\n\nImplementar feature sin exponerlo.\n\n"
             "## Criterios de aceptación\n\n- CR1: Funciona.\n\n"
             "## Prioridad\n\nAlta\n\n"
-            "## Dependencias\n\n**FB-999**\n\n"
+            "## Dependencias\n\n**AF-999**\n\n"
             "## Estado\n\nTODO\n",
             encoding="utf-8"
         )
 
-        result = propose_tasks_from_user_story(review, "FB-999", str(path))
+        result = propose_tasks_from_user_story(review, "AF-999", str(path))
 
         assert len(result.tasks) > 0, "Debe generar al menos una Task"
         for task in result.tasks:
@@ -52,7 +52,7 @@ class TestDifficultyInProposedTasks:
     def test_difficulty_varies_by_task_type(self, tmp_path: Path):
         """difficulty debe variar según el tipo de Task generada."""
         review = USReviewResult(
-            story_id="US-FB-999-01",
+            story_id="US-AF-999-01",
             has_gaps=False,
             gaps=[],
             ready_for_tasks=True,
@@ -62,12 +62,12 @@ class TestDifficultyInProposedTasks:
             "## Historia\n\nImplementar feature sin exponerlo.\n\n"
             "## Criterios de aceptación\n\n- CR1: Funciona.\n\n"
             "## Prioridad\n\nAlta\n\n"
-            "## Dependencias\n\n**FB-999**\n\n"
+            "## Dependencias\n\n**AF-999**\n\n"
             "## Estado\n\nTODO\n",
             encoding="utf-8"
         )
 
-        result = propose_tasks_from_user_story(review, "FB-999", str(path))
+        result = propose_tasks_from_user_story(review, "AF-999", str(path))
 
         # Debe haber al menos 2 Tasks con diferentes dificultades
         difficulties = [task.difficulty for task in result.tasks]
@@ -80,12 +80,12 @@ class TestDifficultyInYAML:
 
     def test_build_task_content_includes_difficulty(self):
         """_build_task_content debe incluir difficulty en el frontmatter YAML."""
-        from brain.architect.propose_tasks import ProposedTask
+        from atlas_forge.architect.propose_tasks import ProposedTask
 
         task = ProposedTask(
             id="T-001",
             title="Test task",
-            epic_id="FB-001",
+            epic_id="AF-001",
             us_id="US-001",
             objective="Implementar algo",
             description="Descripción",
@@ -103,12 +103,12 @@ class TestDifficultyInYAML:
 
     def test_difficulty_in_yaml_is_valid_format(self):
         """El difficulty en YAML debe estar en formato válido."""
-        from brain.architect.propose_tasks import ProposedTask
+        from atlas_forge.architect.propose_tasks import ProposedTask
 
         task = ProposedTask(
             id="T-002",
             title="Test task",
-            epic_id="FB-002",
+            epic_id="AF-002",
             us_id="US-002",
             objective="Conectar algo",
             description="Descripción",
@@ -142,12 +142,12 @@ class TestDifficultyInAPIResponse:
     def test_task_data_includes_difficulty_field(self, tmp_path: Path):
         """El diccionario de respuesta de API debe incluir difficulty."""
         # Simular la construcción del tasks_data como lo hace post_propose_tasks
-        from brain.architect.propose_tasks import ProposedTask
+        from atlas_forge.architect.propose_tasks import ProposedTask
 
         task = ProposedTask(
             id="T-001",
             title="Test task",
-            epic_id="FB-001",
+            epic_id="AF-001",
             us_id="US-001",
             objective="Implementar algo",
             description="Descripción",

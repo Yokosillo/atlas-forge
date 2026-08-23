@@ -3,17 +3,17 @@ import uuid
 import libtmux
 import pytest
 
-from brain.agents import DEVELOPER_ROLE, register_agent, register_arquitecto, register_developer
-from brain.core import activate
-from brain.agents.launch import launch_agent
-from brain.models import DevelopmentSession, Runtime
-from brain.runtime import get_runtime_instance_for_agent
-from brain.runtime.agent_runtime_registry import _reset_registry_for_tests
+from atlas_forge.agents import DEVELOPER_ROLE, register_agent, register_arquitecto, register_developer
+from atlas_forge.core import activate
+from atlas_forge.agents.launch import launch_agent
+from atlas_forge.models import DevelopmentSession, Runtime
+from atlas_forge.runtime import get_runtime_instance_for_agent
+from atlas_forge.runtime.agent_runtime_registry import _reset_registry_for_tests
 
 
 @pytest.fixture(autouse=True)
 def _reset_agent_runtime_registry():
-    # Registro nuevo en memoria de proceso (T-FB002-US03-00) — se
+    # Registro nuevo en memoria de proceso (T-AF002-US03-00) — se
     # resetea antes/después de cada test para no depender del orden de
     # ejecución, mismo patrón que session_registry/job_count_registry.
     _reset_registry_for_tests()
@@ -29,8 +29,8 @@ def _no_real_runtime(monkeypatch):
     Necesario aquí porque `launch_agent` (usado en un test de esta
     suite) construye su Runtime desde `register_claude_code_runtime`, que
     por defecto apunta al binario real `claude`."""
-    import brain.runtime.claude_code as claude_code_module
-    import brain.runtime.opencode as opencode_module
+    import atlas_forge.runtime.claude_code as claude_code_module
+    import atlas_forge.runtime.opencode as opencode_module
 
     monkeypatch.setattr(claude_code_module, "DEFAULT_CLAUDE_CODE_COMMAND", "sleep")
     monkeypatch.setattr(claude_code_module, "DEFAULT_CLAUDE_CODE_ARGS", ["5"])
@@ -42,7 +42,7 @@ def _no_real_runtime(monkeypatch):
 def isolated_socket():
     """Aísla los tests de esta Task en su propio servidor tmux, con
     limpieza garantizada incluso si el test falla a medio camino."""
-    name = f"brain-test-{uuid.uuid4().hex[:8]}"
+    name = f"atlas_forge-test-{uuid.uuid4().hex[:8]}"
     try:
         yield name
     finally:
@@ -131,7 +131,7 @@ def test_reusing_an_already_launched_arquitecto_does_not_lose_or_duplicate_the_a
 ) -> None:
     # Segunda llamada sobre el mismo rol/sesión (register_agent_with_reuse,
     # vía register_arquitecto — Arquitecto, no Developer: desde
-    # T-FB005-US01-04, Developer ya NO reutiliza, ver el test siguiente)
+    # T-AF005-US01-04, Developer ya NO reutiliza, ver el test siguiente)
     # reutiliza el Agent ya lanzado sin volver a invocar `start_runtime` ni
     # `register_agent` — la asociación ya registrada en el primer
     # lanzamiento debe seguir siendo válida.
@@ -153,7 +153,7 @@ def test_reusing_an_already_launched_arquitecto_does_not_lose_or_duplicate_the_a
 def test_each_new_developer_gets_its_own_registered_association(
     isolated_socket: str, tmp_path
 ) -> None:
-    """T-FB005-US01-04: `register_developer` ya no reutiliza — cada
+    """T-AF005-US01-04: `register_developer` ya no reutiliza — cada
     llamada registra una asociación `agent.id` -> `RuntimeInstance`
     NUEVA y distinta, sin perder la del Developer anterior (ambas deben
     seguir siendo consultables independientemente)."""

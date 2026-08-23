@@ -1,8 +1,8 @@
-"""Tests para el rol Tester (T-FB022-US15-01)."""
+"""Tests para el rol Tester (T-AF022-US15-01)."""
 
 import pytest
-from brain.agents import TESTER_ROLE, TESTER_PROMPT, build_tester_prompt
-from brain.agents.roles import get_role, list_roles
+from atlas_forge.agents import TESTER_ROLE, TESTER_PROMPT, build_tester_prompt
+from atlas_forge.agents.roles import get_role, list_roles
 
 
 def test_tester_role_is_registered():
@@ -40,7 +40,7 @@ def test_tester_prompt_excludes_ux_opinion():
 
 def test_tester_prompt_is_base_prompt():
     """TESTER_PROMPT es la versión base sin governance."""
-    assert TESTER_PROMPT.startswith("Eres el agente Tester de Factory Brain")
+    assert TESTER_PROMPT.startswith("Eres el agente Tester de Atlas Forge")
 
 
 def test_build_tester_prompt_adds_governance(tmp_path):
@@ -66,14 +66,14 @@ def test_tester_role_constant():
 
 def test_tester_has_register_function():
     """El rol tester tiene función de registro asignada."""
-    from brain.agents import register_tester
+    from atlas_forge.agents import register_tester
     assert callable(register_tester)
 
 
 def test_tester_role_with_reuse_pattern():
     """El rol tester usa register_agent_with_reuse (reutilizable),
     no register_agent (nueva instancia cada vez)."""
-    from brain.agents.tester import register_tester
+    from atlas_forge.agents.tester import register_tester
     import inspect
     source = inspect.getsource(register_tester)
     # Verifica que la función usa register_agent_with_reuse

@@ -1,4 +1,4 @@
-"""Tests de T-FB022-US09-01: esquema y lectura del catalogo de modelos."""
+"""Tests de T-AF022-US09-01: esquema y lectura del catalogo de modelos."""
 
 from __future__ import annotations
 
@@ -8,7 +8,7 @@ from pathlib import Path
 import pytest
 import yaml
 
-from brain.models_catalog import (
+from atlas_forge.models_catalog import (
     CATALOG_RELATIVE_PATH,
     MalformedModelCatalogError,
     ModelEntry,

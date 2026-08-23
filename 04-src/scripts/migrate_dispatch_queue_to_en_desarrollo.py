@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
-"""CLI fina sobre `brain.dispatcher.dispatch_queue.migrate_queued_entries_to_state`
-(T-FB008-US14-01, criterio de aceptación de migración).
+"""CLI fina sobre `atlas_forge.dispatcher.dispatch_queue.migrate_queued_entries_to_state`
+(T-AF008-US14-01, criterio de aceptación de migración).
 
 Antes de esta Task, "lista para desarrollo" solo vivía en
 `dispatch_queue.json` (entradas `status: "queued"`) — el `state` real del
@@ -16,7 +16,7 @@ from __future__ import annotations
 import argparse
 import os
 
-from brain.dispatcher.dispatch_queue import migrate_queued_entries_to_state
+from atlas_forge.dispatcher.dispatch_queue import migrate_queued_entries_to_state
 
 _DEFAULT_PROJECT_ROOT = os.path.join(os.path.dirname(__file__), "..", "..")
 

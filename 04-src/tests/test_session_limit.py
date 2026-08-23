@@ -1,11 +1,11 @@
-"""Tests de `brain.agents.session_limit` (T-FB024-US21-01): parseo puro
+"""Tests de `atlas_forge.agents.session_limit` (T-AF024-US21-01): parseo puro
 del patrón textual de límite de sesión de Claude Code, sin ningún I/O —
 las dos variantes reales verbatim citadas en la Task/US
-(`02-backlog/tasks/T-FB024-US21-01-detectar-limite-de-sesion-y-reintentar.md`)."""
+(`02-backlog/tasks/T-AF024-US21-01-detectar-limite-de-sesion-y-reintentar.md`)."""
 
 from datetime import datetime, timezone
 
-from brain.agents.session_limit import (
+from atlas_forge.agents.session_limit import (
     detect_session_limit_block,
     parse_reset_time,
     should_ping_now,
@@ -34,7 +34,7 @@ def test_ignores_the_previous_percentage_warning_variant():
 
 
 def test_ignores_pane_text_without_any_session_limit_pattern():
-    reset_at = detect_session_limit_block("Working on T-FB001-US01-01...", now=_NOW_MIDNIGHT)
+    reset_at = detect_session_limit_block("Working on T-AF001-US01-01...", now=_NOW_MIDNIGHT)
 
     assert reset_at is None
 

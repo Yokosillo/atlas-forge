@@ -1,4 +1,4 @@
-"""Tests de T-FB008-US05-01: transición `cancelled` de Job y mecanismo de
+"""Tests de T-AF008-US05-01: transición `cancelled` de Job y mecanismo de
 interrupción de `_wait_for_report` desde una petición concurrente.
 
 `dispatch_job` es síncrono y bloqueante (corre en el hilo del threadpool
@@ -18,15 +18,15 @@ from pathlib import Path
 import libtmux
 import pytest
 
-from brain.dispatcher import (
+from atlas_forge.dispatcher import (
     JobCancellationRejectedError,
     dispatch_job,
     request_cancellation,
 )
-from brain.dispatcher.job_cancellation_registry import _reset_registry_for_tests
-from brain.dispatcher.job_lifecycle import InvalidJobTransitionError, mark_cancelled
-from brain.models import Agent, Job, Runtime
-from brain.runtime import RuntimeInstance, is_runtime_alive, start_runtime, stop_runtime
+from atlas_forge.dispatcher.job_cancellation_registry import _reset_registry_for_tests
+from atlas_forge.dispatcher.job_lifecycle import InvalidJobTransitionError, mark_cancelled
+from atlas_forge.models import Agent, Job, Runtime
+from atlas_forge.runtime import RuntimeInstance, is_runtime_alive, start_runtime, stop_runtime
 
 _COOPERATIVE_AGENT_SCRIPT = str(
     Path(__file__).parent / "fixtures" / "cooperative_agent_sim.sh"
@@ -42,7 +42,7 @@ def _clean_cancellation_registry():
 
 @pytest.fixture
 def isolated_socket():
-    name = f"brain-test-{uuid.uuid4().hex[:8]}"
+    name = f"atlas_forge-test-{uuid.uuid4().hex[:8]}"
     try:
         yield name
     finally:
@@ -214,7 +214,7 @@ def test_cancellation_registry_is_cleared_after_dispatch_resolves(
     """No se acumulan entradas del registro de cancelación indefinidamente:
     tras resolverse el despacho (con o sin cancelación), la entrada de ese
     `job.id` se limpia."""
-    from brain.dispatcher.job_cancellation_registry import (
+    from atlas_forge.dispatcher.job_cancellation_registry import (
         is_job_cancellation_requested,
     )
 

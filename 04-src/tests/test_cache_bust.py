@@ -1,11 +1,11 @@
-"""Tests para cache-busting automático (T-FB021-US01-03)."""
+"""Tests para cache-busting automático (T-AF021-US01-03)."""
 
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
 
-from brain.api.cache_bust import compute_static_file_hash, get_cache_bust_version
+from atlas_forge.api.cache_bust import compute_static_file_hash, get_cache_bust_version
 
 
 def test_compute_static_file_hash_returns_hash_of_existing_file(tmp_path):

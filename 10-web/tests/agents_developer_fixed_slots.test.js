@@ -1,4 +1,4 @@
-/* T-FB005-US01-08 (2026-08-18): los Developers son "slots" FIJOS e
+/* T-AF005-US01-08 (2026-08-18): los Developers son "slots" FIJOS e
  * independientes — Developer-1/2/3 como agentes NO relacionados que
  * comparten rol (mismo patrón que Auditor-OSS/UX), cada uno lanzable por
  * su cuenta desde su propia fila. Matar uno (p. ej. Developer-2) NO debe:
@@ -208,7 +208,7 @@ async function test_tester_launch_enables_when_runtime_selected() {
       { timeout: 10000 }
     );
 
-    // Sin runtime: Lanzar deshabilitado (T-FB005-US07-03).
+    // Sin runtime: Lanzar deshabilitado (T-AF005-US07-03).
     let st = await _rowState(page, "Tester");
     assert.strictEqual(st.launchDisabled, true, "Lanzar de Tester debe estar deshabilitado sin runtime: " + JSON.stringify(st));
     assert.strictEqual(st.hasRuntimeSelect, true, "La fila Tester debe ofrecer selector de runtime: " + JSON.stringify(st));

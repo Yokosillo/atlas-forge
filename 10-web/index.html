@@ -3,26 +3,26 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Factory Brain</title>
+  <title>Atlas Forge</title>
   <link rel="stylesheet" href="/ui/style.css?v={{CACHE_BUST_VERSION}}" />
 </head>
 <body>
   <header class="topbar">
-    <h1><a href="/ui/backlog" id="brain-home-link">Factory Brain</a></h1>
+    <h1><a href="/ui/backlog" id="atlas_forge-home-link">Atlas Forge</a></h1>
   </header>
   <main class="content" id="app-root">
-    <!-- T-FB021-US02-01: el contenido operativo se renderiza desde app.js
+    <!-- T-AF021-US02-01: el contenido operativo se renderiza desde app.js
          EN BLANCO hasta que la verificación de conectividad (getHealth)
          confirme que el backend responde. Sin esto, ningún dato a medio
          cargar es visible antes de tiempo. -->
   </main>
-  <!-- Rutas absolutas (T-FB024): este mismo index.html se sirve para
+  <!-- Rutas absolutas (T-AF024): este mismo index.html se sirve para
        cualquier sección (`/ui/roles`, `/ui/arquitecto`...), no solo para
        `/ui/`. Una ruta relativa resolvería distinto según cuántos
        segmentos tenga la URL activa; una ruta absoluta bajo /ui/ es
        correcta siempre. -->
   <script src="/ui/backend-client.js?v={{CACHE_BUST_VERSION}}"></script>
-  <!-- T-FB021-US04-01: reconexión WebSocket, cargado ANTES que app.js
+  <!-- T-AF021-US04-01: reconexión WebSocket, cargado ANTES que app.js
        (la sección Jobs construye `new ReconnectingWebSocket(...)`). -->
   <script src="/ui/reconnecting-websocket.js?v={{CACHE_BUST_VERSION}}"></script>
   <script src="/ui/app.js?v={{CACHE_BUST_VERSION}}"></script>

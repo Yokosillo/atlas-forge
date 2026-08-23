@@ -1,13 +1,13 @@
 import pytest
 
-from brain.core import (
+from atlas_forge.core import (
     SessionNotActiveError,
     activate,
     assign_agent,
     close,
     list_agents,
 )
-from brain.models import DevelopmentSession
+from atlas_forge.models import DevelopmentSession
 
 
 def test_assign_agent_to_active_session_is_listed() -> None:

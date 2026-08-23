@@ -3,19 +3,19 @@ import uuid
 import libtmux
 import pytest
 
-from brain.agents import mark_stopped, mark_unavailable, refresh_agent_liveness
-from brain.core.session_lifecycle import activate
-from brain.agents.launch import launch_agent
-from brain.models import Agent, DevelopmentSession
-from brain.runtime import is_runtime_alive
-from brain.tmux.manager import kill_session
+from atlas_forge.agents import mark_stopped, mark_unavailable, refresh_agent_liveness
+from atlas_forge.core.session_lifecycle import activate
+from atlas_forge.agents.launch import launch_agent
+from atlas_forge.models import Agent, DevelopmentSession
+from atlas_forge.runtime import is_runtime_alive
+from atlas_forge.tmux.manager import kill_session
 
 
 @pytest.fixture(autouse=True)
 def _no_real_runtime(monkeypatch):
     """Mismo patrón de aislamiento ya usado en test_launch_agent.py: nunca
     invocar los binarios reales de Claude Code/OpenCode en tests."""
-    import brain.runtime.claude_code as claude_code_module
+    import atlas_forge.runtime.claude_code as claude_code_module
 
     monkeypatch.setattr(claude_code_module, "DEFAULT_CLAUDE_CODE_COMMAND", "sleep")
     monkeypatch.setattr(claude_code_module, "DEFAULT_CLAUDE_CODE_ARGS", ["5"])
@@ -23,7 +23,7 @@ def _no_real_runtime(monkeypatch):
 
 @pytest.fixture
 def isolated_socket():
-    name = f"brain-test-{uuid.uuid4().hex[:8]}"
+    name = f"atlas_forge-test-{uuid.uuid4().hex[:8]}"
     try:
         yield name
     finally:
@@ -75,7 +75,7 @@ def test_refresh_agent_liveness_does_not_touch_a_live_agent(
 
     assert agent.status == "idle"
 
-    from brain.runtime import stop_runtime
+    from atlas_forge.runtime import stop_runtime
 
     stop_runtime(runtime_instance, socket_name=isolated_socket)
 
@@ -133,7 +133,7 @@ def test_refresh_agent_liveness_transitions_a_working_agent_too(
     isolated_socket: str, tmp_path
 ) -> None:
     # La verificación también aplica a un agente `working`, no solo `idle`.
-    from brain.agents.lifecycle import mark_working
+    from atlas_forge.agents.lifecycle import mark_working
 
     session = _active_session()
     agent, runtime_instance = launch_agent(

@@ -1,4 +1,4 @@
-from brain.models import Workspace
+from atlas_forge.models import Workspace
 
 
 def test_workspace_construction() -> None:

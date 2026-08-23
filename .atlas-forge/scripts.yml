@@ -1,0 +1,22 @@
+scripts:
+  - id: deploy-web
+    name: "Deploy web (reinicio + verificación)"
+    command: >-
+      sudo systemctl restart atlas-forge-api.service &&
+      HOST=$(tailscale ip -4) &&
+      for i in $(seq 1 10); do
+        curl -sf -o /dev/null "http://${HOST}:8000/ui/" && exit 0;
+        sleep 1;
+      done;
+      echo "atlas-forge-api.service reiniciado pero /ui/ no respondió 200 tras 10s" >&2;
+      exit 1
+    description: >-
+      Reinicia atlas-forge-api.service (systemctl restart) y verifica con
+      reintento corto (hasta 10s) que /ui/ responde 200 en la IP Tailscale
+      de esta máquina (uvicorn nunca escucha en localhost/0.0.0.0, ver
+      atlas_forge.api.host.resolve_tailscale_host), para desplegar el código
+      actualmente en disco. Requiere que el usuario que ejecuta atlas-forge-api
+      tenga sudo sin contraseña para
+      'systemctl restart atlas-forge-api.service'; si no lo tiene, el
+      fallo de sudo se refleja como cualquier otro fallo (stderr/exit_code
+      distinto de cero).

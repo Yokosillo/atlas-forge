@@ -2,8 +2,8 @@ from pathlib import Path
 
 import pytest
 
-from brain.models import Workspace
-from brain.storage import (
+from atlas_forge.models import Workspace
+from atlas_forge.storage import (
     WorkspaceAlreadyExistsError,
     WorkspaceHasActiveDependenciesError,
     WorkspaceNotFoundError,

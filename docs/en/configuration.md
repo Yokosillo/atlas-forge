@@ -1,13 +1,13 @@
 # Configuration
 
-Factory Brain's configuration files are human-readable YAML/JSON editable by hand, without touching Python code or redeploying.
+Atlas Forge's configuration files are human-readable YAML/JSON editable by hand, without touching Python code or redeploying.
 
-## `.factory-brain/models.yml` — model catalog
+## `.atlas-forge/models.yml` — model catalog
 
 Declares the models available in the system: their **real identifier** (the one passed to `--model`), visible name and associated **runtime**.
 
 ```yaml
-# Catalog of models available in Factory Brain.
+# Catalog of models available in Atlas Forge.
 models:
   - id: opencode-go/deepseek-v4-flash
     name: "DeepSeek V4 Flash"
@@ -41,7 +41,7 @@ Validation rules (`models_catalog.py`): supported runtime, no duplicate IDs, man
 !!! note "Codex"
     The `codex` runtime is considered in the catalog but **not active**: the `openai/gpt-5` entry is commented out because Codex is outside the current roadmap scope. `launch_agent` only accepts `claude-code` and `opencode` for now.
 
-## `.factory-brain/scripts.yml` — project-specific scripts
+## `.atlas-forge/scripts.yml` — project-specific scripts
 
 Declares the active project's own scripts (not generics). See [Scripts](scripts.md).
 
@@ -50,9 +50,9 @@ scripts:
   - id: deploy-web
     name: "Deploy web (restart + verification)"
     command: >-
-      sudo systemctl restart factory-brain-api.service && ...
+      sudo systemctl restart atlas-forge-api.service && ...
     description: >-
-      Restarts factory-brain-api.service and verifies that /ui/ responds.
+      Restarts atlas-forge-api.service and verifies that /ui/ responds.
 ```
 
 | Field | Type | Required | Description |
@@ -62,9 +62,21 @@ scripts:
 | `command` | string | Yes | Shell command to run. |
 | `description` | string | No | Description shown in the interfaces. |
 
-## `model_preferences.json` — model preferences
+## `.atlas-forge/version.yml` — release version scheme
 
-User-editable state, distinct from the catalog. Location: `<state_dir>/model_preferences.json` (default `~/.local/share/brain/`).
+Defines the release version scheme used to assign each User Story a target version. Edited from the **Configuración** tab of the web and advanced by `04-src/scripts/close_version.py` when a version is closed. See [Backlog and pipeline](backlog.md).
+
+```yaml
+current_closed: null    # null until the first version is closed
+open: "0.9"             # open version (target for new work)
+future:                 # planned later versions, in order
+  - "0.9.1"
+  - "0.9.2"
+```
+
+US are assigned to the `open` version or a `future` version (editable in the web only for non-DONE items). When a version is closed, `close_version.py` advances the scheme and its US are considered delivered in that version.
+
+## `model_preferences.json` — model preferences
 
 ```json
 {
@@ -87,21 +99,21 @@ It is edited from the **Models** tab of the web (`GET/PUT /models/preferences`).
 | `active_project.json` | Selected active project (persisted). |
 | `model_preferences.json` | Model preferences (enabled + defaults). |
 
-`state_dir` defaults to `$XDG_DATA_HOME/brain` or `~/.local/share/brain`.
+`state_dir` defaults to `$XDG_DATA_HOME/atlas_forge` or `~/.local/share/atlas_forge`.
 
 ## Deployment (systemd)
 
-`deploy/systemd/factory-brain-api.service` is the source of truth for the service:
+`deploy/systemd/atlas-forge-api.service` is the source of truth for the service:
 
-- Runs `brain-api` as a non-root operator user.
+- Runs `atlas-forge-api` as a non-root operator user.
 - `WorkingDirectory=<workspace root>` — so the process sees the real repos.
-- `ExecStart=.../04-src/.venv/bin/brain-api`.
+- `ExecStart=.../04-src/.venv/bin/atlas-forge-api`.
 - `Restart=on-failure` — a deliberate `systemctl stop` is not restarted.
 
 Installation:
 
 ```bash
-sudo cp deploy/systemd/factory-brain-api.service /etc/systemd/system/
+sudo cp deploy/systemd/atlas-forge-api.service /etc/systemd/system/
 sudo systemctl daemon-reload
-sudo systemctl enable --now factory-brain-api.service
+sudo systemctl enable --now atlas-forge-api.service
 ```

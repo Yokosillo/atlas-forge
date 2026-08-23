@@ -1,0 +1,57 @@
+[Unit]
+Description=Atlas Forge API backend (atlas-forge-api)
+Documentation=https://github.com/factoria-software/atlas-forge
+# T-AF016-US01-01: el backend debe escuchar en la interfaz Tailscale de la
+# VM (resuelta dinámicamente vía `tailscale ip -4`), nunca en 0.0.0.0 —
+# no puede arrancar antes de que esa interfaz exista, o
+# resolve_tailscale_host() fallaría con TailscaleHostUnavailableError.
+# tailscaled.service verificado presente en esta VM (`systemctl
+# list-unit-files | grep tailscale`) antes de fijar esta dependencia.
+After=network.target tailscaled.service
+Wants=tailscaled.service
+
+[Service]
+Type=simple
+# User=/Group= (T-AF037-US04-02): esta unit se despliega como unit de
+# SISTEMA (/etc/systemd/system/), donde sin User= explícito el proceso
+# corre como root — confirmado en producción (`Uid: 0 0 0 0`). Eso rompe
+# `resolve_startup_session()`: `Path.home()` dentro del proceso resolvía
+# a `/root`, no a `~secure_ai_atlas`, así que no encontraba el
+# `active_project.json` real y `GET /agents`/`GET /project` quedaban sin
+# sesión activa tras cada reinicio. Fijar el usuario no privilegiado que
+# ya aloja el estado real corrige la causa y evita además exponer un
+# servicio HTTP en la red Tailscale con privilegios de root sin motivo.
+User=secure_ai_atlas
+Group=secure_ai_atlas
+# Raíz del workspace (factoria-software/), no 04-src/ — mismo motivo ya
+# documentado en discover_projects (AF-001): el proceso necesita ver los
+# repos reales de 10-PRODUCTOS/ para poder lanzar agentes sobre ellos,
+# no solo el código fuente de Atlas Forge.
+WorkingDirectory=/opt/openclaw/openclaw-software/.openclaw/workspace/factoria-software
+# PATH explícito: systemd no hereda el PATH de la shell del usuario, así
+# que sin esto el lanzamiento de agentes OpenCode fallaba con
+# `FileNotFoundError: 'opencode'` (POST /agents → 500). `opencode` vive en
+# el binario de nvm del usuario (`~/.nvm/versions/node/<v>/bin`), no en el
+# PATH por defecto de systemd; se incluyen también los dirs de usuario
+# (`~/.local/bin`, `~/.opencode/bin`) y los estándar del sistema.
+Environment=PATH=/home/secure_ai_atlas/.local/bin:/home/secure_ai_atlas/.opencode/bin:/home/secure_ai_atlas/.nvm/versions/node/v22.12.0/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+ExecStart=/opt/openclaw/openclaw-software/.openclaw/workspace/factoria-software/10-PRODUCTOS/PROD-006-atlas-forge/04-src/.venv/bin/atlas-forge-api
+# on-failure (no `always`): un `systemctl stop` intencional del operador
+# no debe reiniciarse solo — solo un crash real (código de salida
+# distinto de 0, señal, timeout) dispara el reinicio automático. `always`
+# reiniciaría también tras una parada deliberada, lo que complicaría
+# cualquier operación de mantenimiento manual (habría que recordar
+# `systemctl disable` primero solo para parar el proceso un momento).
+Restart=on-failure
+RestartSec=5
+# KillMode=process (T-AF037-US04-01): con el default control-group, un
+# restart/stop mata a TODOS los procesos del cgroup del servicio, no solo
+# al ExecStart — incluyendo el servidor tmux -Latlas-forge que
+# atlas_forge.tmux.manager.create_session lanza como hijo (y con él, todos los
+# agentes vivos), aunque tmux haga su propio doble-fork y quede
+# reparented a PID 1 a nivel de árbol de procesos Unix (eso no lo saca
+# del cgroup). Con process, solo el PID principal recibe la señal.
+KillMode=process
+
+[Install]
+WantedBy=multi-user.target

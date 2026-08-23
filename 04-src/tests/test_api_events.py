@@ -1,6 +1,6 @@
 import asyncio
 
-from brain.api.events import _ChannelHub
+from atlas_forge.api.events import _ChannelHub
 
 
 def test_publish_without_registered_loop_does_not_raise() -> None:

@@ -1,15 +1,15 @@
 from unittest.mock import patch
 
-from brain.api.main import DEFAULT_PORT, run_server
+from atlas_forge.api.main import DEFAULT_PORT, run_server
 
 
 def test_run_server_resolves_host_from_tailscale_by_default() -> None:
     with (
         patch(
-            "brain.api.main.resolve_tailscale_host", return_value="100.86.252.40"
+            "atlas_forge.api.main.resolve_tailscale_host", return_value="100.86.252.40"
         ) as mock_resolve,
-        patch("brain.api.main.uvicorn.run") as mock_uvicorn_run,
-        patch("brain.api.main.create_app", return_value="the-app"),
+        patch("atlas_forge.api.main.uvicorn.run") as mock_uvicorn_run,
+        patch("atlas_forge.api.main.create_app", return_value="the-app"),
     ):
         run_server()
 
@@ -22,10 +22,10 @@ def test_run_server_resolves_host_from_tailscale_by_default() -> None:
 def test_run_server_never_defaults_to_a_public_or_wildcard_host() -> None:
     with (
         patch(
-            "brain.api.main.resolve_tailscale_host", return_value="100.86.252.40"
+            "atlas_forge.api.main.resolve_tailscale_host", return_value="100.86.252.40"
         ),
-        patch("brain.api.main.uvicorn.run") as mock_uvicorn_run,
-        patch("brain.api.main.create_app", return_value="the-app"),
+        patch("atlas_forge.api.main.uvicorn.run") as mock_uvicorn_run,
+        patch("atlas_forge.api.main.create_app", return_value="the-app"),
     ):
         run_server()
 
@@ -35,9 +35,9 @@ def test_run_server_never_defaults_to_a_public_or_wildcard_host() -> None:
 
 def test_run_server_honors_an_explicit_host_without_calling_tailscale() -> None:
     with (
-        patch("brain.api.main.resolve_tailscale_host") as mock_resolve,
-        patch("brain.api.main.uvicorn.run") as mock_uvicorn_run,
-        patch("brain.api.main.create_app", return_value="the-app"),
+        patch("atlas_forge.api.main.resolve_tailscale_host") as mock_resolve,
+        patch("atlas_forge.api.main.uvicorn.run") as mock_uvicorn_run,
+        patch("atlas_forge.api.main.create_app", return_value="the-app"),
     ):
         run_server(host="127.0.0.1", port=9000)
 

@@ -1,4 +1,4 @@
-"""Tests de `POST /system/restart` (T-FB037-US05-01): el endpoint lanza
+"""Tests de `POST /system/restart` (T-AF037-US05-01): el endpoint lanza
 `systemctl restart` fire-and-forget con una lista de argumentos fija (nunca
 interpolada del request) y responde `202 Accepted` de inmediato. `Popen` se
 monkeypatchea — el test nunca lanza un proceso real."""
@@ -9,8 +9,8 @@ from pathlib import Path
 import pytest
 from fastapi.testclient import TestClient
 
-import brain.api.routes as routes_module
-from brain.api import create_app
+import atlas_forge.api.routes as routes_module
+from atlas_forge.api import create_app
 
 
 @pytest.fixture
@@ -42,7 +42,7 @@ def test_post_system_restart_launches_fixed_command_and_returns_202(
         "sudo",
         "/usr/bin/systemctl",
         "restart",
-        "factory-brain-api",
+        "atlas-forge-api",
     ]
     assert captured["kwargs"]["stdout"] == subprocess.DEVNULL
     assert captured["kwargs"]["stderr"] == subprocess.DEVNULL

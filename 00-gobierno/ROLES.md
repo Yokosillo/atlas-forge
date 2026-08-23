@@ -1,8 +1,8 @@
-# Roles y responsabilidades de Factory Brain
+# Roles y responsabilidades de Atlas Forge
 
 ## Modelo
 
-Factory Brain no utiliza un rol Critic separado. La función de planificación y veredicto corresponde al Arquitecto.
+Atlas Forge no utiliza un rol Critic separado. La función de planificación y veredicto corresponde al Arquitecto.
 
 UX y Auditor-OSS son roles especializados que se invocan sobre encargos concretos; no forman parte del ciclo Task→Implementación→Veredicto.
 

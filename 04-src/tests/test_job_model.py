@@ -1,13 +1,13 @@
 import pytest
 
-from brain.dispatcher import (
+from atlas_forge.dispatcher import (
     InvalidJobTransitionError,
     get_job_state,
     mark_completed,
     mark_failed,
     mark_running,
 )
-from brain.models import Job
+from atlas_forge.models import Job
 
 
 def _make_job(status: str = "created") -> Job:

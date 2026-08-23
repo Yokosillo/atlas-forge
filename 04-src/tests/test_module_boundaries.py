@@ -1,9 +1,9 @@
-"""Tests de fronteras entre módulos (T-FB019-US01-07): enforcement de las
+"""Tests de fronteras entre módulos (T-AF019-US01-07): enforcement de las
 direcciones de dependencia declaradas en `docs/architecture.md`
 (capas Presentación/Aplicación/Dominio/Infraestructura, "cada módulo expondrá
 una interfaz clara").
 
-Se recorren los imports REALES de cada fichero `.py` bajo `src/brain/` con
+Se recorren los imports REALES de cada fichero `.py` bajo `src/atlas_forge/` con
 análisis de AST (`ast.parse` + `ast.Import`/`ast.ImportFrom`), a propósito
 NO se usa `sys.modules` tras importar cada paquete, porque eso mezclaría
 dependencias transitivas (importar un módulo arrastra los imports de su
@@ -20,7 +20,7 @@ Detectado en `07-informes/propuesta-aislamiento-modulos-2026-08-02.md` (P4).
 import ast
 from pathlib import Path
 
-_BRAIN_ROOT = Path(__file__).resolve().parents[1] / "src" / "brain"
+_BRAIN_ROOT = Path(__file__).resolve().parents[1] / "src" / "atlas_forge"
 
 
 # ---------------------------------------------------------------------------
@@ -30,40 +30,40 @@ _BRAIN_ROOT = Path(__file__).resolve().parents[1] / "src" / "brain"
 # se registre aquí explícitamente (módulo + símbolos permite confirmar que es
 # una dependencia deliberada y acotada, no un catch-all).
 #
-# CLI: la TUI y su entrypoint `brain` fueron archivados (tag
-# `archive/tui-android-2026-08-18`); lo que queda del paquete `brain.cli` son
+# CLI: la TUI y su entrypoint `atlas_forge` fueron archivados (tag
+# `archive/tui-android-2026-08-18`); lo que queda del paquete `atlas_forge.cli` son
 # los subcomandos de solo lectura que antes usaba ese entrypoint:
-# - `backlog_status` (T-FB018-US02-02, US-FB018-02): reusa el informe del
-#   parser de dominio (`brain.backlog.report`) para ahorrar tokens de agente
+# - `backlog_status` (T-AF018-US02-02, US-AF018-02): reusa el informe del
+#   parser de dominio (`atlas_forge.backlog.report`) para ahorrar tokens de agente
 #   cognitivo, sin orquestar ningún servicio ni mutar estado.
-# - `scribe_resumir_backlog` (T-FB018-US02-03, US-FB018-02): capa OPTIONAL de
+# - `scribe_resumir_backlog` (T-AF018-US02-03, US-AF018-02): capa OPTIONAL de
 #   síntesis en prosa que solo invoca la operación del catálogo cerrado de
-#   Scribe (`brain.local_tools`) con el JSON ya calculado — degrada
+#   Scribe (`atlas_forge.local_tools`) con el JSON ya calculado — degrada
 #   explícitamente si Scribe/Ollama no está disponible.
 _CLI_ALLOWED = {
     "cli/backlog_status.py": {
-        "brain.backlog": {
+        "atlas_forge.backlog": {
             "build_backlog_report",
             "format_human_report",
             "render_json_report",
         }
     },
     "cli/scribe_resumir_backlog.py": {
-        "brain.local_tools": {
+        "atlas_forge.local_tools": {
             "ScribeUnavailableError",
             "resumir_estado_backlog",
         }
     },
 }
 
-# Direcciones de dependencia NO permitidas por paquete (top-level de `brain`).
+# Direcciones de dependencia NO permitidas por paquete (top-level de `atlas_forge`).
 _API_FORBIDDEN = {"tui"}
 _MODELS_FORBIDDEN = {"storage", "tmux", "runtime"}
 
 
 def _module_top(module: str) -> str | None:
-    """Primer nivel de un módulo `brain.x.y` -> `x`; None si no es del paquete `brain`."""
-    if not module.startswith("brain."):
+    """Primer nivel de un módulo `atlas_forge.x.y` -> `x`; None si no es del paquete `atlas_forge`."""
+    if not module.startswith("atlas_forge."):
         return None
     return module.split(".")[1]
 
@@ -81,9 +81,9 @@ def _rule_is_forbidden(top_level: str, imported_top: str) -> bool:
 
 def _rule_name(top_level: str) -> str:
     if top_level == "api":
-        return "api no debe importar brain.tui"
+        return "api no debe importar atlas_forge.tui"
     if top_level == "models":
-        return "models no debe importar brain.storage/brain.tmux/brain.runtime"
+        return "models no debe importar atlas_forge.storage/atlas_forge.tmux/atlas_forge.runtime"
     if top_level == "cli":
         return "cli no debe orquestar el dominio directamente"
     return ""
@@ -99,19 +99,19 @@ def _allowed_symbols_for(file_rel: str, module: str) -> set[str] | None:
 
 
 def _iter_imports(tree: ast.Module):
-    """Rinde (module, symbol) para cada import del paquete `brain` en `tree`."""
+    """Rinde (module, symbol) para cada import del paquete `atlas_forge` en `tree`."""
     for node in ast.walk(tree):
-        if isinstance(node, ast.ImportFrom) and node.module and node.module.startswith("brain."):
+        if isinstance(node, ast.ImportFrom) and node.module and node.module.startswith("atlas_forge."):
             for alias in node.names:
                 yield node.module, alias.name
         elif isinstance(node, ast.Import):
             for alias in node.names:
-                if alias.name.startswith("brain."):
+                if alias.name.startswith("atlas_forge."):
                     yield alias.name, None
 
 
 def _py_files() -> list[Path]:
-    """Ficheros .py de origen bajo src/brain/, excluyendo __pycache__."""
+    """Ficheros .py de origen bajo src/atlas_forge/, excluyendo __pycache__."""
     return [
         p
         for p in sorted(_BRAIN_ROOT.rglob("*.py"))
@@ -125,7 +125,7 @@ def _collect_violations() -> list[str]:
     for file_path in _py_files():
         file_rel = str(file_path.relative_to(_BRAIN_ROOT))
         if "/" not in file_rel:
-            # fichero raíz (brain/__init__.py): no pertenece a ningún subpaquete regulado.
+            # fichero raíz (atlas_forge/__init__.py): no pertenece a ningún subpaquete regulado.
             continue
         top_level = file_rel.split("/")[0]
 

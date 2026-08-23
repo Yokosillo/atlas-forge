@@ -1,6 +1,6 @@
 """Tests de `POST /backlog/{story_id}/launch-development`
-(T-FB020-US02-01): envoltura de resolución de contexto sobre el motor de
-Jobs ya existente (`create_and_record_job`/`dispatch_job`, FB-005/FB-008)
+(T-AF020-US02-01): envoltura de resolución de contexto sobre el motor de
+Jobs ya existente (`create_and_record_job`/`dispatch_job`, AF-005/AF-008)
 — nunca mockeado, se lanza un agente cooperativo real vía tmux (mismo
 patrón que `test_api_routes_jobs.py`) y se escriben ficheros `.md` reales
 de backlog a `tmp_path` (mismo patrón que `test_api_routes_backlog.py`)."""
@@ -12,15 +12,15 @@ import libtmux
 import pytest
 from fastapi.testclient import TestClient
 
-import brain.api.routes as routes_module
-from brain.api import create_app
-from brain.agents.launch import launch_agent
-from brain.api.routes import _job_plan_builder_story_id
-from brain.core import resolve_startup_session
-from brain.core.session_registry import _reset_registry_for_tests
-from brain.dispatcher.job_history_registry import _reset_registry_for_tests as _reset_job_history
-from brain.runtime import stop_runtime
-from brain.workspace import discover_projects, select_active_project
+import atlas_forge.api.routes as routes_module
+from atlas_forge.api import create_app
+from atlas_forge.agents.launch import launch_agent
+from atlas_forge.api.routes import _job_plan_builder_story_id
+from atlas_forge.core import resolve_startup_session
+from atlas_forge.core.session_registry import _reset_registry_for_tests
+from atlas_forge.dispatcher.job_history_registry import _reset_registry_for_tests as _reset_job_history
+from atlas_forge.runtime import stop_runtime
+from atlas_forge.workspace import discover_projects, select_active_project
 
 # Ruta del 02-backlog/ real de este proyecto (padre del directorio de
 # tests) — mismo cálculo que `REAL_BACKLOG_PATH` de `test_backlog.py`.
@@ -42,8 +42,8 @@ def _clean_registries():
 
 @pytest.fixture(autouse=True)
 def _no_real_runtime(monkeypatch):
-    import brain.runtime.claude_code as claude_code_module
-    import brain.runtime.opencode as opencode_module
+    import atlas_forge.runtime.claude_code as claude_code_module
+    import atlas_forge.runtime.opencode as opencode_module
 
     monkeypatch.setattr(claude_code_module, "DEFAULT_CLAUDE_CODE_COMMAND", "sleep")
     monkeypatch.setattr(claude_code_module, "DEFAULT_CLAUDE_CODE_ARGS", ["5"])
@@ -54,7 +54,7 @@ def _no_real_runtime(monkeypatch):
 
 @pytest.fixture
 def isolated_socket(monkeypatch):
-    name = f"brain-test-{uuid.uuid4().hex[:8]}"
+    name = f"atlas_forge-test-{uuid.uuid4().hex[:8]}"
     monkeypatch.setattr(routes_module, "_SOCKET_NAME", name)
     try:
         yield name
@@ -89,7 +89,7 @@ def _active_project_and_session(tmp_path: Path, monkeypatch):
 def _launch_cooperative_agent(
     role: str, project_path: Path, session, isolated_socket: str, monkeypatch, extra_env: str = ""
 ):
-    import brain.runtime.claude_code as claude_code_module
+    import atlas_forge.runtime.claude_code as claude_code_module
 
     monkeypatch.setattr(
         claude_code_module, "DEFAULT_CLAUDE_CODE_COMMAND", f"{extra_env} bash".strip()
@@ -107,8 +107,8 @@ def _write_user_story(
     path: Path,
     item_id: str,
     *,
-    epic: str = "FB-999 · Epic de prueba",
-    state: str = "TO_DO",
+    epic: str = "AF-999 · Epic de prueba",
+    state: str = "READY",
     historia: str = "Como usuario quiero X para lograr Y.",
     criterios: str = "- Criterio uno.",
 ) -> None:
@@ -129,7 +129,7 @@ def _write_task(
     item_id: str,
     title: str,
     *,
-    epic: str = "FB-999 · Epic de prueba",
+    epic: str = "AF-999 · Epic de prueba",
     state: str,
     dependencies: str,
 ) -> None:
@@ -146,18 +146,18 @@ def _write_task(
 
 
 def _task_id_for_story(story_id: str, correlative: str) -> str:
-    # US-FBnnn-ss -> T-FBnnn-USss-correlative, convención real de
+    # US-AFnnn-ss -> T-AFnnn-USss-correlative, convención real de
     # 02-backlog/ (verificada sobre el backlog real de este proyecto:
-    # `T-FB020-US01-01`, no `T-US-FB020-01-01`) — necesaria para que estos
+    # `T-AF020-US01-01`, no `T-US-AF020-01-01`) — necesaria para que estos
     # ficheros de prueba entren de verdad en `graph.items`
-    # (`_item_id_from_stem`/`_ITEM_ID_PATTERN`, `brain/backlog/parser.py`),
+    # (`_item_id_from_stem`/`_ITEM_ID_PATTERN`, `atlas_forge/backlog/parser.py`),
     # no solo para que el glob de `_pending_task_files_for_story` los
     # encuentre.
     epic, story_num = story_id.removeprefix("US-").split("-")
     return f"T-{epic}-US{story_num}-{correlative}"
 
 
-def _seed_story_with_pending_tasks(project_path: Path, story_id: str = "US-FB999-01") -> None:
+def _seed_story_with_pending_tasks(project_path: Path, story_id: str = "US-AF999-01") -> None:
     """Backlog sintético: 1 US con 2 Tasks TODO + 1 Task DONE (la DONE no
     debe aparecer en la description generada) — mismo escenario de
     `job_plan_builder.py::_pending_task_files_for_story`."""
@@ -177,14 +177,14 @@ def _seed_story_with_pending_tasks(project_path: Path, story_id: str = "US-FB999
         backlog / "tasks" / f"{task_1}-primer-paso.md",
         task_1,
         "Primer paso pendiente",
-        state="TO_DO",
+        state="READY",
         dependencies=f"**{story_id}**",
     )
     _write_task(
         backlog / "tasks" / f"{task_2}-segundo-paso.md",
         task_2,
         "Segundo paso pendiente",
-        state="TO_DO",
+        state="READY",
         dependencies=f"**{story_id}**",
     )
     _write_task(
@@ -196,7 +196,7 @@ def _seed_story_with_pending_tasks(project_path: Path, story_id: str = "US-FB999
     )
 
 
-def _seed_story_without_pending_tasks(project_path: Path, story_id: str = "US-FB999-02") -> None:
+def _seed_story_without_pending_tasks(project_path: Path, story_id: str = "US-AF999-02") -> None:
     """Backlog sintético: 1 US cuyas Tasks están todas DONE (mismo criterio
     de aceptación explícito: 'todas DONE, o ninguna creada' -> 400)."""
     backlog = project_path / "02-backlog"
@@ -229,7 +229,7 @@ def test_post_launch_development_dispatches_a_real_job_with_resolved_description
 
     client = TestClient(create_app())
     response = client.post(
-        "/backlog/US-FB999-01/launch-development", json={"agent_id": agent.id}
+        "/backlog/US-AF999-01/launch-development", json={"agent_id": agent.id}
     )
 
     assert response.status_code == 201
@@ -260,7 +260,7 @@ def test_post_launch_development_description_matches_real_story_content(
 
     client = TestClient(create_app())
     created = client.post(
-        "/backlog/US-FB999-01/launch-development", json={"agent_id": agent.id}
+        "/backlog/US-AF999-01/launch-development", json={"agent_id": agent.id}
     ).json()
 
     jobs = client.get("/jobs").json()
@@ -269,7 +269,7 @@ def test_post_launch_development_description_matches_real_story_content(
     assert dispatched_job["id"] == created["id"]
 
     description = dispatched_job["description"]
-    assert "US-FB999-01" in description
+    assert "US-AF999-01" in description
     assert "Como desarrollador quiero lanzar el desarrollo de una US con contexto resuelto." in description
     assert "Primer paso pendiente" in description
     assert "Segundo paso pendiente" in description
@@ -296,11 +296,11 @@ def test_post_launch_development_returns_400_when_story_has_no_pending_tasks(
 
     client = TestClient(create_app())
     response = client.post(
-        "/backlog/US-FB999-02/launch-development", json={"agent_id": "whatever"}
+        "/backlog/US-AF999-02/launch-development", json={"agent_id": "whatever"}
     )
 
     assert response.status_code == 400
-    assert "US-FB999-02" in response.json()["detail"]
+    assert "US-AF999-02" in response.json()["detail"]
     assert "no tiene Tasks pendientes" in response.json()["detail"]
 
     # Ningún Job creado — ni siquiera se validó el agente inexistente
@@ -318,11 +318,11 @@ def test_post_launch_development_returns_400_when_story_has_no_tasks_at_all(
     backlog = Path(project.path) / "02-backlog"
     (backlog / "user-stories").mkdir(parents=True)
     (backlog / "tasks").mkdir(parents=True)
-    _write_user_story(backlog / "user-stories" / "US-FB999-03.md", "US-FB999-03")
+    _write_user_story(backlog / "user-stories" / "US-AF999-03.md", "US-AF999-03")
 
     client = TestClient(create_app())
     response = client.post(
-        "/backlog/US-FB999-03/launch-development", json={"agent_id": "whatever"}
+        "/backlog/US-AF999-03/launch-development", json={"agent_id": "whatever"}
     )
 
     assert response.status_code == 400
@@ -339,11 +339,11 @@ def test_post_launch_development_returns_404_for_unknown_story_id(
     client = TestClient(create_app())
 
     response = client.post(
-        "/backlog/US-FB999-99/launch-development", json={"agent_id": "whatever"}
+        "/backlog/US-AF999-99/launch-development", json={"agent_id": "whatever"}
     )
 
     assert response.status_code == 404
-    assert "US-FB999-99" in response.json()["detail"]
+    assert "US-AF999-99" in response.json()["detail"]
 
 
 def test_post_launch_development_returns_404_for_a_task_id_not_a_story(
@@ -357,7 +357,7 @@ def test_post_launch_development_returns_404_for_a_task_id_not_a_story(
 
     client = TestClient(create_app())
     response = client.post(
-        "/backlog/T-FB999-US01-01/launch-development", json={"agent_id": "whatever"}
+        "/backlog/T-AF999-US01-01/launch-development", json={"agent_id": "whatever"}
     )
 
     assert response.status_code == 404
@@ -375,7 +375,7 @@ def test_post_launch_development_returns_404_for_unknown_agent(
 
     client = TestClient(create_app())
     response = client.post(
-        "/backlog/US-FB999-01/launch-development", json={"agent_id": "does-not-exist"}
+        "/backlog/US-AF999-01/launch-development", json={"agent_id": "does-not-exist"}
     )
 
     assert response.status_code == 404
@@ -387,7 +387,7 @@ def test_post_launch_development_returns_404_when_no_session_is_active() -> None
     client = TestClient(create_app())
 
     response = client.post(
-        "/backlog/US-FB999-01/launch-development", json={"agent_id": "whatever"}
+        "/backlog/US-AF999-01/launch-development", json={"agent_id": "whatever"}
     )
 
     assert response.status_code == 404
@@ -409,11 +409,11 @@ def test_post_launch_development_job_is_indistinguishable_from_a_normal_post_job
 
     client = TestClient(create_app())
     launched = client.post(
-        "/backlog/US-FB999-01/launch-development", json={"agent_id": agent.id}
+        "/backlog/US-AF999-01/launch-development", json={"agent_id": agent.id}
     ).json()
 
     # Mismos campos exactos que un Job normal (`_serialize_job`,
-    # `brain/api/routes.py`) — ningún campo extra, ninguno ausente.
+    # `atlas_forge/api/routes.py`) — ningún campo extra, ninguno ausente.
     assert set(launched.keys()) == {"id", "session_id", "agent_id", "description", "status", "result"}
     assert launched["session_id"] == session.id
     assert launched["agent_id"] == agent.id
@@ -427,9 +427,9 @@ def test_post_launch_development_job_is_indistinguishable_from_a_normal_post_job
 # ---------------------------------------------------------------------------
 # Conversión de `story_id` al formato que espera `_pending_task_files_for_story`
 # (`job_plan_builder.py`) — bug real encontrado durante la implementación:
-# `GET /backlog/{item_id}` usa `US-FBnnn-ss` (p. ej. `US-FB020-01`), pero
-# los nombres de fichero reales de Task son `T-FBnnn-USss-...` (p. ej.
-# `T-FB020-US01-01-...md`, NUNCA `T-US-FB020-01-...md`) — sin convertir,
+# `GET /backlog/{item_id}` usa `US-AFnnn-ss` (p. ej. `US-AF020-01`), pero
+# los nombres de fichero reales de Task son `T-AFnnn-USss-...` (p. ej.
+# `T-AF020-US01-01-...md`, NUNCA `T-US-AF020-01-...md`) — sin convertir,
 # `_pending_task_files_for_story` nunca encontraba ningún fichero real,
 # disparando el 400 de "sin Tasks pendientes" incorrectamente incluso con
 # Tasks TODO reales. `_job_plan_builder_story_id` hace esa conversión.
@@ -437,8 +437,8 @@ def test_post_launch_development_job_is_indistinguishable_from_a_normal_post_job
 
 
 def test_job_plan_builder_story_id_converts_to_the_real_task_filename_prefix() -> None:
-    assert _job_plan_builder_story_id("US-FB999-01") == "FB999-US01"
-    assert _job_plan_builder_story_id("US-FB020-02") == "FB020-US02"
+    assert _job_plan_builder_story_id("US-AF999-01") == "AF999-US01"
+    assert _job_plan_builder_story_id("US-AF020-02") == "AF020-US02"
 
 
 def test_job_plan_builder_story_id_prefix_matches_real_task_filenames_on_the_real_backlog() -> None:
@@ -453,7 +453,7 @@ def test_job_plan_builder_story_id_prefix_matches_real_task_filenames_on_the_rea
     matched_at_least_one_story_with_tasks = False
     for story_path in user_stories_dir.glob("US-*.md"):
         story_id = story_path.stem.split("-", 3)
-        # US-FBnnn-ss-slug.md -> US-FBnnn-ss
+        # US-AFnnn-ss-slug.md -> US-AFnnn-ss
         story_id = "-".join(story_id[:3])
         converted = _job_plan_builder_story_id(story_id)
         matching_files = list(tasks_dir.glob(f"T-{converted}-*.md"))

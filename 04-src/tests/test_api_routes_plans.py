@@ -7,19 +7,18 @@ import libtmux
 import pytest
 from fastapi.testclient import TestClient
 
-import brain.api.app as app_module
-import brain.api.routes as routes_module
-from brain.api import create_app
-from brain.api.plan_registry import _reset_registry_for_tests as _reset_plan_registry
-from brain.api.plan_registry import register_plan
-from brain.core import resolve_startup_session
-from brain.core.session_registry import _reset_registry_for_tests
-from brain.agents.launch import launch_agent
-from brain.dispatcher.job_history_registry import _reset_registry_for_tests as _reset_job_history
-from brain.dispatcher.job_plan_builder import build_job_plan_for_story
-from brain.models import JobPlan, JobPlanStep
-from brain.runtime import stop_runtime
-from brain.workspace import discover_projects, select_active_project
+import atlas_forge.api.routes as routes_module
+from atlas_forge.api import create_app
+from atlas_forge.api.plan_registry import _reset_registry_for_tests as _reset_plan_registry
+from atlas_forge.api.plan_registry import register_plan
+from atlas_forge.core import resolve_startup_session
+from atlas_forge.core.session_registry import _reset_registry_for_tests
+from atlas_forge.agents.launch import launch_agent
+from atlas_forge.dispatcher.job_history_registry import _reset_registry_for_tests as _reset_job_history
+from atlas_forge.dispatcher.job_plan_builder import build_job_plan_for_story
+from atlas_forge.models import JobPlan, JobPlanStep
+from atlas_forge.runtime import stop_runtime
+from atlas_forge.workspace import discover_projects, select_active_project
 
 _COOPERATIVE_AGENT_SCRIPT = str(
     Path(__file__).parent / "fixtures" / "cooperative_agent_sim.sh"
@@ -39,8 +38,8 @@ def _clean_registries():
 
 @pytest.fixture(autouse=True)
 def _no_real_runtime(monkeypatch):
-    import brain.runtime.claude_code as claude_code_module
-    import brain.runtime.opencode as opencode_module
+    import atlas_forge.runtime.claude_code as claude_code_module
+    import atlas_forge.runtime.opencode as opencode_module
 
     monkeypatch.setattr(claude_code_module, "DEFAULT_CLAUDE_CODE_COMMAND", "sleep")
     monkeypatch.setattr(claude_code_module, "DEFAULT_CLAUDE_CODE_ARGS", ["5"])
@@ -49,19 +48,9 @@ def _no_real_runtime(monkeypatch):
     monkeypatch.setattr(opencode_module, "DEFAULT_OPENCODE_ARGS", ["5"])
 
 
-@pytest.fixture(autouse=True)
-def _no_real_architect_queue_watcher(monkeypatch):
-    # T-FB030-US03-04: ver mismo fixture en test_ws_agent_pane.py — sin
-    # este stub, los tests de este fichero que disparan `_lifespan` real
-    # con `with TestClient(...)` dejarían un `architect_queue_watcher.sh`
-    # real corriendo tras cada test, sin relación con el despacho de
-    # planes bajo prueba.
-    monkeypatch.setattr(app_module, "launch_architect_queue_watcher", lambda *a, **k: None)
-
-
 @pytest.fixture
 def isolated_socket(monkeypatch):
-    name = f"brain-test-{uuid.uuid4().hex[:8]}"
+    name = f"atlas_forge-test-{uuid.uuid4().hex[:8]}"
     monkeypatch.setattr(routes_module, "_SOCKET_NAME", name)
     try:
         yield name
@@ -87,7 +76,7 @@ def _active_project_and_session(tmp_path: Path, monkeypatch):
     monkeypatch.setattr(
         routes_module, "get_active_project", lambda **_kwargs: discovered[0]
     )
-    # T-FB031-US02-02: algunos tests de este fichero usan `with
+    # T-AF031-US02-02: algunos tests de este fichero usan `with
     # TestClient(create_app())`, que SÍ ejecuta `_lifespan` de verdad
     # (a diferencia de `TestClient(create_app())` sin `with`, que no lo
     # ejecuta — verificado explícitamente). `_lifespan` llama
@@ -95,7 +84,7 @@ def _active_project_and_session(tmp_path: Path, monkeypatch):
     # `routes_module._WORKSPACE_ROOT`/`_STATE_DIR`, no con `workspace`/
     # `state_dir` locales de este helper — sin este monkeypatch,
     # resolvería contra el filesystem/estado real del proceso pytest (el
-    # propio repo) y, con FB-029 (multi-sesión con cambio de foco
+    # propio repo) y, con AF-029 (multi-sesión con cambio de foco
     # silencioso, sin `SessionAlreadyActiveError`), le robaría el foco a
     # la sesión de test ya activa, dejando inalcanzables los agentes ya
     # lanzados sobre ella.
@@ -115,9 +104,9 @@ def _write_task(
         f"id: T-{story_id}-{correlative}\n"
         "type: task\n"
         f"title: {title}\n"
-        "epic: FB-999\n"
+        "epic: AF-999\n"
         f"user_story: {story_id}\n"
-        "state: TO_DO\n"
+        "state: READY\n"
         "dependencies: []\n"
         "priority: Crítica\n"
         "---\n\n"
@@ -132,7 +121,7 @@ def _write_task(
     )
 
 
-def _isolated_backlog(tmp_path: Path, monkeypatch, story_id: str = "FB999-US01") -> None:
+def _isolated_backlog(tmp_path: Path, monkeypatch, story_id: str = "AF999-US01") -> None:
     """Aísla `POST /plans` de un `tasks_dir` real de prueba, en vez del
     backlog real del producto (frágil: sus Tasks reales cambian de estado
     con cada aprobación del crítico) — monkeypatchea la función tal como
@@ -157,7 +146,7 @@ def _isolated_backlog(tmp_path: Path, monkeypatch, story_id: str = "FB999-US01")
 def _launch_cooperative_developer(
     tmp_path: Path, session, isolated_socket: str, monkeypatch
 ):
-    import brain.runtime.claude_code as claude_code_module
+    import atlas_forge.runtime.claude_code as claude_code_module
 
     monkeypatch.setattr(claude_code_module, "DEFAULT_CLAUDE_CODE_COMMAND", "bash")
     monkeypatch.setattr(
@@ -176,11 +165,11 @@ def test_post_plans_builds_a_real_plan_without_dispatching_anything(
     _isolated_backlog(tmp_path, monkeypatch)
     client = TestClient(create_app())
 
-    response = client.post("/plans", json={"goal": "FB999-US01"})
+    response = client.post("/plans", json={"goal": "AF999-US01"})
 
     assert response.status_code == 201
     body = response.json()
-    assert body["goal"] == "FB999-US01"
+    assert body["goal"] == "AF999-US01"
     assert body["status"] == "proposed"
     assert len(body["steps"]) == 1
     assert body["steps"][0]["status"] == "pending"
@@ -190,18 +179,18 @@ def test_post_plans_builds_a_real_plan_without_dispatching_anything(
 def test_post_plans_with_canonical_story_id_returns_a_non_empty_plan(
     tmp_path: Path, monkeypatch
 ) -> None:
-    """T-FB022-US13-01B (criterio 3): POST /plans con `goal` en la forma
-    canónica que envía el selector de historias de la web (`US-FB999-01`,
-    NO `FB999-US01`) encuentra las Tasks TODO reales de la Story y
+    """T-AF022-US13-01B (criterio 3): POST /plans con `goal` en la forma
+    canónica que envía el selector de historias de la web (`US-AF999-01`,
+    NO `AF999-US01`) encuentra las Tasks TODO reales de la Story y
     devuelve un plan no vacío, en vez de fallar en silencio."""
-    _isolated_backlog(tmp_path, monkeypatch, story_id="FB999-US01")
+    _isolated_backlog(tmp_path, monkeypatch, story_id="AF999-US01")
     client = TestClient(create_app())
 
-    response = client.post("/plans", json={"goal": "US-FB999-01"})
+    response = client.post("/plans", json={"goal": "US-AF999-01"})
 
     assert response.status_code == 201
     body = response.json()
-    assert body["goal"] == "US-FB999-01"
+    assert body["goal"] == "US-AF999-01"
     assert len(body["steps"]) == 1
 
 
@@ -210,7 +199,7 @@ def test_post_plan_reject_prevents_any_dispatch(tmp_path: Path, monkeypatch) -> 
     — ningún Job del plan se despacha."""
     _isolated_backlog(tmp_path, monkeypatch)
     client = TestClient(create_app())
-    plan_id = client.post("/plans", json={"goal": "FB999-US01"}).json()["plan_id"]
+    plan_id = client.post("/plans", json={"goal": "AF999-US01"}).json()["plan_id"]
 
     response = client.post(f"/plans/{plan_id}/reject")
 
@@ -223,7 +212,7 @@ def test_post_plan_approve_dispatches_the_real_plan(
     tmp_path: Path, isolated_socket: str, monkeypatch
 ) -> None:
     """Criterio de aceptación: aprobar despacha el plan completo,
-    reutilizando dispatch_plan (US-FB008-04) sin reimplementarlo."""
+    reutilizando dispatch_plan (US-AF008-04) sin reimplementarlo."""
     _project, session = _active_project_and_session(tmp_path, monkeypatch)
     _isolated_backlog(tmp_path, monkeypatch)
     agent, runtime_instance = _launch_cooperative_developer(
@@ -231,7 +220,7 @@ def test_post_plan_approve_dispatches_the_real_plan(
     )
 
     client = TestClient(create_app())
-    plan_id = client.post("/plans", json={"goal": "FB999-US01"}).json()["plan_id"]
+    plan_id = client.post("/plans", json={"goal": "AF999-US01"}).json()["plan_id"]
 
     response = client.post(f"/plans/{plan_id}/approve")
 
@@ -248,7 +237,7 @@ def test_post_plan_approve_returns_404_without_active_session(
 ) -> None:
     _isolated_backlog(tmp_path, monkeypatch)
     client = TestClient(create_app())
-    plan_id = client.post("/plans", json={"goal": "FB999-US01"}).json()["plan_id"]
+    plan_id = client.post("/plans", json={"goal": "AF999-US01"}).json()["plan_id"]
 
     response = client.post(f"/plans/{plan_id}/approve")
 
@@ -272,7 +261,7 @@ def test_ws_plans_receives_progress_event_on_post_plans(
 
     with TestClient(create_app()) as client:
         with client.websocket_connect("/ws/plans") as websocket:
-            response = client.post("/plans", json={"goal": "FB999-US01"})
+            response = client.post("/plans", json={"goal": "AF999-US01"})
             plan_id = response.json()["plan_id"]
 
             event = websocket.receive_json()
@@ -287,8 +276,8 @@ def test_ws_jobs_receives_status_events_when_a_job_is_dispatched_via_api(
 ) -> None:
     """Criterio de aceptación: un cliente conectado a /ws/jobs recibe un
     evento cuando un Job despachado (aquí, vía API — la única vía de
-    despacho de Jobs que existe dentro del proceso brain-api, ver
-    docstring de brain.api.events) cambia de estado."""
+    despacho de Jobs que existe dentro del proceso atlas-forge-api, ver
+    docstring de atlas_forge.api.events) cambia de estado."""
     _project, session = _active_project_and_session(tmp_path, monkeypatch)
     agent, runtime_instance = _launch_cooperative_developer(
         tmp_path, session, isolated_socket, monkeypatch
@@ -319,7 +308,7 @@ def test_ws_jobs_receives_status_events_when_a_job_is_dispatched_via_api(
 def test_concurrent_approve_calls_dispatch_the_plan_only_once(
     tmp_path: Path, isolated_socket: str, monkeypatch
 ) -> None:
-    """Criterio de aceptación explícito de T-FB016-US01-08: dos llamadas
+    """Criterio de aceptación explícito de T-AF016-US01-08: dos llamadas
     casi simultáneas a POST /plans/{plan_id}/approve para el mismo plan
     resultan en un único despacho real (dispatch_plan invocado una sola
     vez) — disparadas de verdad de forma concurrente (dos hilos Python
@@ -347,7 +336,7 @@ def test_concurrent_approve_calls_dispatch_the_plan_only_once(
     )
 
     client = TestClient(create_app())
-    plan_id = client.post("/plans", json={"goal": "FB999-US01"}).json()["plan_id"]
+    plan_id = client.post("/plans", json={"goal": "AF999-US01"}).json()["plan_id"]
 
     real_dispatch_plan = routes_module.dispatch_plan
     real_present_plan_for_approval = routes_module.present_plan_for_approval
@@ -418,7 +407,7 @@ def test_approve_after_already_rejected_returns_current_state_without_changing_i
     _active_project_and_session(tmp_path, monkeypatch)
     _isolated_backlog(tmp_path, monkeypatch)
     client = TestClient(create_app())
-    plan_id = client.post("/plans", json={"goal": "FB999-US01"}).json()["plan_id"]
+    plan_id = client.post("/plans", json={"goal": "AF999-US01"}).json()["plan_id"]
 
     reject_response = client.post(f"/plans/{plan_id}/reject")
     assert reject_response.json()["status"] == "rejected"
@@ -441,7 +430,7 @@ def test_reject_after_already_approved_returns_current_state_without_changing_it
     )
 
     client = TestClient(create_app())
-    plan_id = client.post("/plans", json={"goal": "FB999-US01"}).json()["plan_id"]
+    plan_id = client.post("/plans", json={"goal": "AF999-US01"}).json()["plan_id"]
 
     approve_response = client.post(f"/plans/{plan_id}/approve")
     assert approve_response.json()["status"] == "approved"
@@ -461,7 +450,7 @@ def test_post_plans_first_call_reports_already_decided_false(
 ) -> None:
     _isolated_backlog(tmp_path, monkeypatch)
     client = TestClient(create_app())
-    plan_id = client.post("/plans", json={"goal": "FB999-US01"}).json()["plan_id"]
+    plan_id = client.post("/plans", json={"goal": "AF999-US01"}).json()["plan_id"]
 
     response = client.post(f"/plans/{plan_id}/reject")
 
@@ -471,18 +460,18 @@ def test_post_plans_first_call_reports_already_decided_false(
 def test_get_plans_lists_all_plans_registered_in_the_process(
     tmp_path: Path, monkeypatch
 ) -> None:
-    """T-FB016-US01-14, criterio de aceptación: 'GET /plans devuelve todos
+    """T-AF016-US01-14, criterio de aceptación: 'GET /plans devuelve todos
     los planes propuestos en el proceso actual (proposed, approved,
     rejected, blocked), no solo el último.'"""
-    _isolated_backlog(tmp_path, monkeypatch, story_id="FB999-US01")
+    _isolated_backlog(tmp_path, monkeypatch, story_id="AF999-US01")
     client = TestClient(create_app())
 
     # Dos solicitudes reales para el mismo goal registran dos planes
     # DISTINTOS (cada `POST /plans` construye un `JobPlan` nuevo, sin
     # deduplicar por `goal`) — suficiente para verificar que `GET /plans`
     # lista más de uno, sin depender de un segundo backlog aislado.
-    plan_a_id = client.post("/plans", json={"goal": "FB999-US01"}).json()["plan_id"]
-    plan_b_id = client.post("/plans", json={"goal": "FB999-US01"}).json()["plan_id"]
+    plan_a_id = client.post("/plans", json={"goal": "AF999-US01"}).json()["plan_id"]
+    plan_b_id = client.post("/plans", json={"goal": "AF999-US01"}).json()["plan_id"]
 
     response = client.get("/plans")
 
@@ -501,7 +490,7 @@ def test_get_plans_keeps_a_decided_plan_with_its_final_status(
     registro tras decidirse.'"""
     _isolated_backlog(tmp_path, monkeypatch)
     client = TestClient(create_app())
-    plan_id = client.post("/plans", json={"goal": "FB999-US01"}).json()["plan_id"]
+    plan_id = client.post("/plans", json={"goal": "AF999-US01"}).json()["plan_id"]
 
     client.post(f"/plans/{plan_id}/reject")
 
@@ -524,7 +513,7 @@ def test_get_plans_returns_an_empty_list_when_no_plan_was_ever_requested() -> No
 def test_ws_plans_receives_per_step_progress_events_during_approve(
     tmp_path: Path, isolated_socket: str, monkeypatch
 ) -> None:
-    """T-FB017-US04-03, criterio de aceptación: 'la pantalla refleja qué
+    """T-AF017-US04-03, criterio de aceptación: 'la pantalla refleja qué
     paso está en curso... sin esperar a que termine toda la secuencia' —
     verificado end-to-end vía WebSocket con tmux real, plan de 2 pasos
     registrado directamente (evita depender de la heurística de desglose
@@ -537,7 +526,7 @@ def test_ws_plans_receives_per_step_progress_events_during_approve(
     )
 
     plan = JobPlan(
-        goal="FB999-US01",
+        goal="AF999-US01",
         steps=[
             JobPlanStep(description="paso 1", mechanism="agent", agent_role="developer"),
             JobPlanStep(description="paso 2", mechanism="agent", agent_role="developer"),
@@ -586,7 +575,7 @@ def test_ws_plans_receives_per_step_progress_events_during_approve(
 def test_get_plan_includes_result_per_step_with_the_real_failure_message(
     tmp_path: Path, monkeypatch
 ) -> None:
-    # T-FB008-US04-08, criterio de aceptación: "GET /plans / GET
+    # T-AF008-US04-08, criterio de aceptación: "GET /plans / GET
     # /plans/{id} incluyen result por paso" con el mensaje real del
     # error, no un mensaje genérico ni ausente — verificado vía HTTP real
     # (no solo `get_plan_progress` en aislamiento), forzando el caso "no
@@ -595,7 +584,7 @@ def test_get_plan_includes_result_per_step_with_the_real_failure_message(
     _isolated_backlog(tmp_path, monkeypatch)
 
     client = TestClient(create_app())
-    plan_id = client.post("/plans", json={"goal": "FB999-US01"}).json()["plan_id"]
+    plan_id = client.post("/plans", json={"goal": "AF999-US01"}).json()["plan_id"]
 
     approve_response = client.post(f"/plans/{plan_id}/approve")
     assert approve_response.status_code == 200

@@ -1,18 +1,18 @@
-"""Tests de T-FB001-US02-02: el proyecto activo pasa a pertenecer a un
+"""Tests de T-AF001-US02-02: el proyecto activo pasa a pertenecer a un
 Workspace explícito (`Project.workspace_id`), con migración del formato
 persistido anterior (sin `workspace_id`) que no rompe la lectura."""
 
 import json
 from pathlib import Path
 
-from brain.storage import (
+from atlas_forge.storage import (
     create_workspace,
     derive_workspace_id,
     list_workspaces,
     load_active_project,
     resolve_workspace_id,
 )
-from brain.workspace import (
+from atlas_forge.workspace import (
     discover_projects,
     get_active_project,
     select_active_project,
@@ -79,7 +79,7 @@ def test_select_active_project_persists_the_workspace_id(tmp_path: Path) -> None
 def test_load_active_project_migrates_legacy_format_without_workspace_id(
     tmp_path: Path,
 ) -> None:
-    """Un proyecto activo persistido antes de T-FB001-US02-02 no tenía
+    """Un proyecto activo persistido antes de T-AF001-US02-02 no tenía
     `workspace_id`: seguir leyéndolo no debe lanzar excepción no controlada
     ni dejar el campo sin asociar."""
     state_dir = tmp_path / "state"

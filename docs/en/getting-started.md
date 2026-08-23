@@ -1,11 +1,11 @@
 # Getting started
 
-Installation, configuration and first runs of Factory Brain.
+Installation, configuration and first runs of Atlas Forge.
 
 ## Requirements
 
 - **Python ≥ 3.10**
-- **tmux** (runtimes run in tmux sessions; the default socket is `factory-brain`)
+- **tmux** (runtimes run in tmux sessions; the default socket is `atlas-forge`)
 - An **AI runtime** installed and available on the PATH:
   - **OpenCode** (CLI `opencode`) — supports model selection.
   - **Claude Code** (CLI `claude`) — no model flag.
@@ -13,7 +13,7 @@ Installation, configuration and first runs of Factory Brain.
 - **Optional — remote access** if you want to reach the backend from a mobile device.
 
 !!! note "LLM providers"
-    Factory Brain does not run models directly: it delegates to external runtimes. The model catalog (`.factory-brain/models.yml`) declares the available models per runtime. Codex appears in the catalog as a future (commented-out) entry — it is not yet supported as a runtime.
+    Atlas Forge does not run models directly: it delegates to external runtimes. The model catalog (`.atlas-forge/models.yml`) declares the available models per runtime. Codex appears in the catalog as a future (commented-out) entry — it is not yet supported as a runtime.
 
 ## Installation
 
@@ -24,16 +24,16 @@ python3 -m venv .venv
 pip install -e ".[dev]"
 ```
 
-This installs the `brain` package and the `brain` and `brain-api` entrypoints.
+This installs the `atlas_forge` package and the `atlas_forge` and `atlas-forge-api` entrypoints.
 
 ## Running
 
-Factory Brain operates as **a single process of truth** (`brain-api`) that exposes the API and serves the web interface. All clients (the web) connect to it.
+Atlas Forge operates as **a single process of truth** (`atlas-forge-api`) that exposes the API and serves the web interface. All clients (the web) connect to it.
 
 ### 1. Start the backend
 
 ```bash
-brain-api
+atlas-forge-api
 ```
 
 - Listens on port **8000**.
@@ -48,12 +48,12 @@ On first startup the web guides you: verify connectivity → choose your first p
 ### 3. (Alternative) Install as a systemd service
 
 ```bash
-sudo cp deploy/systemd/factory-brain-api.service /etc/systemd/system/
+sudo cp deploy/systemd/atlas-forge-api.service /etc/systemd/system/
 sudo systemctl daemon-reload
-sudo systemctl enable --now factory-brain-api.service
+sudo systemctl enable --now atlas-forge-api.service
 ```
 
-The service runs `brain-api` as a non-root user and restarts itself on crash (a deliberate `systemctl stop` is not restarted).
+The service runs `atlas-forge-api` as a non-root user and restarts itself on crash (a deliberate `systemctl stop` is not restarted).
 
 ## Testing
 
@@ -78,13 +78,13 @@ curl http://127.0.0.1:8000/projects    # list discovered Git repos
 |---|---|
 | Active project | `<state_dir>/active_project.json` |
 | Model preferences | `<state_dir>/model_preferences.json` |
-| Session/agent/Job state | In the memory of the `brain-api` process (not persisted to disk) |
-| tmux sessions | `factory-brain` tmux server |
+| Session/agent/Job state | In the memory of the `atlas-forge-api` process (not persisted to disk) |
+| tmux sessions | `atlas-forge` tmux server |
 
-`state_dir` defaults to `$XDG_DATA_HOME/brain` or `~/.local/share/brain`.
+`state_dir` defaults to `$XDG_DATA_HOME/atlas_forge` or `~/.local/share/atlas_forge`.
 
 !!! warning "In-memory state"
-    Sessions, agents and Jobs live in the process memory. Restarting `brain-api` leaves the session blank again (the active project is recovered from disk). Session persistence across restarts is a planned User Story, not implemented.
+    Sessions, agents and Jobs live in the process memory. Restarting `atlas-forge-api` leaves the session blank again (the active project is recovered from disk). Session persistence across restarts is a planned User Story, not implemented.
 
 ## Next steps
 

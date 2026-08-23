@@ -1,17 +1,21 @@
 #!/usr/bin/env python3
-"""CLI fina sobre `brain.backlog.promote` para promover el estado del backlog.
+"""CLI fina sobre `atlas_forge.backlog.promote` para consolidar el estado del
+backlog en ambos sentidos (T-AF022-US13-09).
 
-Regla determinista (la unica fuente de verdad de trazabilidad), implementada
-en `brain/backlog/promote.py`:
+El estado de una User Story es SIEMPRE la derivacion determinista de sus
+Tasks: `NO_TASKS` si no tiene ninguna, si no el estado de su Task menos
+avanzada; una Epic es `DONE` si todas sus US estan `DONE`, si no `TO_DO`.
+Esta regla (la unica fuente de verdad de trazabilidad) vive en
+`atlas_forge/backlog/promote.py` (`consolidate_states`/`check_consolidation`).
 
-  1. Una User Story -> DONE  si tiene al menos una Task y TODAS sus Tasks estan DONE.
-  2. Una Epic        -> DONE  si tiene al menos una User Story y TODAS sus US estan DONE.
-
-Solo PROMUEVE (TO_DO/IN_PROGRESS/REVIEW -> DONE; para Epic, TODO). Nunca revierte. Idempotente.
+La consolidacion es BIDIRECCIONAL e idempotente: en una sola pasada
+promueve, reabre y fija `NO_TASKS`/el estado mas retrasado. (Antes de
+T-AF022-US13-09 el `--apply` solo promovia hacia delante y nunca
+revertia; eso deja de ser cierto.)
 
 Uso:
-  python3 scripts/promote_states.py --check   # falla (exit != 0) si hay drift, sin tocar nada
-  python3 scripts/promote_states.py --apply   # escribe los cambios de estado
+  python3 scripts/promote_states.py --check   # reporta drift; exit != 0 si existe, sin tocar nada
+  python3 scripts/promote_states.py --apply   # consolida los estados derivados en disco
 """
 from __future__ import annotations
 
@@ -19,13 +23,11 @@ import argparse
 import os
 import sys
 
-from brain.backlog.promote import (
-    check_backlog_promotion,
-    detect_reopened_drift,
-    promote_backlog,
-)
+from atlas_forge.backlog.promote import check_consolidation, consolidate_states
 
 BACKLOG = os.path.join(os.path.dirname(__file__), "..", "..", "02-backlog")
+
+_KIND_LABEL = {"user_story": "US", "epic": "Epic"}
 
 
 def main() -> int:
@@ -34,44 +36,24 @@ def main() -> int:
     group.add_argument(
         "--check", action="store_true", help="reportar drift; exit != 0 si existe"
     )
-    group.add_argument("--apply", action="store_true", help="escribir cambios")
+    group.add_argument("--apply", action="store_true", help="escribir los estados derivados")
     args = parser.parse_args()
 
     if args.check:
-        result = check_backlog_promotion(BACKLOG)
-        print(f"US a promover -> DONE: {len(result.promoted_user_stories)}")
-        for us_id in result.promoted_user_stories:
-            print(f"  {us_id}  (-> DONE)")
-        print(f"\nEpics a promover -> DONE: {len(result.promoted_epics)}")
-        for epic_id in result.promoted_epics:
-            print(f"  {epic_id}  (-> DONE)")
-
-        # T-FB022-US13-04: caso inverso — padre DONE con un hijo reabierto.
-        # Solo se detecta y reporta, nunca se corrige por --apply.
-        reopened = detect_reopened_drift(BACKLOG)
-        print(f"\nPadres DONE con hijo reabierto: {len(reopened.items)}")
-        for item in reopened.items:
-            children = ", ".join(f"{cid} ({cstate})" for cid, cstate in item.reopened_children)
-            print(f"  {item.parent_id} (DONE) con hijo(s) reabierto(s): {children}")
-
-        if result.has_drift or reopened.has_drift:
-            if result.has_drift:
-                print("\nDrift detectado: hay US/Epics con todos sus hijos DONE pero el padre no.")
-            if reopened.has_drift:
-                print(
-                    "\nDrift inverso detectado: hay US/Epics DONE con un hijo reabierto "
-                    "(TO_DO/IN_PROGRESS/REVIEW) — revisar manualmente si el padre debe "
-                    "reabrirse; este chequeo no lo hace automáticamente."
-                )
+        drift = check_consolidation(BACKLOG)
+        print(f"Drift de derivacion: {len(drift)} item(s) desalineado(s).")
+        for item_id, _path, new_state, kind in drift:
+            print(f"  {_KIND_LABEL.get(kind, kind)} {item_id}  (-> {new_state})")
+        if drift:
+            print("\nDrift detectado: ejecuta --apply para consolidar.")
             return 1
         print("\nSin drift: todo consistente.")
         return 0
 
-    result = promote_backlog(BACKLOG)
-    print(
-        f"Promovidas {len(result.promoted_user_stories)} US y "
-        f"{len(result.promoted_epics)} Epics a DONE."
-    )
+    applied = consolidate_states(BACKLOG)
+    print(f"Consolidadas {len(applied)} transiciones de estado derivado.")
+    for item_id, _path, new_state, kind in applied:
+        print(f"  {_KIND_LABEL.get(kind, kind)} {item_id}  (-> {new_state})")
     return 0
 
 

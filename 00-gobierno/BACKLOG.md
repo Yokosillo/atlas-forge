@@ -77,15 +77,17 @@ Una Task no debe convertirse en una User Story solo porque requiera mucho trabaj
 
 ## Estados
 
+El vocabulario canónico (AF-040) vive en `04-src/src/atlas_forge/core/state_machines.py`; este documento lo describe, no lo define.
+
 ### User Story
 
-`NO_TASKS`, `EN_DISEÑO`, `TO_DO`, `EN_DESARROLLO`, `REVIEW`, `DONE`.
+`NO_TASKS`, `TO_PLAN`, `READY`, `TO_DEVELOP`, `IN_PROGRESS`, `IN_REVIEW`, `DONE`, `OUT_OF_SCOPE`.
+
+- `NO_TASKS` → `TO_PLAN` mientras se planifica; después el estado **deriva** de sus Tasks (la menos avanzada); todas `DONE` → `IN_REVIEW` (validación final del Arquitecto); solo tras validar → `DONE`. `OUT_OF_SCOPE` es exclusivo de User Story.
 
 ### Task
 
-`TO_DO`, `EN_DESARROLLO`, `REVIEW`, `DONE`, `FUERA_ROADMAP`.
-
-Si existe `IN_PROGRESS` en validadores o ficheros antiguos, no debe introducirse como semántica paralela. La convergencia del formato debe resolverse mediante una Task de mantenimiento si el código todavía lo requiere.
+`READY` → `TO_DEVELOP` → `IN_PROGRESS` → `IN_REVIEW` → `DONE`. Nunca `OUT_OF_SCOPE`.
 
 ## Dependencias
 

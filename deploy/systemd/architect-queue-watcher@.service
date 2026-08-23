@@ -1,28 +1,28 @@
 [Unit]
 Description=Architect queue watcher for project %i (architect_queue_watcher.sh)
-Documentation=https://github.com/factoria-software/factory-brain
-# T-FB030-US03-01: unidad TEMPLATE (nombre con @), no una unidad estática
-# como factory-brain-api.service — un watcher por proyecto con Arquitecto
+Documentation=https://github.com/factoria-software/atlas-forge
+# T-AF030-US03-01: unidad TEMPLATE (nombre con @), no una unidad estática
+# como atlas-forge-api.service — un watcher por proyecto con Arquitecto
 # lanzado, no una única instancia para todo el sistema. `%i` es el nombre
 # de proyecto (mismo valor que `project_name` del script, ANTES de
 # sanitizar — el propio script aplica la misma sanitización que
-# T-FB030-US01-01/T-FB030-US02-01, así que systemctl y el watcher quedan
+# T-AF030-US01-01/T-AF030-US02-01, así que systemctl y el watcher quedan
 # de acuerdo en a qué proyecto se refieren aunque `%i` tenga mayúsculas o
 # espacios codificados por systemd).
 After=network.target
 
 [Service]
 Type=simple
-# Ver factory-brain-api.service para la justificación de omitir User=/
+# Ver atlas-forge-api.service para la justificación de omitir User=/
 # Group= en la instancia de systemd de usuario.
 # ExecStart recibe %i dos veces: project_root (ruta fija, ver nota más
 # abajo) y project_name (el propio %i). ESTA PLANTILLA ASUME que el
 # `project_root` de cada proyecto coincide con su ruta bajo el workspace
-# de 10-PRODUCTOS/ (mismo convenio que `discover_projects`, FB-001) — si
+# de 10-PRODUCTOS/ (mismo convenio que `discover_projects`, AF-001) — si
 # un proyecto real no sigue esa convención de ruta, esta unidad debe
 # instanciarse con una variante de ExecStart propia, no genérica por %i
 # para el path completo.
-ExecStart=/opt/openclaw/openclaw-software/.openclaw/workspace/factoria-software/10-PRODUCTOS/PROD-006-factory-brain/architect_queue_watcher.sh /opt/openclaw/openclaw-software/.openclaw/workspace/factoria-software/10-PRODUCTOS/%i %i
+ExecStart=/opt/openclaw/openclaw-software/.openclaw/workspace/factoria-software/10-PRODUCTOS/PROD-006-atlas-forge/architect_queue_watcher.sh /opt/openclaw/openclaw-software/.openclaw/workspace/factoria-software/10-PRODUCTOS/%i %i
 Restart=on-failure
 RestartSec=5
 

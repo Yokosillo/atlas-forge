@@ -41,8 +41,8 @@ A partir de una necesidad del humano:
 
 Toda Task nueva que el Arquitecto genere debe llevar el campo `difficulty`
 en el frontmatter, valorado de 0 a 10 (entero), nunca ausente. Es el dato
-que usa el Dispatcher para elegir el modelo del Developer (`US-FB008-11` /
-`US-FB008-12`), así que omitirlo deja la selección de modelo sin criterio.
+que usa el Dispatcher para elegir el modelo del Developer (`US-AF008-11` /
+`US-AF008-12`), así que omitirlo deja la selección de modelo sin criterio.
 Se asigna según: alcance del cambio (ficheros/módulos tocados), dependencia
 de estado compartido/concurrencia y necesidad de verificación E2E real
 frente a solo unitaria.
@@ -114,15 +114,25 @@ Si una misma User Story acumula tres o más Tasks de corrección de bugs en siet
 4. si existe, crear una Task de rediseño acotado;
 5. si no existe, documentar por qué los fallos son independientes.
 
-## Cola de cierre
+## Cierre de trabajo hacia el Arquitecto
 
-La cola:
+El canal Developer→Arquitecto es el ciclo de veredicto del Dispatcher
+(`dispatch_queue_worker.run_architect_verdict_dispatch_cycle`, T-AF008-US14-02),
+no una cola de fichero:
 
-`<project_root>/.claude/state/<project_name>/architect_queue.jsonl`
+1. el cierre de un Job de Developer (marcador `___ATLAS_FORGE_JOB_DONE___`)
+   persiste su informe en `07-informes/<story_id>/<job_id>.md`;
+2. cuando todas las Tasks de una User Story quedan `DONE`,
+   `trigger_architect_verdict` la marca en `REVIEW`;
+3. el Dispatcher despacha a un Arquitecto libre un Job de veredicto; el
+   Arquitecto devuelve su decisión como resultado del Job (`job.result`,
+   formato `ESTADO:`/`JUSTIFICACIÓN:`/`SIGUIENTE_PROMPT_PARA_WORKER:`), y
+   `_process_verdict_result` la procesa.
 
-es Developer→Arquitecto.
+El mecanismo legado `architect_queue.jsonl`/`architect_queue_watcher.sh`
+está deprecado y no debe utilizarse.
 
-Nunca utilizarla para asignar Tasks al Developer.
+Nunca utilizarlo para asignar Tasks al Developer.
 
 Para Developer se utiliza la cola de despacho definida en `DISPATCHER.md`.
 

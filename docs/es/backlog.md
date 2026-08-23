@@ -1,16 +1,16 @@
 # Backlog y pipeline centrado en el backlog
 
-Factory Brain trata el **backlog** (`02-backlog/` del proyecto activo) como una fuente estructurada y consultable: lo parsea, lo valida, genera informes de estado y permite **generar** Epics→User Stories→Tasks y **conducir su desarrollo** desde la interfaz. El backlog es el **panel de control central**: todo el trabajo se despliega desde aquí, no escribiendo Markdown a mano ni conversando con cada agente por separado.
+Atlas Forge trata el **backlog** (`02-backlog/` del proyecto activo) como una fuente estructurada y consultable: lo parsea, lo valida, genera informes de estado y permite **generar** Epics→User Stories→Tasks y **conducir su desarrollo** desde la interfaz. El backlog es el **panel de control central**: todo el trabajo se despliega desde aquí, no escribiendo Markdown a mano ni conversando con cada agente por separado.
 
 ## Esquema del backlog
 
-Estructura canónica (ver `02-backlog/README.md`): Roadmap → Epic (`FB-NNN`) → User Story (`US-FBNNN-nn`) → Task (`T-FBNNN-USnn-mm`). Cada fichero es **frontmatter YAML + cuerpo Markdown**: el bloque frontmatter (delimitado por `---`) contiene los campos estructurados, el cuerpo Markdown contiene prosa libre (`## Objetivo`, `## Criterios de aceptación`, etc.).
+Estructura canónica (ver `02-backlog/README.md`): Roadmap → Epic (`AF-NNN`) → User Story (`US-AFNNN-nn`) → Task (`T-AFNNN-USnn-mm`). Cada fichero es **frontmatter YAML + cuerpo Markdown**: el bloque frontmatter (delimitado por `---`) contiene los campos estructurados, el cuerpo Markdown contiene prosa libre (`## Objetivo`, `## Criterios de aceptación`, etc.).
 
 Campos comunes del frontmatter: `id`, `type` (`epic | user_story | task`), `title`, `state`, `dependencies` (una lista YAML de IDs — sin markup en negrita, sin texto libre). Opcionales: `priority` (User Story/Task), `fase`. Las User Stories y Tasks también llevan `epic` (y las Tasks además `user_story`) apuntando a su padre.
 
 `state` de Task: `READY | TO_DEVELOP | IN_PROGRESS | IN_REVIEW | DONE` (una Task **nunca** puede tener `OUT_OF_SCOPE`). `state` de User Story: estados propios iniciales `NO_TASKS | TO_PLAN`; una vez creadas sus Tasks, el estado es **derivado** (la Task menos avanzada, `READY` < `TO_DEVELOP` < `IN_PROGRESS` < `IN_REVIEW` < `DONE`), y con todas sus Tasks `DONE` la US pasa a `IN_REVIEW` pendiente de la validación del Arquitecto antes de `DONE`. `OUT_OF_SCOPE` es exclusivo de User Story — ver [Jobs y el pipeline de trabajo](jobs.md#el-pipeline-de-backlog) para qué significa cada estado y cómo mueve el Dispatcher los ítems por ellos.
 
-## Parser determinista (`brain/backlog/parser.py`)
+## Parser determinista (`atlas_forge/backlog/parser.py`)
 
 - Extrae por fichero: id, type, `state`, `dependencies` (parseadas directamente de la lista YAML), prioridad, fase, referencias al padre — todo leído del frontmatter, sin regex sobre Markdown de forma libre.
 - `load_backlog(backlog_path) → BacklogGraph`: parsea los tres subdirectorios; los ficheros malformados se recogen en `graph.errors` sin abortar el resto.
@@ -18,7 +18,7 @@ Campos comunes del frontmatter: `id`, `type` (`epic | user_story | task`), `titl
 - `calculate_unblock_degree(graph, epic)`: ratio de US/Tasks de un Epic cuyas dependencias están todas resueltas (base del mapa de calor).
 - `find_max_leverage_chain(graph)`: la cadena [raíz + cascada] que desbloquea más ítems.
 
-## Informe de estado (`brain/backlog/report.py`)
+## Informe de estado (`atlas_forge/backlog/report.py`)
 
 `build_backlog_report(backlog_path) → dict` (serializable a JSON):
 
@@ -30,11 +30,11 @@ Campos comunes del frontmatter: `id`, `type` (`epic | user_story | task`), `titl
 
 Accesible por dos rutas equivalentes: `GET /backlog` y el script genérico `backlog_status`. Ordenación determinista: `(priority, id)`.
 
-## Detalle de ítem (`brain/backlog/detail.py`)
+## Detalle de ítem (`atlas_forge/backlog/detail.py`)
 
-`GET /backlog/{item_id}` devuelve el detalle por sección (`## Objetivo`/`## Historia`, `## Criterios de aceptación`, dependencias con su estado). Para una User Story incluye sus Tasks y (FB-024-US09) el historial de ejecución (Jobs) de esa Story. Los IDs del tipo `FB-xxx` se resuelven como Epic.
+`GET /backlog/{item_id}` devuelve el detalle por sección (`## Objetivo`/`## Historia`, `## Criterios de aceptación`, dependencias con su estado). Para una User Story incluye sus Tasks y (AF-024-US09) el historial de ejecución (Jobs) de esa Story. Los IDs del tipo `AF-xxx` se resuelven como Epic.
 
-## Validador de formato (`brain/backlog/validator_v2.py`)
+## Validador de formato (`atlas_forge/backlog/validator_v2.py`)
 
 Validador de esquema determinista para el formato del frontmatter YAML: campos de frontmatter obligatorios por tipo (`id`, `type`, `title`, `state`, `dependencies`, más `epic`/`user_story` donde aplique), conjunto de `state` cerrado, IDs de dependencias bien formados, id coincidiendo con el prefijo del nombre de fichero. `ValidationResultV2{valid, errors}`.
 
@@ -42,7 +42,7 @@ Validador de esquema determinista para el formato del frontmatter YAML: campos d
 
 Mecanismo para generar y ejecutar trabajo por el Arquitecto, sin escribir Markdown a mano.
 
-### Generador Epic→User Story→Task (`brain/architect/`)
+### Generador Epic→User Story→Task (`atlas_forge/architect/`)
 
 Flujo del Arquitecto con **validador determinista obligatorio + auto-auditoría**:
 
@@ -68,7 +68,7 @@ Empaqueta la entrada de un Job de Tester: criterios de aceptación de la Task + 
 
 ## Análisis de hilos de desarrollo paralelizables
 
-`brain/backlog/dependency_graph.py` calcula, para un Epic, qué grupos de US/Tasks son mutuamente independientes (hilos paralelizables) y en qué orden abordarlos, basándose en el grafo de dependencias real — para que el desarrollo pueda dividirse entre varios Developers con una base real en lugar de suposiciones. Expuesto como `POST /backlog/epic/{epic_id}/analyze-threads` (acepta el número de agentes objetivo como query param); el resultado se persiste como informe.
+`atlas_forge/backlog/dependency_graph.py` calcula, para un Epic, qué grupos de US/Tasks son mutuamente independientes (hilos paralelizables) y en qué orden abordarlos, basándose en el grafo de dependencias real — para que el desarrollo pueda dividirse entre varios Developers con una base real en lugar de suposiciones. Expuesto como `POST /backlog/epic/{epic_id}/analyze-threads` (acepta el número de agentes objetivo como query param); el resultado se persiste como informe.
 
 ## Planificado (no implementado)
 

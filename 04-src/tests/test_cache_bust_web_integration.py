@@ -1,10 +1,10 @@
 """Tests de integración para cache-busting en index.html y agent-pane.html
-(T-FB021-US01-03)."""
+(T-AF021-US01-03)."""
 
 import pytest
 from starlette.testclient import TestClient
 
-from brain.api.app import create_app
+from atlas_forge.api.app import create_app
 
 
 @pytest.fixture
@@ -41,7 +41,7 @@ def test_index_html_has_cache_bust_version_injected(client):
 def test_root_ui_serves_index_html_with_cache_bust_injected(client):
     """GET /ui/ (raíz, la ruta que abre el navegador) también inyecta el
     cache-bust version — Starlette pasa `path=""` para el directorio y antes
-    de T-FB021-US01-03-fix el placeholder llegaba literal."""
+    de T-AF021-US01-03-fix el placeholder llegaba literal."""
     response = client.get("/ui/")
 
     assert response.status_code == 200

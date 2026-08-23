@@ -1,4 +1,4 @@
-"""Tests para T-FB005-US07-01: contrato de runtime, modelo y capacidades.
+"""Tests para T-AF005-US07-01: contrato de runtime, modelo y capacidades.
 
 Verifica que:
 1. El contrato define capacidades correctas para cada runtime
@@ -9,7 +9,7 @@ Verifica que:
 
 import pytest
 
-from brain.runtime_model_contract import (
+from atlas_forge.runtime_model_contract import (
     ModelReadCapability,
     RuntimeModelCapabilities,
     RuntimeType,
@@ -48,7 +48,7 @@ class TestRuntimeCapabilitiesOpenCode:
         assert caps.can_read_model is True
         assert caps.read_capability == ModelReadCapability.PASSIVE
         assert caps.can_change_model is True
-        assert caps.can_change_model_idle_only is True  # T-FB024-US11-11
+        assert caps.can_change_model_idle_only is True  # T-AF024-US11-11
         assert caps.is_immutable_during_execution is True
 
     def test_opencode_supports_queries(self):

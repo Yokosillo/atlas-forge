@@ -1,22 +1,22 @@
 #!/usr/bin/env bash
-# architect_queue_watcher.sh — cola de cierres -> Arquitecto (T-FB030-US03-01)
+# architect_queue_watcher.sh — cola de cierres -> Arquitecto (T-AF030-US03-01)
 #
 # Sustituye, para el caso "avisar al Arquitecto de un cierre", a
 # watch_worker.sh: genérico por proyecto (uno de estos watchers por
 # proyecto con Arquitecto lanzado, no un único destino hardcodeado),
 # calcula el nombre de sesión del Arquitecto por convención determinista
-# (T-FB030-US01-01: `arquitecto-<project_name>`) sin fichero de
+# (T-AF030-US01-01: `arquitecto-<project_name>`) sin fichero de
 # suscripción — sin proyecto, sin este watcher no sabría a qué sesión
 # avisar; con el nombre de proyecto, no necesita que nadie se lo informe
 # en tiempo de ejecución.
 #
 # Uso: ./architect_queue_watcher.sh <project_root> <project_name>
 #   project_root: raíz del repositorio del proyecto a vigilar (mismo
-#                 significado que Project.path en brain.models.project).
+#                 significado que Project.path en atlas_forge.models.project).
 #   project_name: nombre del proyecto SIN sanitizar (se sanitiza aquí con
 #                 la misma regla que sanitize_session_name_part,
-#                 brain.runtime.generic) — mismo criterio que usó
-#                 T-FB030-US02-01 para nombrar el directorio de la cola,
+#                 atlas_forge.runtime.generic) — mismo criterio que usó
+#                 T-AF030-US02-01 para nombrar el directorio de la cola,
 #                 así que la ruta vigilada y el destino del push quedan
 #                 sincronizados por construcción.
 set -u
@@ -29,11 +29,11 @@ if [ -z "$PROJECT_ROOT" ] || [ -z "$PROJECT_NAME_RAW" ]; then
     exit 2
 fi
 
-# Misma regla que sanitize_session_name_part (brain/runtime/generic.py):
+# Misma regla que sanitize_session_name_part (atlas_forge/runtime/generic.py):
 # cualquier carácter que no sea alfanumérico/-/_ se sustituye por '-',
 # se recortan guiones sobrantes al inicio/fin, y se pasa a minúsculas —
-# mismo resultado exacto que ya produce T-FB030-US02-01 al nombrar el
-# directorio de la cola y T-FB030-US01-01 al nombrar la sesión tmux, así
+# mismo resultado exacto que ya produce T-AF030-US02-01 al nombrar el
+# directorio de la cola y T-AF030-US01-01 al nombrar la sesión tmux, así
 # que este watcher vigila la MISMA ruta en la que se escribe y calcula la
 # MISMA sesión a la que avisar, sin margen de desincronización entre los
 # tres puntos.
@@ -73,7 +73,22 @@ fi
 # close_write cubre el caso normal (append_to_architect_queue abre en
 # modo "a" y cierra tras cada entrada); create/moved_to cubren la
 # creación inicial del fichero si no existía al arrancar el watcher.
-inotifywait -m -e close_write -e moved_to -e create --format '%f' "$STATE_DIR" 2>>"$LOG_FILE" | while read -r changed_file; do
+#
+# Se usa `coproc` (en vez del pipe directo `inotifywait -m ... | while
+# read`) para que el `inotifywait` quede como proceso hijo del script con
+# su PID accesible (`$INOTIFY_PID`): un `trap` sobre TERM/INT/EXIT lo mata
+# cuando el script muere. Con el pipe directo, el `inotifywait -m` vive en
+# un subshell con argv distinto al del script; si el bash principal muere
+# (kill del watcher, reinicio de atlas-forge-api, etc.), ese subshell queda
+# huérfano (PPID=1) vigilando el directorio para siempre y agotando las
+# instancias inotify del sistema (bug AF-041) — el trap evita esa fuga.
+coproc INOTIFY {
+    exec inotifywait -m -e close_write -e moved_to -e create --format '%f' "$STATE_DIR" 2>>"$LOG_FILE"
+}
+INOTIFY_PID="$INOTIFY_PID"
+trap 'kill "$INOTIFY_PID" 2>/dev/null' TERM INT EXIT
+
+while read -r changed_file <&"${INOTIFY[0]}"; do
     if [ "$changed_file" != "architect_queue.jsonl" ]; then
         continue
     fi

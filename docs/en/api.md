@@ -1,6 +1,6 @@
 # API
 
-Factory Brain exposes its domain through an **HTTP/WebSocket API** (FastAPI) that all clients consume. Complete reference generated against the real code in `04-src/src/brain/api/`.
+Atlas Forge exposes its domain through an **HTTP/WebSocket API** (FastAPI) that all clients consume. Complete reference generated against the real code in `04-src/src/atlas_forge/api/`.
 
 ## Generalities
 
@@ -189,7 +189,7 @@ Cancels an **in-flight** (`running`) Job. Waits for the real dispatcher-thread t
 Structured report of the active project's backlog (`02-backlog/`): counts per Epic (with `unblock_degree` and `fase`), LISTA/BLOQUEADA items, max-leverage chain, parse errors.
 
 ### `GET /backlog/{item_id}`
-Detail of an item. IDs of the type `FB-xxx` resolve as an Epic; anything else as Task/User Story. Includes objective/story, acceptance criteria, dependencies (with their state) and, for User Stories, its Tasks and (FB-024-US09) execution history. 404 with a parse reason if the file exists but could not be parsed.
+Detail of an item. IDs of the type `AF-xxx` resolve as an Epic; anything else as Task/User Story. Includes objective/story, acceptance criteria, dependencies (with their state) and, for User Stories, its Tasks and (AF-024-US09) execution history. 404 with a parse reason if the file exists but could not be parsed.
 
 ### `POST /backlog/{story_id}/launch-development` → 201
 Isolated-Job path (no queueing of Tasks as `TO_DEVELOP`): builds the Job from the real story + pending (`READY`) Tasks and dispatches it to the indicated agent. 400 if the Story has no pending Tasks. Publishes `job_status`.
@@ -241,7 +241,7 @@ For `backlog_status`: `data` is the parsed report and `prose` the optional Scrib
 ## Cross-cutting project actions
 
 ### `POST /project/actions/{action_id}`
-Dispatches a complete project action (blocking). `action_id` ∈ `documentar | analizar-arquitectura | sugerir-ideas | testear | auditar-ux | indexar`. Persists the report in `07-informes/US-FB025-*/` without overwriting. 400 for an unknown action; 404 without an active session (agent actions).
+Dispatches a complete project action (blocking). `action_id` ∈ `documentar | analizar-arquitectura | sugerir-ideas | testear | auditar-ux | indexar`. Persists the report in `07-informes/US-AF025-*/` without overwriting. 400 for an unknown action; 404 without an active session (agent actions).
 
 ## WebSockets
 

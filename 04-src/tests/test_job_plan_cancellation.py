@@ -1,13 +1,13 @@
-"""Tests de T-FB008-US08-01: transición `approved → cancelled` de un
+"""Tests de T-AF008-US08-01: transición `approved → cancelled` de un
 `JobPlan` y detención del bucle de despacho de pasos pendientes,
 reutilizando el mecanismo de cancelación de Job individual ya construido
-en T-FB008-US05-01 para el paso `agent` que esté `running`.
+en T-AF008-US05-01 para el paso `agent` que esté `running`.
 
 `dispatch_plan` corre bloqueante (mismo patrón que `dispatch_job`) — para
 simular "cancelar un plan en curso desde otra petición", estos tests
 lanzan `dispatch_plan` en su propio hilo mientras el hilo principal llama
 a `request_cancellation` y mide cuánto tarda `dispatch_plan` en devolver
-el control, mismo criterio de aceptación que T-FB008-US05-01: "verificado
+el control, mismo criterio de aceptación que T-AF008-US05-01: "verificado
 con tmux real y un test de tiempos"."""
 
 import threading
@@ -18,20 +18,20 @@ from pathlib import Path
 import libtmux
 import pytest
 
-from brain.core.session_lifecycle import activate, assign_agent
-from brain.dispatcher import dispatch_plan
-from brain.dispatcher.job_cancellation_registry import (
+from atlas_forge.core.session_lifecycle import activate, assign_agent
+from atlas_forge.dispatcher import dispatch_plan
+from atlas_forge.dispatcher.job_cancellation_registry import (
     _reset_registry_for_tests as _reset_job_cancellation,
 )
-from brain.dispatcher.job_plan_cancellation import (
+from atlas_forge.dispatcher.job_plan_cancellation import (
     JobPlanCancellationRejectedError,
     request_cancellation,
 )
-from brain.dispatcher.job_plan_cancellation_registry import (
+from atlas_forge.dispatcher.job_plan_cancellation_registry import (
     _reset_registry_for_tests as _reset_plan_cancellation,
 )
-from brain.models import Agent, DevelopmentSession, JobPlan, JobPlanStep, Runtime
-from brain.runtime import (
+from atlas_forge.models import Agent, DevelopmentSession, JobPlan, JobPlanStep, Runtime
+from atlas_forge.runtime import (
     is_runtime_alive,
     register_runtime_instance_for_agent,
     start_runtime,
@@ -54,7 +54,7 @@ def _clean_registries():
 
 @pytest.fixture
 def isolated_socket():
-    name = f"brain-test-{uuid.uuid4().hex[:8]}"
+    name = f"atlas_forge-test-{uuid.uuid4().hex[:8]}"
     try:
         yield name
     finally:
@@ -95,7 +95,7 @@ def _launch_cooperative_developer(
 
 @pytest.mark.parametrize("status", ["proposed", "rejected", "blocked", "cancelled"])
 def test_request_cancellation_is_rejected_for_a_plan_not_approved(status: str) -> None:
-    plan = JobPlan(goal="FB999-US01", status=status)
+    plan = JobPlan(goal="AF999-US01", status=status)
 
     with pytest.raises(JobPlanCancellationRejectedError, match=status):
         request_cancellation(plan)
@@ -114,7 +114,7 @@ def test_cancelling_a_plan_with_a_running_step_cancels_it_and_the_plan(
     )
     session = _active_session_with_developer(agent)
     plan = JobPlan(
-        goal="FB999-US01",
+        goal="AF999-US01",
         steps=[
             JobPlanStep(description="paso 1", mechanism="agent", agent_role="developer"),
             JobPlanStep(description="paso 2", mechanism="agent", agent_role="developer"),
@@ -167,7 +167,7 @@ def test_no_pending_step_is_dispatched_after_cancellation_with_multiple_steps(
     )
     session = _active_session_with_developer(agent)
     plan = JobPlan(
-        goal="FB999-US01",
+        goal="AF999-US01",
         steps=[
             JobPlanStep(description=f"paso {i}", mechanism="agent", agent_role="developer")
             for i in range(1, 5)
@@ -201,15 +201,15 @@ def test_agent_is_idle_after_plan_cancellation_and_can_receive_a_new_job(
 ) -> None:
     """Criterio de aceptación: 'El agente que estaba ejecutando el paso
     cancelado queda idle, disponible de inmediato para otro Job.'"""
-    from brain.dispatcher import create_and_record_job, dispatch_job
-    from brain.runtime import get_runtime_instance_for_agent
+    from atlas_forge.dispatcher import create_and_record_job, dispatch_job
+    from atlas_forge.runtime import get_runtime_instance_for_agent
 
     agent, runtime_instance = _launch_cooperative_developer(
         isolated_socket, tmp_path, extra_env="SIM_DELAY=10"
     )
     session = _active_session_with_developer(agent)
     plan = JobPlan(
-        goal="FB999-US01",
+        goal="AF999-US01",
         steps=[JobPlanStep(description="paso 1", mechanism="agent", agent_role="developer")],
         status="approved",
     )
@@ -245,7 +245,7 @@ def test_agent_is_idle_after_plan_cancellation_and_can_receive_a_new_job(
 
 
 def test_cancelling_an_already_blocked_plan_is_rejected_with_explicit_message() -> None:
-    plan = JobPlan(goal="FB999-US01", status="blocked")
+    plan = JobPlan(goal="AF999-US01", status="blocked")
 
     with pytest.raises(JobPlanCancellationRejectedError, match="blocked"):
         request_cancellation(plan)
@@ -259,7 +259,7 @@ def test_cancelling_a_plan_with_all_steps_completed_is_rejected() -> None:
     job_plan_lifecycle.py) — "ya terminó" se detecta por la ausencia de
     pasos `pending`/`running`, no por `plan.status`."""
     plan = JobPlan(
-        goal="FB999-US01",
+        goal="AF999-US01",
         steps=[JobPlanStep(description="paso 1", mechanism="agent", status="completed")],
         status="approved",
     )

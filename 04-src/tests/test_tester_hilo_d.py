@@ -1,5 +1,5 @@
-"""Tests para el Hilo D de FB-022: contrato de entrada/salida del Tester
-(T-FB022-US12-01, -02, -03, -04)."""
+"""Tests para el Hilo D de AF-022: contrato de entrada/salida del Tester
+(T-AF022-US12-01, -02, -03, -04)."""
 
 import subprocess
 from pathlib import Path
@@ -7,8 +7,8 @@ from unittest import mock
 
 import pytest
 
-from brain.dispatcher.job_report import read_job_report, write_job_report
-from brain.dispatcher.tester_input import (
+from atlas_forge.dispatcher.job_report import read_job_report, write_job_report
+from atlas_forge.dispatcher.tester_input import (
     _extract_acceptance_criteria,
     build_tester_input_package,
     build_tester_job_description,
@@ -16,9 +16,9 @@ from brain.dispatcher.tester_input import (
     collect_developer_code_diff,
     read_acceptance_criteria,
 )
-from brain.models import Job
-from brain.models.script_run_result import ScriptRunResult
-from brain.workspace.generic_scripts import (
+from atlas_forge.models import Job
+from atlas_forge.models.script_run_result import ScriptRunResult
+from atlas_forge.workspace.generic_scripts import (
     _find_test_runner,
     _run_project_tests,
     list_generic_scripts,
@@ -50,7 +50,7 @@ def _write_task_file(tasks_dir: Path, task_id: str, content: str) -> Path:
     return path
 
 
-# ─── T-FB022-US12-01: Empaquetar entrada del Tester ────────────────────
+# ─── T-AF022-US12-01: Empaquetar entrada del Tester ────────────────────
 
 class TestExtractAcceptanceCriteria:
     def test_extracts_from_task_with_criteria(self):
@@ -78,57 +78,57 @@ class TestExtractAcceptanceCriteria:
 class TestReadAcceptanceCriteria:
     def test_reads_criteria_from_task_files(self, tmp_path: Path):
         tasks_dir = tmp_path / "02-backlog" / "tasks"
-        _write_task_file(tasks_dir, "T-FB022-US12-01-test", (
+        _write_task_file(tasks_dir, "T-AF022-US12-01-test", (
             "## Criterios de aceptación\n\n1. Criterio A.\n"
         ))
-        _write_task_file(tasks_dir, "T-FB022-US12-02-test", (
+        _write_task_file(tasks_dir, "T-AF022-US12-02-test", (
             "## Criterios de aceptación\n\n1. Criterio B.\n2. Criterio C.\n"
         ))
 
-        result = read_acceptance_criteria("FB022-US12", tasks_dir=tasks_dir)
+        result = read_acceptance_criteria("AF022-US12", tasks_dir=tasks_dir)
         assert len(result) == 2
-        assert result[0][0] == "T-FB022-US12-01-test"
+        assert result[0][0] == "T-AF022-US12-01-test"
         assert "Criterio A" in result[0][1]
-        assert result[1][0] == "T-FB022-US12-02-test"
+        assert result[1][0] == "T-AF022-US12-02-test"
         assert "Criterio C" in result[1][1]
 
     def test_skips_tasks_without_criteria(self, tmp_path: Path):
         tasks_dir = tmp_path / "02-backlog" / "tasks"
-        _write_task_file(tasks_dir, "T-FB022-US12-01-test", (
+        _write_task_file(tasks_dir, "T-AF022-US12-01-test", (
             "## Objetivo\n\nUn objetivo.\n## Estado\n\nTODO\n"
         ))
 
-        result = read_acceptance_criteria("FB022-US12", tasks_dir=tasks_dir)
+        result = read_acceptance_criteria("AF022-US12", tasks_dir=tasks_dir)
         assert len(result) == 0
 
     def test_returns_empty_for_missing_dir(self, tmp_path: Path):
         result = read_acceptance_criteria(
-            "FB022-US12", tasks_dir=tmp_path / "nonexistent"
+            "AF022-US12", tasks_dir=tmp_path / "nonexistent"
         )
         assert result == []
 
     def test_returns_empty_for_no_matching_tasks(self, tmp_path: Path):
         tasks_dir = tmp_path / "02-backlog" / "tasks"
-        _write_task_file(tasks_dir, "T-FB999-US01-task", (
+        _write_task_file(tasks_dir, "T-AF999-US01-task", (
             "## Criterios de aceptación\n\n1. X.\n"
         ))
 
-        result = read_acceptance_criteria("FB022-US12", tasks_dir=tasks_dir)
+        result = read_acceptance_criteria("AF022-US12", tasks_dir=tasks_dir)
         assert result == []
 
     def test_accepts_canonical_us_prefixed_story_id(self, tmp_path: Path):
-        # T-FB022-US13-01B: read_acceptance_criteria debe encontrar las Tasks
-        # reales (T-FB022-US12-...) aunque reciba la forma canónica US-FB022-12,
+        # T-AF022-US13-01B: read_acceptance_criteria debe encontrar las Tasks
+        # reales (T-AF022-US12-...) aunque reciba la forma canónica US-AF022-12,
         # que es la que llega al tester vía el plan/verdicto del pipeline.
         tasks_dir = tmp_path / "02-backlog" / "tasks"
-        _write_task_file(tasks_dir, "T-FB022-US12-01-test", (
+        _write_task_file(tasks_dir, "T-AF022-US12-01-test", (
             "## Criterios de aceptación\n\n1. Criterio A.\n"
         ))
 
-        result = read_acceptance_criteria("US-FB022-12", tasks_dir=tasks_dir)
+        result = read_acceptance_criteria("US-AF022-12", tasks_dir=tasks_dir)
 
         assert len(result) == 1
-        assert result[0][0] == "T-FB022-US12-01-test"
+        assert result[0][0] == "T-AF022-US12-01-test"
         assert "Criterio A" in result[0][1]
 
 
@@ -187,7 +187,7 @@ class TestBuildTesterInputPackage:
         (repo / "src.py").write_text("print('hello world')")
 
         tasks_dir = tmp_path / "tasks"
-        _write_task_file(tasks_dir, "T-FB022-US12-01-test", (
+        _write_task_file(tasks_dir, "T-AF022-US12-01-test", (
             "## Criterios de aceptación\n\n1. Criterio X.\n"
         ))
 
@@ -199,19 +199,19 @@ class TestBuildTesterInputPackage:
             description="x",
             status="completed",
             result="Tests: 5/5 pasan.",
-            story_id="FB022-US12",
+            story_id="AF022-US12",
         )
         write_job_report(dev_job, reports_root=reports_root)
 
         pkg = build_tester_input_package(
-            "FB022-US12",
+            "AF022-US12",
             "dev-job-123",
             str(repo),
             reports_root=reports_root,
             tasks_dir=tasks_dir,
         )
 
-        assert pkg["story_id"] == "FB022-US12"
+        assert pkg["story_id"] == "AF022-US12"
         assert pkg["developer_job_id"] == "dev-job-123"
         assert "hello world" in pkg["code_diff"]
         assert len(pkg["changed_files"]) >= 1
@@ -231,21 +231,21 @@ class TestBuildTesterInputPackage:
         dev_job = Job(
             id="dev-job-456", session_id="s1", agent_id="dev-1",
             description="x", status="completed", result="ok",
-            story_id="FB022-US12",
+            story_id="AF022-US12",
         )
         write_job_report(dev_job, reports_root=reports_root)
 
         pkg = build_tester_input_package(
-            "FB022-US12", "dev-job-456", str(repo),
+            "AF022-US12", "dev-job-456", str(repo),
             reports_root=reports_root, tasks_dir=tmp_path / "tasks",
         )
 
         combined = str(pkg)
         assert "Epic" not in combined
-        assert "FB-022" not in combined or "FB022-US12" in combined
+        assert "AF-022" not in combined or "AF022-US12" in combined
 
 
-# ─── T-FB022-US12-02: Generación de tests dirigidos a huecos ───────────
+# ─── T-AF022-US12-02: Generación de tests dirigidos a huecos ───────────
 
 class TestBuildTesterJobDescription:
     def test_includes_gap_analysis_instruction(self, tmp_path: Path):
@@ -261,17 +261,17 @@ class TestBuildTesterJobDescription:
             id="dev-job-789", session_id="s1", agent_id="dev-1",
             description="x", status="completed",
             result="Tests ejecutados: test_a, test_b, test_c.",
-            story_id="FB022-US12",
+            story_id="AF022-US12",
         )
         write_job_report(dev_job, reports_root=reports_root)
 
         tasks_dir = tmp_path / "tasks"
-        _write_task_file(tasks_dir, "T-FB022-US12-01-test", (
+        _write_task_file(tasks_dir, "T-AF022-US12-01-test", (
             "## Criterios de aceptación\n\n1. El sistema debe validar X.\n"
         ))
 
         description = build_tester_job_description(
-            "FB022-US12", "dev-job-789", str(repo),
+            "AF022-US12", "dev-job-789", str(repo),
             reports_root=reports_root, tasks_dir=tasks_dir,
         )
 
@@ -294,12 +294,12 @@ class TestBuildTesterJobDescription:
             id="dev-job-dup", session_id="s1", agent_id="dev-1",
             description="x", status="completed",
             result="Tests: test_login, test_logout.",
-            story_id="FB022-US12",
+            story_id="AF022-US12",
         )
         write_job_report(dev_job, reports_root=reports_root)
 
         description = build_tester_job_description(
-            "FB022-US12", "dev-job-dup", str(repo),
+            "AF022-US12", "dev-job-dup", str(repo),
             reports_root=reports_root, tasks_dir=tmp_path / "tasks",
         )
 
@@ -318,19 +318,19 @@ class TestBuildTesterJobDescription:
         dev_job = Job(
             id="dev-job-fb", session_id="s1", agent_id="dev-1",
             description="x", status="completed", result="ok",
-            story_id="FB022-US12",
+            story_id="AF022-US12",
         )
         write_job_report(dev_job, reports_root=reports_root)
 
         description = build_tester_job_description(
-            "FB022-US12", "dev-job-fb", str(repo),
+            "AF022-US12", "dev-job-fb", str(repo),
             reports_root=reports_root, tasks_dir=tmp_path / "tasks",
         )
 
         assert "no se encontraron criterios" in description.lower()
 
 
-# ─── T-FB022-US12-03: Ejecución determinista de tests ──────────────────
+# ─── T-AF022-US12-03: Ejecución determinista de tests ──────────────────
 
 class TestRunTestsGenericScript:
     def test_run_tests_appears_in_catalog(self):
@@ -356,6 +356,53 @@ class TestRunTestsGenericScript:
     def test_find_test_runner_returns_none_without_tests_dir(self, tmp_path: Path):
         command = _find_test_runner(str(tmp_path))
         assert command is None
+
+    def test_find_test_runner_finds_tests_in_monorepo_subproject(self, tmp_path: Path):
+        # Bug: Atlas Forge es un monorepo con el código Python en
+        # `04-src/` (tests/ + pyproject.toml + .venv), no en la raíz. El
+        # runner debe localizar el `tests/` del subproyecto y usar el
+        # pytest de su venv si existe.
+        sub = tmp_path / "04-src"
+        tests_dir = sub / "tests"
+        tests_dir.mkdir(parents=True)
+        (sub / "pyproject.toml").write_text("[project]\nname='atlas_forge'\n")
+        (tests_dir / "test_dummy.py").write_text("def test_pass(): pass")
+
+        command = _find_test_runner(str(tmp_path))
+        assert command is not None
+        assert "pytest" in command[0] or "pytest" in " ".join(command)
+
+    def test_find_test_runner_prefers_subproject_venv_pytest(self, tmp_path: Path):
+        # Si el subproyecto del monorepo tiene venv propio, el comando debe
+        # usar ese pytest (no el global) — es el que conoce las
+        # dependencias del subproyecto.
+        sub = tmp_path / "04-src"
+        tests_dir = sub / "tests"
+        tests_dir.mkdir(parents=True)
+        (sub / "pyproject.toml").write_text("[project]\nname='atlas_forge'\n")
+        venv_bin = sub / ".venv" / "bin"
+        venv_bin.mkdir(parents=True)
+        (venv_bin / "pytest").write_text("#!/bin/sh\nexit 0\n")
+
+        command = _find_test_runner(str(tmp_path))
+        assert command is not None
+        assert str(venv_bin / "pytest") in command[0]
+
+    def test_run_project_tests_deterministic_on_monorepo_subproject(self, tmp_path: Path):
+        # Bug: `_run_project_tests` sobre la raíz de un monorepo
+        # debe ejecutar los tests del subproyecto con cwd en su directorio
+        # (donde está pyproject.toml y el venv), no fallar con "No se
+        # encontró un test runner".
+        sub = tmp_path / "04-src"
+        tests_dir = sub / "tests"
+        tests_dir.mkdir(parents=True)
+        (sub / "pyproject.toml").write_text("[project]\nname='atlas_forge'\n")
+        (tests_dir / "test_pass.py").write_text("def test_pass(): assert True")
+
+        result = _run_project_tests(str(tmp_path))
+        assert isinstance(result, ScriptRunResult)
+        assert result.success, result.error_message or result.stdout + result.stderr
+        assert result.exit_code == 0
 
     def test_run_project_tests_deterministic_on_pass(self, tmp_path: Path):
         tests_dir = tmp_path / "tests"
@@ -405,7 +452,7 @@ class TestRunTestsGenericScript:
         assert result.exit_code == 0
 
 
-# ─── T-FB022-US12-04: Informe de cierre del Tester ─────────────────────
+# ─── T-AF022-US12-04: Informe de cierre del Tester ─────────────────────
 
 class TestTesterReport:
     def test_tester_report_uses_same_mechanism_as_developer(self, tmp_path: Path):
@@ -413,7 +460,7 @@ class TestTesterReport:
             id="dev-001", session_id="s1", agent_id="dev-1",
             description="implementar", status="completed",
             result="Tests del Developer: test_a, test_b.",
-            story_id="FB022-US12",
+            story_id="AF022-US12",
         )
         tester_job = Job(
             id="tester-001", session_id="s1", agent_id="tester-1",
@@ -423,7 +470,7 @@ class TestTesterReport:
                 "Tests generados: test_borde en test_edge.py.\n"
                 "Resultado ejecución: test_borde PASSED."
             ),
-            story_id="FB022-US12",
+            story_id="AF022-US12",
         )
 
         dev_path = write_job_report(dev_job, reports_root=tmp_path)
@@ -437,22 +484,22 @@ class TestTesterReport:
         dev_job = Job(
             id="dev-002", session_id="s1", agent_id="dev-2",
             description="x", status="completed", result="dev result",
-            story_id="FB022-US12",
+            story_id="AF022-US12",
         )
         tester_job = Job(
             id="tester-002", session_id="s1", agent_id="tester-2",
             description="y", status="completed", result="tester result",
-            story_id="FB022-US12",
+            story_id="AF022-US12",
         )
 
         write_job_report(dev_job, reports_root=tmp_path)
         write_job_report(tester_job, reports_root=tmp_path)
 
         dev_content = read_job_report(
-            "FB022-US12", "dev-002", reports_root=tmp_path
+            "AF022-US12", "dev-002", reports_root=tmp_path
         )
         tester_content = read_job_report(
-            "FB022-US12", "tester-002", reports_root=tmp_path
+            "AF022-US12", "tester-002", reports_root=tmp_path
         )
 
         assert "tester result" not in dev_content
@@ -463,7 +510,7 @@ class TestTesterReport:
             id="tester-uuid-1234", session_id="s1", agent_id="tester-3",
             description="test", status="completed",
             result="Huecos: ninguno. Tests: 0 nuevos.",
-            story_id="FB022-US12",
+            story_id="AF022-US12",
         )
 
         path = write_job_report(tester_job, reports_root=tmp_path)
@@ -486,7 +533,7 @@ class TestTesterReport:
                 "- test_empty_input: PASSED\n"
                 "- test_save_error: FAILED (mock no configurado)"
             ),
-            story_id="FB022-US12",
+            story_id="AF022-US12",
         )
 
         path = write_job_report(tester_job, reports_root=tmp_path)
@@ -505,12 +552,12 @@ class TestTesterReport:
         dev_job = Job(
             id="dev-concurrent", session_id="s1", agent_id="dev-5",
             description="x", status="completed", result="dev concurrent",
-            story_id="FB022-US12",
+            story_id="AF022-US12",
         )
         tester_job = Job(
             id="tester-concurrent", session_id="s1", agent_id="tester-5",
             description="y", status="completed", result="tester concurrent",
-            story_id="FB022-US12",
+            story_id="AF022-US12",
         )
 
         errors: list[Exception] = []
@@ -531,10 +578,10 @@ class TestTesterReport:
         assert len(errors) == 0
 
         dev_content = read_job_report(
-            "FB022-US12", "dev-concurrent", reports_root=tmp_path
+            "AF022-US12", "dev-concurrent", reports_root=tmp_path
         )
         tester_content = read_job_report(
-            "FB022-US12", "tester-concurrent", reports_root=tmp_path
+            "AF022-US12", "tester-concurrent", reports_root=tmp_path
         )
 
         assert "dev concurrent" in dev_content

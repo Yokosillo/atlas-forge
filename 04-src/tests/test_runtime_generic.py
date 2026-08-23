@@ -4,8 +4,8 @@ import uuid
 import libtmux
 import pytest
 
-from brain.models import Runtime
-from brain.runtime import RuntimeInstance, is_runtime_alive, start_runtime, stop_runtime
+from atlas_forge.models import Runtime
+from atlas_forge.runtime import RuntimeInstance, is_runtime_alive, start_runtime, stop_runtime
 
 
 @pytest.fixture
@@ -14,8 +14,8 @@ def isolated_socket():
     para no interferir con sesiones tmux reales del entorno (en particular,
     las que este mismo sistema usa para el ciclo worker/crítico con
     `claude` real). Se pasa explícitamente como `socket_name` en vez de
-    usar el socket 'factory-brain' real por defecto."""
-    name = f"brain-test-{uuid.uuid4().hex[:8]}"
+    usar el socket 'atlas-forge' real por defecto."""
+    name = f"atlas_forge-test-{uuid.uuid4().hex[:8]}"
     yield name
     try:
         libtmux.Server(socket_name=name).kill()

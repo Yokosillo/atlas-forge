@@ -72,7 +72,7 @@ Cuando el estado necesario no puede ejercerse de forma segura contra el backend 
 Toda Task cerrada requiere:
 
 1. evidencia en el informe compartido de la User Story;
-2. entrada en `architect_queue.jsonl`.
+2. notificar el cierre por el canal del Job (`___ATLAS_FORGE_JOB_DONE___`).
 
 Informe:
 
@@ -92,23 +92,26 @@ Debe incluir:
 - tests ejecutados;
 - evidencia relevante.
 
-### Excepción
+### Cierre automático por Job
 
-Si el Job formal trae `story_id` y el backend escribe automáticamente informe y cola al recibir `___FACTORY_BRAIN_JOB_DONE___`, no duplicar la escritura manual.
+Si la Task se cierra mediante un Job formal, el backend escribe
+automáticamente el informe de cierre y encadena el siguiente paso al
+recibir `___ATLAS_FORGE_JOB_DONE___`: `write_job_report` persiste el
+informe en `07-informes/<story_id>/<job_id>.md` y, si la User Story queda
+con todas sus Tasks `DONE`, `trigger_architect_verdict` la marca en
+`REVIEW` para que el Dispatcher despache el veredicto del Arquitecto. No
+duplicar la escritura manual en ese caso.
 
-## Cola
+## Canal Developer→Arquitecto
 
-Usar:
+El canal Developer→Arquitecto es el ciclo de veredicto del Dispatcher
+(`dispatch_queue_worker.run_architect_verdict_dispatch_cycle`), no una
+cola de fichero. El cierre del Job es la señal; el Arquitecto recibe su
+Job de veredicto directamente del Dispatcher y devuelve `ESTADO:` como
+resultado del Job (`job.result`).
 
-`brain.dispatcher.architect_queue.append_to_architect_queue`
-
-con:
-
-- `agente`;
-- `task_id`;
-- `informe`.
-
-La cola es Developer→Arquitecto.
+El mecanismo legado `architect_queue.jsonl` /
+`append_to_architect_queue` está deprecado y no debe utilizarse.
 
 ## Cierre de User Story
 
@@ -204,7 +207,7 @@ Respuesta esperada:
 No tengo una orden de trabajo concreta.
 
 Indica la Task que debo implementar, por ejemplo:
-T-FB<epic>-US<story>-<task>
+T-AF<epic>-US<story>-<task>
 
 Necesito además los criterios de aceptación o la descripción del encargo
 si no están disponibles en el contexto recibido.

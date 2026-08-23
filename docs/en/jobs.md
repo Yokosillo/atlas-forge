@@ -20,7 +20,7 @@ Preconditions (each rejection raises `JobCreationError` with an explicit message
 **Cooperative reporting** mechanism (not shell-end-marker nor silence heuristics):
 
 1. `mark_running(job)` + `mark_working(agent)`.
-2. An instruction is added to the description: the agent must write its full result to a unique temp file (`factory-brain-job-<uuid>.txt`) plus a **final marker** (`___FACTORY_BRAIN_JOB_DONE___`) on its own line.
+2. An instruction is added to the description: the agent must write its full result to a unique temp file (`atlas-forge-job-<uuid>.txt`) plus a **final marker** (`___ATLAS_FORGE_JOB_DONE___`) on its own line.
 3. The instruction is sent to the agent's tmux pane (`run_command`).
 4. The dispatcher polls the file (timeout 30s by default for short/deterministic Jobs; work dispatched through the backlog pipeline uses a much longer timeout suited to real implementation work), with read retries for transient `OSError`s.
 5. `completed` (result read) | `failed` (timeout `JobReportTimeoutError`) | `cancelled` (`JobCancelledError` if the user requested cancellation).
@@ -95,5 +95,5 @@ Outside the Story-state pipeline, a direct path exists for dispatching one-off w
 
 ## Planned (not implemented)
 
-- **Full Dispatcher v2** (FB-008): pipeline with declarative dependencies, retries, automatic multi-agent coordination and capability resolution (via FB-010 Capability Engine).
+- **Full Dispatcher v2** (AF-008): pipeline with declarative dependencies, retries, automatic multi-agent coordination and capability resolution (via AF-010 Capability Engine).
 - **Scheduler / global Job queue**: does not exist as a separate entity today.
