@@ -1251,3 +1251,69 @@ def test_get_agent_status_model_returns_null_when_idle_claude_code_pane_has_no_s
     body = resp.json()
     assert body["agent_id"] == agent_id
     assert body["model"] is None
+
+
+# ── T-AF005-US03-03: validar el flujo completo de US-AF005-03 ──
+#
+# Este test recorre el camino REAL de invocación de las capacidades de
+# agente, de punta a punta, sin mocks que sustituyan la lógica bajo prueba:
+#
+#   1. `register_agent` toma las capacidades declaradas por rol
+#      (`build_default_capability_declarations`, capa de dominio) y las
+#      persiste como metadato del `Agent` creado;
+#   2. `_serialize_agent` las expone en la respuesta HTTP;
+#   3. el consumidor real (Dispatcher/AF-010) las consulta vía la API.
+#
+# Así se verifican los criterios 1, 2 y 4 de la US-AF005-03 en el contexto
+# de uso. El criterio 3 (consulta inversa capacidad→agentes) y el criterio
+# 5 (ausencia de lógica de decisión) son invariantes de la capa de dominio,
+# cubiertos por `test_agent_capabilities.py`.
+
+def test_af005_us03_03_flujo_completo_expone_capacidades_declaradas(
+    tmp_path: Path, monkeypatch, isolated_socket,
+) -> None:
+    """Criterio 1/2/4 de US-AF005-03 en el flujo real: lanzar un agente
+    Developer vía POST /agents (que encadena `launch_agent` →
+    `register_agent` → declaraciones por rol) debe exponer en la respuesta
+    `capabilities == ["code.write", "code.review"]` como metadato consultable
+    — el mismo valor que el Dispatcher/AF-010 vería al resolver qué agente
+    sirve para un Job. Y GET /agents lo mantiene consultable tras el
+    lanzamiento."""
+    _project, _session = _active_project_and_session(tmp_path, monkeypatch)
+    client = TestClient(create_app())
+
+    resp = client.post("/agents", json={"role": "developer", "runtime_type": "opencode"})
+    assert resp.status_code in (200, 201)
+    launched = resp.json()
+    assert launched["role"] == "developer"
+    assert launched["capabilities"] == ["code.write", "code.review"]
+
+    listing = client.get("/agents")
+    assert listing.status_code == 200
+    listed = [a for a in listing.json() if a["id"] == launched["id"]]
+    assert len(listed) == 1
+    assert listed[0]["capabilities"] == ["code.write", "code.review"]
+
+    runtime_instance = get_runtime_instance_for_agent(launched["id"])
+    assert runtime_instance is not None
+    stop_runtime(runtime_instance, socket_name=isolated_socket)
+
+
+def test_af005_us03_03_flujo_completo_rol_sin_capacidades_default_expone_lista_vacia(
+    tmp_path: Path, monkeypatch, isolated_socket,
+) -> None:
+    """Criterio 4 de US-AF005-03 (borde real): un rol sin declaración por
+    defecto (p. ej. `arquitecto`) expone `capabilities == []` en el flujo
+    real — retrocompatible y sin inventar capacidades que no declara."""
+    _project, _session = _active_project_and_session(tmp_path, monkeypatch)
+    client = TestClient(create_app())
+
+    resp = client.post("/agents", json={"role": "arquitecto", "runtime_type": "opencode"})
+    assert resp.status_code in (200, 201)
+    launched = resp.json()
+    assert launched["role"] == "arquitecto"
+    assert launched["capabilities"] == []
+
+    runtime_instance = get_runtime_instance_for_agent(launched["id"])
+    assert runtime_instance is not None
+    stop_runtime(runtime_instance, socket_name=isolated_socket)
