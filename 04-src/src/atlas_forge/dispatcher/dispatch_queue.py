@@ -87,6 +87,13 @@ class TaskAlreadyDispatchedError(ValueError):
     Dispatcher ya tomó."""
 
 
+class TaskNotTerminalError(ValueError):
+    """`task_id` tiene una entrada en la cola pero NO en estado terminal
+    (`completed`/`failed`) — es una entrada en curso (`queued`/
+    `dispatched`) que no es borrable por esta vía (T-AF036-US17-07); las
+    en curso usan su propio mecanismo (dequeue para `queued`)."""
+
+
 @dataclass
 class QueueEntry:
     """Una entrada de la cola: una Task marcada para desarrollo.
@@ -443,6 +450,114 @@ def clear_history(project_root: Path | str, project_name: str) -> int:
     return removed
 
 
+def clear_completed(project_root: Path | str, project_name: str) -> int:
+    """T-AF042-US07-01: elimina del `dispatch_queue.json` SOLO las entradas
+    `completed` (DONE), conservando `failed`, `queued`, `dispatched` y
+    `awaiting_tester` — el borrado masivo de completadas que la web usa
+    (botón "Borrar completadas"), distinto de `clear_history` (completed +
+    failed) y de `remove_entry` (una sola).
+
+    No toca el estado real de las Tasks ni el Dispatcher — solo el registro
+    de auditoría. Devuelve el número de entradas borradas; idempotente
+    (segunda llamada sin `completed` devuelve 0)."""
+    path = dispatch_queue_path(project_root, project_name)
+    with _write_lock:
+        entries = _read_all(path)
+        before = len(entries)
+        remaining = [e for e in entries if e.status != STATUS_COMPLETED]
+        removed = before - len(remaining)
+        if removed:
+            _write_all(path, remaining)
+    return removed
+
+
+def remove_entry(project_root: Path | str, project_name: str, task_id: str) -> bool:
+    """T-AF036-US17-07: elimina del `dispatch_queue.json` SOLO la entrada
+    terminal (`completed`/`failed`) cuyo `task_id` coincide, conservando el
+    resto de la cola — el borrado individual que la UI usará (un aspa por
+    fila, T-AF036-US17-09), distinto del borrado masivo `clear_history`.
+
+    No toca el estado real de las Tasks ni el Dispatcher — solo el registro
+    de auditoría. Lanza excepción tipada en lugar de borrar en silencio:
+
+    - `TaskNotQueuedError` (404) si `task_id` no tiene NINGUNA entrada.
+    - `TaskNotTerminalError` (409) si la entrada existe pero está en curso
+      (`queued`/`dispatched`) — no es borrable por esta vía.
+
+    Devuelve `True` tras borrar la entrada."""
+    path = dispatch_queue_path(project_root, project_name)
+    with _write_lock:
+        entries = _read_all(path)
+        entry = next((e for e in entries if e.task_id == task_id), None)
+        if entry is None:
+            raise TaskNotQueuedError(f"La Task '{task_id}' no está en la cola.")
+        if entry.status not in _TERMINAL_STATUSES:
+            raise TaskNotTerminalError(
+                f"La entrada de la Task '{task_id}' no es terminal "
+                f"(estado '{entry.status}') — no se puede borrar por esta vía."
+            )
+        entries = [e for e in entries if e.task_id != task_id]
+        _write_all(path, entries)
+        return True
+
+
+def requeue_entry(
+    project_root: Path | str,
+    project_name: str,
+    task_id: str,
+    *,
+    task_state: str | None = None,
+) -> QueueEntry:
+    """Reencola una entrada `failed` de `task_id` de vuelta a `queued` para
+    que el Dispatcher pueda reintentarla (T-AF036-US17-08). Es reencolable una
+    entrada almacenada `failed`, o una entrada cuyo estado DERIVADO es `failed`
+    (entrada `dispatched` cuya Task real ya no justifica "en curso" — Task
+    READY/TO_DEVELOP tras reinicio/revertida) — mismo criterio que la UI usa
+    para ofrecer el botón Reencolar.
+
+    Lanza:
+    - `TaskNotQueuedError` (404) si `task_id` no tiene NINGUNA entrada en la
+      cola.
+    - `TaskNotTerminalError` (409) si la entrada ni está almacenada `failed` ni
+      deriva a `failed` (`queued` en vuelo / `completed` / `awaiting_tester`).
+
+    El estado real de la Task no se toca aquí — es la capa HTTP quien, si
+    `task_state == "READY"`, la promueve a `TO_DEVELOP` (la fuente de verdad
+    de "lista para desarrollo"). Devuelve la entrada reencolada."""
+    path = dispatch_queue_path(project_root, project_name)
+    with _write_lock:
+        entries = _read_all(path)
+        match = next((e for e in entries if e.task_id == task_id), None)
+        if match is None:
+            raise TaskNotQueuedError(f"La Task '{task_id}' no está en la cola.")
+        # Reencolable si la entrada está almacenada `failed`, o si está
+        # `dispatched` pero su estado DERIVADO es `failed` (Task real
+        # READY/TO_DEVELOP tras reinicio/revertida) — mismo criterio que la
+        # UI usa para ofrecer el botón Reencolar.
+        effective_status = derive_effective_status(match, task_state)
+        is_stored_failed = match.status == STATUS_FAILED
+        is_huerfana_reencolable = match.status != STATUS_FAILED and effective_status == STATUS_FAILED
+        if not (is_stored_failed or is_huerfana_reencolable):
+            raise TaskNotTerminalError(
+                f"La entrada de la Task '{task_id}' no está 'failed' "
+                f"(estado '{match.status}', derivado '{effective_status}') — solo una entrada fallida se "
+                f"reencola por esta vía."
+            )
+        # Re-encolar elimina las entradas terminales previas de la misma Task
+        # y crea una `queued` nueva (garantiza una sola entrada por task_id).
+        entries = [e for e in entries if e.task_id != task_id]
+        entry = QueueEntry(
+            task_id=task_id,
+            us_id=match.us_id,
+            priority=match.priority,
+            status=STATUS_QUEUED,
+            enqueued_at=datetime.now(timezone.utc).isoformat(),
+        )
+        entries.append(entry)
+        _write_all(path, entries)
+        return entry
+
+
 def derive_effective_status(entry: QueueEntry, task_state: str | None) -> str:
     """T-AF008-US10-04: deriva el estado MOSTRADO de una entrada de la
     cola cruzando su estado almacenado con el estado REAL del fichero de
@@ -595,4 +710,87 @@ def reconcile_dispatch_queue_entries(
                 target_state=target_state,
             )
             reconciled.append(entry.task_id)
+    return reconciled
+
+
+def reconcile_orphaned_in_progress_tasks(
+    project_root: Path | str,
+    project_name: str,
+    backlog_dir: Path | str,
+    *,
+    auto_reenqueue_orphaned: bool = False,
+) -> list[str]:
+    """T-AF022-US18-01 (US-AF022-18, criterio 1/2/7): cierra el hueco de
+    `reconcile_dispatch_queue_entries`, que solo recorre entradas CON
+    presencia en `dispatch_queue.json`. Una task `IN_PROGRESS` SIN entrada
+    en la cola (el caso real T-AF023-US03-01, bloqueando su cadena) nunca
+    se arreglaba. Esta función detecta esas huérfanas reales y las revierte
+    automáticamente.
+
+    Lógica (por cada task `kind == "T"` con `state == "IN_PROGRESS"`):
+
+    - Es **huérfana real** si NO tiene entrada `dispatched` en la cola
+      (`dispatch_queue.json`) **y** ningún fichero de reporte en vuelo
+      localizable (el de la entrada `dispatched`, o el de cualquier otra
+      entrada que apunte a un `report_file` que todavía exista). Sin
+      entrada `dispatched` ni reporte persistido no hay forma de que un
+      Job siga legítimamente en vuelo.
+    - Para cada huérfana real, `set_item_state(item.path, target_state)`
+      con `target_state = "TO_DEVELOP" if auto_reenqueue_orphaned else
+      "READY"` (`force=True`: `IN_PROGRESS -> TO_DEVELOP/READY` no la
+      modela la máquina canónica — es una reconciliación operativa interna,
+      mismo patrón que `reconcile_dispatch_queue_entries`), y se registra
+      en `reconciliation_log.jsonl` vía `append_dispatched_orphan_reconciliation`
+      (mismo motivo `dispatched_orphan_reconciled` que el resto de
+      huérfanas, para un log coherente).
+    - Se **respeta** una `IN_PROGRESS` con entrada `dispatched` o con
+      `report_file` presente (Job legítimo en vuelo — no duplicar trabajo,
+      criterio de seguridad de la US).
+    - Las User Stories derivadas NO se tocan: su estado deriva de sus
+      Tasks (`derive_user_story_state`), así que revirtiendo la Task su US
+      derivará sola; esta función solo filtra `kind == "T"`.
+
+    Idempotente y de mejor esfuerzo: si el backlog no existe (o está vacío)
+    `load_backlog` devuelve un grafo vacío y la función retorna `[]` sin
+    lanzar. Devuelve la lista de `task_id` reconciliados.
+
+    Se compone con `reconcile_dispatch_queue_entries` (ambas coexisten): la
+    primera recorre las entradas de la cola; esta recorre las tasks reales
+    sin entrada. Un mismo arranque puede llamar a las dos sin conflicto."""
+    from atlas_forge.backlog.edit import set_item_state
+    from atlas_forge.backlog.parser import load_backlog
+    from atlas_forge.core.reconciliation_log import (
+        append_dispatched_orphan_reconciliation,
+    )
+
+    entries = get_queue(project_root, project_name)
+    # Protegidas: con entrada `dispatched` (en vuelo) o con un `report_file`
+    # localizable en disco (Job legítimo en vuelo — nunca se revierte).
+    dispatched_task_ids = {
+        e.task_id for e in entries if e.status == STATUS_DISPATCHED
+    }
+    live_report_task_ids = {
+        e.task_id
+        for e in entries
+        if e.report_file and Path(e.report_file).is_file()
+    }
+
+    graph = load_backlog(Path(backlog_dir))
+    reconciled: list[str] = []
+    for task_id in sorted(graph.items):
+        item = graph.items[task_id]
+        if item.kind != "T":
+            continue
+        if item.state != "IN_PROGRESS":
+            continue
+        if task_id in dispatched_task_ids or task_id in live_report_task_ids:
+            continue
+        target_state = "TO_DEVELOP" if auto_reenqueue_orphaned else "READY"
+        set_item_state(item.path, target_state, force=True)
+        append_dispatched_orphan_reconciliation(
+            project_root, project_name,
+            task_id=task_id,
+            target_state=target_state,
+        )
+        reconciled.append(task_id)
     return reconciled
