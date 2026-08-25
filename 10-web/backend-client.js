@@ -144,7 +144,13 @@
     return _readBody(response);
   }
 
-  /** Lee el `detail` de un cuerpo de error: `{"detail": "..."}` o crudo. */
+  /** Lee el `detail` de un cuerpo de error: `{"detail": "..."}` o crudo.
+   *
+   * Un script que falla devuelve 500 con un body de `ScriptRunResult`
+   * (`success/exit_code/stdout/stderr/error_message/...`), sin campo
+   * `detail`: se reduce a un mensaje legible para que la UI muestre la
+   * CAUSA (error_message, y si falta su `stderr`), no un "HTTP 500" genérico.
+   */
   async function _extractDetail(response) {
     const text = await readText(response);
     if (!text) {
@@ -154,6 +160,17 @@
       const parsed = JSON.parse(text);
       if (parsed && typeof parsed === "object" && parsed.detail !== undefined) {
         return parsed.detail;
+      }
+      if (parsed && typeof parsed === "object") {
+        if (typeof parsed.error_message === "string") {
+          return parsed.error_message || null;
+        }
+        if (typeof parsed.detail === "string") {
+          return parsed.detail;
+        }
+        if (typeof parsed.stderr === "string" && parsed.stderr.trim()) {
+          return parsed.stderr.trim();
+        }
       }
       return parsed;
     } catch (_err) {

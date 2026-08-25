@@ -135,7 +135,7 @@ LANGUAGE_STATS_INSTALL_HINT = (
 # aceptación explícito de T-AF018-US01-01): mismos scripts para cualquier
 # proyecto, sin parámetro de proyecto en la consulta.
 GENERIC_SCRIPTS: tuple[GenericScriptEntry, ...] = (
-    GenericScriptEntry(id="commit", name="Commit de cambios", description="Guarda los cambios del área de staging en el historial de git con un mensaje descriptivo."),
+    GenericScriptEntry(id="commit", name="Commit de cambios", description="Stagea los cambios pendientes del proyecto (git add -A) y los guarda en el historial de git con un mensaje descriptivo."),
     GenericScriptEntry(id="push", name="Push al remoto", description="Envía los commits locales al repositorio remoto configurado."),
     GenericScriptEntry(id="changed_files", name="Ficheros modificados", description="Lista los nombres de los ficheros con cambios respecto al último commit."),
     GenericScriptEntry(id="diff_stat", name="Resumen de cambios por fichero", description="Muestra un resumen de líneas añadidas y eliminadas por cada fichero modificado."),
@@ -452,6 +452,27 @@ def run_generic_script(
         # de suite que ejecuta run_tests — ver `_run_project_tests`.
         scope = str(params.get("scope") or "unit")
         return _run_project_tests(project_path, scope=scope)
+    elif script_id == "commit":
+        # T-AF018-US01-01: el commit web pulsaba "Commit" y no aterrizaba
+        # nada porque el script ejecutaba solo `git commit -m` sin haber
+        # añadido antes los cambios del working tree (staging vacío →
+        # `nothing to commit`, exit 1). Para que "commit" signifique
+        # efectivamente "guardar los cambios pendientes", se ejecuta primero
+        # `git add -A` (stagea modificados, borrados y nuevos del proyecto)
+        # como lista de argumentos sin shell (mismo criterio de seguridad),
+        # y solo después el `git commit` real cuyo resultado decide el éxito.
+        # Un repo limpio sigue fallando igual: `git add -A` no añade nada y
+        # el `git commit` posterior reporta `nothing to commit`.
+        add_result = run_subprocess(
+            ["git", "add", "-A"],
+            project_path,
+            DEFAULT_SCRIPT_TIMEOUT_SECONDS,
+            action_description="el paso de `git add -A` previo al commit",
+            shell=False,
+        )
+        if not add_result.success:
+            return add_result
+        command, _label = resolved  # type: ignore[misc]
     else:
         command, _label = resolved  # type: ignore[misc]
 
@@ -460,4 +481,8 @@ def run_generic_script(
         project_path,
         DEFAULT_SCRIPT_TIMEOUT_SECONDS,
         action_description=f"el script genérico '{script_id}'",
+        # shell=False por el criterio de seguridad de la cabecera del módulo:
+        # el mensaje de commit (parámetro de usuario) nunca se interpreta como
+        # código de shell.
+        shell=False,
     )

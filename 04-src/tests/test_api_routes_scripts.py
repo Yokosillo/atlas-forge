@@ -368,21 +368,22 @@ def test_post_script_run_executes_a_valid_script_and_returns_its_output(
     assert "hello-from-api" in body["stdout"]
 
 
-def test_post_script_run_with_unknown_script_id_returns_200_with_an_error_result(
+def test_post_script_run_with_unknown_script_id_returns_an_error_result(
     tmp_path: Path, monkeypatch
 ) -> None:
     """Criterio de aceptación explícito: 'un script_id que no existe se
     rechaza con un mensaje claro, sin excepción no controlada' — a nivel
-    HTTP esto es un resultado estructurado (200 con `success=False`), no
-    un código de error HTTP: la petición en sí fue válida, el catalogado
-    simplemente no encontró el id (mismo criterio ya verificado en
-    dominio, `run_project_script`, T-AF001-US03-02)."""
+    HTTP es un resultado estructurado con status de error (500 con
+    `success=False` y el motivo en `error_message`): la petición en sí fue
+    válida, el catalogado simplemente no encontró el id (mismo criterio ya
+    verificado en dominio, `run_project_script`, T-AF001-US03-02); el body
+    de detalle se conserva íntegro pese al status 500."""
     _active_project(tmp_path, monkeypatch)
     client = TestClient(create_app())
 
     response = client.post("/scripts/does-not-exist/run")
 
-    assert response.status_code == 200
+    assert response.status_code == 500
     body = response.json()
     assert body["success"] is False
     assert body["exit_code"] is None
@@ -406,7 +407,7 @@ def test_post_script_run_reflects_a_failing_script_with_its_reason_without_break
 
     response = client.post("/scripts/broken/run")
 
-    assert response.status_code == 200
+    assert response.status_code == 500
     body = response.json()
     assert body["success"] is False
     assert body["exit_code"] == 3
@@ -494,9 +495,11 @@ def test_post_script_run_commit_without_a_message_is_rejected_with_an_explicit_r
     tmp_path: Path, monkeypatch
 ) -> None:
     """Criterio 2: `commit` sin mensaje se rechaza de forma explícita — como
-    resultado estructurado (200 con `success=False`), no un error de HTTP:
-    la petición fue válida, el script simplemente no se pudo ejecutar sin su
-    parámetro. Mismo criterio que el resto de fallos de `ScriptRunResult`."""
+    resultado estructurado (500 con `success=False` y el motivo en
+    `error_message`), no una pérdida de la información: la petición fue
+    válida, el script simplemente no se pudo ejecutar sin su parámetro, y el
+    body de detalle se conserva íntegro pese al status de error. Mismo
+    criterio que el resto de fallos de `ScriptRunResult`."""
     repo_path = tmp_path / "workspace" / "project-a"
     _init_real_git_repo(repo_path)
 
@@ -508,7 +511,7 @@ def test_post_script_run_commit_without_a_message_is_rejected_with_an_explicit_r
 
     response = client.post("/scripts/commit/run")
 
-    assert response.status_code == 200
+    assert response.status_code == 500
     body = response.json()
     assert body["success"] is False
     assert body["exit_code"] is None
@@ -517,7 +520,8 @@ def test_post_script_run_commit_without_a_message_is_rejected_with_an_explicit_r
 
 def test_post_script_run_commit_with_an_empty_message_is_rejected(tmp_path: Path, monkeypatch) -> None:
     """`message` vacío cuenta como ausente (mismo criterio que
-    `run_generic_script`, T-AF018-US01-01)."""
+    `run_generic_script`, T-AF018-US01-01) — resultado estructurado de
+    error, no excepción HTTP."""
     repo_path = tmp_path / "workspace" / "project-a"
     _init_real_git_repo(repo_path)
 
@@ -529,7 +533,7 @@ def test_post_script_run_commit_with_an_empty_message_is_rejected(tmp_path: Path
 
     response = client.post("/scripts/commit/run", json={"message": "   "})
 
-    assert response.status_code == 200
+    assert response.status_code == 500
     body = response.json()
     assert body["success"] is False
     assert "message" in body["error_message"]

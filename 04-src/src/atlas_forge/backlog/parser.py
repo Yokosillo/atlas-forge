@@ -36,6 +36,15 @@ from pathlib import Path
 
 import yaml
 
+# T-AF048-US02-01: loader YAML resuelto UNA vez por módulo — se usa el
+# loader seguro en C (`CSafeLoader`, tenía el mismo esquema de resolución de
+# tipos que `SafeLoader` pero el parseo de frontmatter es el grueso del coste
+# de `load_backlog`) cuando PyYAML lo expone; en caso contrario cae a
+# `SafeLoader` (Python puro) sin lanzar. La normalización de tipos (fechas →
+# isoformat, version → str) la hace el parser DESPUÉS del YAML (parser.py:
+# 280-297) y NO se toca.
+_YAML_LOADER = yaml.CSafeLoader if hasattr(yaml, "CSafeLoader") else yaml.SafeLoader
+
 from atlas_forge.models.backlog import (
     BacklogGraph,
     BacklogItem,
@@ -93,7 +102,7 @@ def parse_frontmatter(text: str) -> dict:
     if not yaml_text.strip():
         raise ValueError("frontmatter YAML vacio")
 
-    data = yaml.safe_load(yaml_text)
+    data = yaml.load(yaml_text, Loader=_YAML_LOADER)
     if not isinstance(data, dict):
         raise ValueError(f"el frontmatter no es un diccionario YAML (tipo: {type(data).__name__})")
 

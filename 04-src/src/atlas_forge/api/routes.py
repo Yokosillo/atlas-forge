@@ -14,6 +14,7 @@ import time
 from pathlib import Path
 
 from fastapi import APIRouter, HTTPException
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel, field_validator
 
 from atlas_forge.agents.lifecycle import InvalidAgentTransitionError
@@ -62,7 +63,11 @@ from atlas_forge.architect.epic_landing import plan_epic_landing
 from atlas_forge.architect.task_pipeline import run_task_pipeline
 from atlas_forge.architect.us_pipeline import write_approved_stories
 from atlas_forge.backlog.parser import load_backlog, load_backlog_cached
-from atlas_forge.backlog.report import build_backlog_report, priority_rank
+from atlas_forge.backlog.report import (
+    build_backlog_report,
+    build_backlog_report_cached,
+    priority_rank,
+)
 from atlas_forge.core.session_lifecycle import SessionNotActiveError, list_agents
 from atlas_forge.core.session_registry import focus_project_session, get_current_session
 from atlas_forge.core.reconciliation_log import read_reconciliation_log
@@ -1743,7 +1748,12 @@ def get_backlog() -> dict:
         raise HTTPException(status_code=404, detail="No hay ningún proyecto activo.")
 
     backlog_path = Path(project.path) / "02-backlog"
-    return build_backlog_report(backlog_path)
+    # T-AF048-US01-02: el INFORME se construye desde el grafo memoizado
+    # (`load_backlog_cached`) — `GET /backlog` deja de re-parsear el
+    # `02-backlog/` completo en cada request; una edición real se refleja en
+    # la siguiente lectura (invalidación por mtime+size). El informe es
+    # idéntico al de `build_backlog_report`.
+    return build_backlog_report_cached(backlog_path)
 
 
 def _active_project_or_404():
@@ -1802,7 +1812,16 @@ def get_dispatch_queue() -> dict:
     `/backlog/{story_id}/launch-development` (con segmento fijo tras el
     parámetro) no tiene este problema, pero un segmento fijo SIN
     parámetro adicional antes sí lo tiene."""
-    project = _active_project_or_404()
+    return _backlog_queue_payload(_active_project_or_404())
+
+
+def _backlog_queue_payload(project) -> dict:
+    """Serializado de la cola de despacho del `project` activo, en el shape
+    de `GET /backlog/queue` (T-AF008-US10-01/-04): grupos queued/dispatched/
+    awaiting_tester/completed/failed con el `effective_status` derivado. Lo
+    reutiliza tanto `GET /backlog/queue` como `GET /pipeline/state`
+    (US-AF042-01: snapshot unificado que reusa este serializado, sin
+    duplicar el cálculo)."""
     entries = get_queue(project.path, project.name)
 
     # T-AF008-US10-04: el grafo del backlog es la fuente de verdad del
@@ -1864,6 +1883,100 @@ def get_dispatch_queue() -> dict:
         "awaiting_tester": [_serialize(e) for e in awaiting_tester],
         "completed": [_serialize(e) for e in completed],
         "failed": [_serialize(e) for e in failed],
+    }
+
+
+@router.get("/pipeline/state")
+def get_pipeline_state() -> dict:
+    """Snapshot unificado del estado vivo del pipeline (US-AF042-01).
+
+    Reune en UN solo endpoint lo que hoy está disperso: la cola de despacho
+    (reutilizando el serializado de `GET /backlog/queue`), los Jobs en vuelo
+    de los 4 niveles del `DispatchQueueWorker` (`_inflight` desarrollo,
+    `_inflight_review` Tester, `_inflight_architect_verdict` veredicto,
+    `_inflight_landing` aterrizaje, `_inflight_creation` peticiones de
+    creación — via `get_inflight_snapshot()`, copia inmutable bajo su lock)
+    y los agentes.
+
+    - `levels`: `{landing, desarrollo, review, veredicto, creation}`, cada
+      nivel con sus Jobs en vuelo normalizados (`task_id`/`us_id`/`story_id`/
+      `request_id`, `agent_id`, `report_file`, `dispatched_at`,
+      `duration_seconds`, `title` resuelto del backlog cuando el id está
+      disponible).
+    - `queue`: el payload idéntico a `GET /backlog/queue`.
+    - `agents`: `[{id, status, working_on}]` donde `working_on` es la
+      Task/US/Story que el agente ejecuta ahora (derivada del snapshot).
+    - `worker_alive`: `false` si el worker no está arrancado — en ese caso
+      `levels` llega vacío (`{nivel: []}`) y el endpoint responde IGUAL con
+      cola y agentes, sin error 500 (criterio 4 de la US).
+    - `generated_at`: timestamp ISO 8601 UTC de la generación."""
+    project = _active_project_or_404()
+
+    worker = _dispatch_queue_worker
+    worker_alive = worker is not None and worker.is_worker_alive()
+    try:
+        snapshot = worker.get_inflight_snapshot() if worker_alive else {}
+    except Exception:
+        snapshot = {}
+        worker_alive = False
+
+    graph = load_backlog_cached(Path(project.path) / "02-backlog")
+    title_by_id = {
+        item.id: item.title
+        for item in graph.items.values()
+        if item.title and item.title.strip()
+    }
+
+    def _with_title(entries):
+        out = []
+        for entry in entries:
+            subject_id = (
+                entry.get("task_id") or entry.get("us_id")
+                or entry.get("story_id") or entry.get("request_id")
+            )
+            resolved = dict(entry)
+            if subject_id and subject_id in title_by_id:
+                resolved["title"] = title_by_id[subject_id]
+            out.append(resolved)
+        return out
+
+    levels: dict = {
+        level: _with_title(snapshot.get(level, []))
+        for level in ("landing", "desarrollo", "review", "veredicto", "creation")
+    }
+
+    # `working_on` por agente: qué Task/US/Story ejecuta cada agente ahora,
+    # derivada del snapshot en vuelo (nivel + id + título).
+    working_on_by_agent: dict[str, dict] = {}
+    for level, entries in levels.items():
+        for entry in entries:
+            working_on_by_agent[entry["agent_id"]] = {
+                "level": level,
+                "id": entry.get("task_id") or entry.get("us_id")
+                or entry.get("story_id") or entry.get("request_id"),
+                "title": entry.get("title"),
+            }
+
+    session = get_current_session()
+    agents = []
+    if session is not None:
+        agents = [
+            {
+                "id": agent.id,
+                "status": agent.status,
+                "working_on": working_on_by_agent.get(agent.id),
+            }
+            for agent in list_agents(session)
+        ]
+
+    from datetime import datetime, timezone
+
+    return {
+        "levels": levels,
+        "queue": _backlog_queue_payload(project),
+        "agents": agents,
+        "worker_alive": worker_alive,
+        "generated_at": datetime.now(timezone.utc).isoformat(),
     }
 
 
@@ -3311,17 +3424,19 @@ def post_script_run(script_id: str, request: RunScriptRequest | None = None) -> 
     está disponible — si no, `null` y la respuesta no pierde nada). Para el
     resto de scripts ambos campos son `null`.
 
-    A diferencia de `POST /agents`/`POST /jobs`, este endpoint nunca
-    traduce un fallo a un código HTTP de error — tanto `run_generic_script`
-    como `run_project_script` devuelven un `ScriptRunResult` con toda la
-    información del fallo (`script_id` desconocido, script que falla,
-    timeout, manifiesto roto) de forma estructurada; convertir eso a una
-    `HTTPException` perdería la salida/motivo detallado que el criterio de
-    aceptación exige mostrar. El único 404 real de este endpoint es la
-    ausencia de sesión activa — no encontrar el script en sí es un
-    resultado válido de `ScriptRunResult`, no un error de la petición
-    HTTP. Mismo motivo que `get_scripts` para pasar `state_dir=_STATE_DIR`
-    explícito."""
+    A diferencia de `POST /agents`/`POST /jobs`, este endpoint no pierde el
+    detalle de un fallo: tanto `run_generic_script` como `run_project_script`
+    devuelven un `ScriptRunResult` con toda la información del fallo
+    (`script_id` desconocido, script que falla, timeout, manifiesto roto) de
+    forma estructurada, y ese body se devuelve SIEMPRE (éxito y fallo). Lo
+    que sí distingue el fallo es el status code: un script que termina con
+    éxito devuelve `200`, y un script que falla (`result.success` falso)
+    devuelve `500` con el mismo body de detalle — para que el fallo sea
+    detectable/trazable en los logs del servidor en lugar de un `200` limpio
+    que lo enmascaraba. El único `404` real de este endpoint es la ausencia
+    de sesión activa — no encontrar el script en sí es un resultado válido de
+    `ScriptRunResult`, no un error de la petición HTTP. Mismo motivo que
+    `get_scripts` para pasar `state_dir=_STATE_DIR` explícito."""
     project = get_active_project(state_dir=_STATE_DIR)
     if project is None:
         raise HTTPException(status_code=404, detail="No hay ningún proyecto activo.")
@@ -3357,7 +3472,7 @@ def post_script_run(script_id: str, request: RunScriptRequest | None = None) -> 
             except ScribeUnavailableError:
                 prose = None
 
-    return {
+    body = {
         "success": result.success,
         "exit_code": result.exit_code,
         "stdout": result.stdout,
@@ -3366,3 +3481,15 @@ def post_script_run(script_id: str, request: RunScriptRequest | None = None) -> 
         "data": data,
         "prose": prose,
     }
+    # T-AF018-US01-03 (revisión): un script que falla NO se reporta ya como
+    # un HTTP 200 limpio, porque eso ocultaba el fallo real en los logs del
+    # servidor (p. ej. `POST /scripts/commit/run` -> 200 aunque el commit
+    # hubiera fallado con `nothing to commit`, sin llegar a crear nada).
+    # Aun así el body conserva TODO el detalle estructurado
+    # (`success/exit_code/stdout/stderr/error_message`) para que la UI siga
+    # mostrando el motivo sin perder nada; el status code distinto de 2xx
+    # (500: la operación del script sobre el proyecto falló en tiempo de
+    # ejecución) es el que hace el fallo detectable y trazable.
+    if not result.success:
+        return JSONResponse(status_code=500, content=body)
+    return body

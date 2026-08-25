@@ -31,6 +31,7 @@ from atlas_forge.backlog.parser import (
     classify_todo_items,
     find_max_leverage_chain,
     load_backlog,
+    load_backlog_cached,
     calculate_unblock_degree,
     parse_frontmatter,
 )
@@ -291,6 +292,25 @@ def build_backlog_report(backlog_path: str | Path) -> dict:
     tocar cada cálculo (`classify_todo_items`, conteos por Epic, etc.) por
     separado."""
     graph, drifted_ids = reconcile_graph_state(load_backlog(backlog_path))
+    return _build_backlog_report_core(graph, backlog_path, drifted_ids)
+
+
+def build_backlog_report_cached(backlog_path: str | Path) -> dict:
+    """`build_backlog_report` sobre el grafo memoizado `load_backlog_cached`
+    (T-AF048-US01-02): `GET /backlog` deja de re-parsear el `02-backlog/`
+    completo en cada request cuando ningún fichero cambió. El informe
+    devuelto es idéntico al de `build_backlog_report` (mismo dict). La
+    invalidación por mtime+size del loader garantiza que una edición real se
+    refleje en la siguiente lectura."""
+    graph, drifted_ids = reconcile_graph_state(load_backlog_cached(backlog_path))
+    return _build_backlog_report_core(graph, backlog_path, drifted_ids)
+
+
+def _build_backlog_report_core(
+    graph, backlog_path: str | Path, drifted_ids
+) -> dict:
+    """Núcleo sin `load_backlog`: construye el dict del informe a partir del
+    grafo ya cargado (para las variantes directa y cacheada)."""
     lista, bloqueada = classify_todo_items(graph)
     chain = find_max_leverage_chain(graph)
 

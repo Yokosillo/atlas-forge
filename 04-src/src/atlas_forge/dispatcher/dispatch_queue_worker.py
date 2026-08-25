@@ -1174,6 +1174,56 @@ class DispatchQueueWorker:
         self._inflight_landing: dict[str, InFlightLandingJob] = {}
         self._inflight_creation: dict[str, InFlightCreationJob] = {}
         self._backlog_marks: dict | None = None
+        # T-AF042-US01-06: lock del snapshot de estado del pipeline. Los
+        # registros `_inflight*` los muta SOLO el hilo del worker; el
+        # endpoint `GET /pipeline/state` (hilo FastAPI) los LEE. Este lock
+        # mutualiza esa ventana para que el lector nunca itere un dict que el
+        # escritor esté mutando (RuntimeError "dictionary changed size") y el
+        # snapshot se copie estable bajo él.
+        self._inflight_lock = threading.RLock()
+
+    def get_inflight_snapshot(self) -> dict:
+        """T-AF042-US01-06/US-AF042-01: snapshot INMUTABLE de los 4 registros
+        en vuelo del worker (más el de creación), copiado bajo su lock.
+        Devuelve dicts planos (nunca los objetos `Job` ni los mutables
+        internos del worker) con el shape que consume el endpoint:
+        `{nivel: [ {task_id|us_id|story_id, kind, agent_id, report_file,
+        dispatched_at, duration_seconds} ]}`. Modificar lo devuelto NO altera
+        el estado interno del worker (criterio "no expone mutables")."""
+        now = time.monotonic()
+        with self._inflight_lock:
+
+            def _entry(infl, agent_attr, ids):
+                return {
+                    "agent_id": getattr(infl, agent_attr),
+                    "report_file": str(infl.report_file),
+                    "dispatched_at": infl.dispatched_at,
+                    "duration_seconds": round(now - infl.dispatched_at, 3),
+                    **ids,
+                }
+
+            return {
+                "landing": [
+                    _entry(i, "architect_agent_id", {"us_id": i.us_id, "kind": "us_landing"})
+                    for i in self._inflight_landing.values()
+                ],
+                "desarrollo": [
+                    _entry(i, "agent_id", {"task_id": i.task_id, "kind": "task"})
+                    for i in self._inflight.values()
+                ],
+                "review": [
+                    _entry(i, "tester_agent_id", {"task_id": i.task_id, "kind": "review"})
+                    for i in self._inflight_review.values()
+                ],
+                "veredicto": [
+                    _entry(i, "architect_agent_id", {"story_id": i.story_id, "kind": "verdict"})
+                    for i in self._inflight_architect_verdict.values()
+                ],
+                "creation": [
+                    _entry(i, "architect_agent_id", {"request_id": i.request_id, "kind": "creation"})
+                    for i in self._inflight_creation.values()
+                ],
+            }
 
     def start(self) -> None:
         if self._thread is not None and self._thread.is_alive():
@@ -1475,6 +1525,13 @@ class DispatchQueueWorker:
         if self._thread is not None:
             self._thread.join(timeout=timeout)
 
+    def is_worker_alive(self) -> bool:
+        """T-AF042-US01-06/US-AF042-01: `True` si el hilo del worker está
+        arrancado y vivo — el endpoint `GET /pipeline/state` lo usa para
+        responder `worker_alive` y decidir si expone el snapshot de Jobs en
+        vuelo (que solo existe con el worker vivo)."""
+        return self._thread is not None and self._thread.is_alive()
+
     def run_once(self) -> str | None:
         """Ejecuta un único ciclo de despacho de implementación (primer
         nivel) de forma síncrona, sin hilo — usado en tests."""
@@ -1764,66 +1821,71 @@ class DispatchQueueWorker:
                 self.run_autonomous_scale_once()
             except Exception:
                 pass
+            # T-AF042-US01-06: las operaciones que MUTAN los registros
+            # `_inflight*` (completiones que borran + ciclos que añaden) se
+            # ejecutan bajo `_inflight_lock`, mutualizando con el getter de
+            # snapshot de `GET /pipeline/state` (que los lee desde el hilo
+            # FastAPI). Mejor esfuerzo: un fallo de un ciclo no debe matar el
+            # hilo.
             try:
-                poll_inflight_job_completions(
-                    self._project_root, self._project_name, self._session, self._inflight,
-                    timeout_seconds=AGENT_STEP_TIMEOUT_SECONDS,
-                    socket_name=self._socket_name,
-                )
+                with self._inflight_lock:
+                    try:
+                        poll_inflight_job_completions(
+                            self._project_root, self._project_name, self._session, self._inflight,
+                            timeout_seconds=AGENT_STEP_TIMEOUT_SECONDS,
+                            socket_name=self._socket_name,
+                        )
+                    except Exception:
+                        pass
+                    try:
+                        poll_inflight_review_completions(
+                            self._project_root, self._project_name, self._session,
+                            self._inflight_review, self._inflight, self._socket_name,
+                            timeout_seconds=AGENT_STEP_TIMEOUT_SECONDS,
+                        )
+                    except Exception:
+                        pass
+                    try:
+                        poll_inflight_architect_verdict_completions(
+                            self._session, self._inflight_architect_verdict,
+                            timeout_seconds=AGENT_STEP_TIMEOUT_SECONDS,
+                        )
+                    except Exception:
+                        pass
+                    try:
+                        poll_inflight_landing_completions(
+                            self._project_root, self._session, self._inflight_landing,
+                            timeout_seconds=AGENT_STEP_TIMEOUT_SECONDS,
+                        )
+                    except Exception:
+                        pass
+                    try:
+                        # T-AF036-US20-08: completión de las peticiones de
+                        # creación en vuelo (parse + validación + escritura).
+                        poll_inflight_creation_completions(
+                            self._project_root, self._project_name, self._session,
+                            self._inflight_creation,
+                            timeout_seconds=AGENT_STEP_TIMEOUT_SECONDS,
+                        )
+                    except Exception:
+                        pass
+                    for cycle, kwargs in (
+                        (run_dispatch_cycle, {"inflight": self._inflight}),
+                        (run_review_dispatch_cycle, {"inflight_review": self._inflight_review, "inflight": self._inflight}),
+                        (run_architect_verdict_dispatch_cycle, {"inflight_architect_verdict": self._inflight_architect_verdict}),
+                        (run_us_landing_dispatch_cycle, {"inflight_landing": self._inflight_landing}),
+                        # T-AF036-US20-07: quinto nivel — peticiones de creación.
+                        (run_creation_dispatch_cycle, {"inflight_creation": self._inflight_creation}),
+                    ):
+                        try:
+                            cycle(
+                                self._project_root, self._project_name, self._session, self._socket_name,
+                                **kwargs,
+                            )
+                        except Exception:
+                            pass
             except Exception:
                 pass
-            try:
-                poll_inflight_review_completions(
-                    self._project_root, self._project_name, self._session,
-                    self._inflight_review, self._inflight, self._socket_name,
-                    timeout_seconds=AGENT_STEP_TIMEOUT_SECONDS,
-                )
-            except Exception:
-                pass
-            try:
-                poll_inflight_architect_verdict_completions(
-                    self._session, self._inflight_architect_verdict,
-                    timeout_seconds=AGENT_STEP_TIMEOUT_SECONDS,
-                )
-            except Exception:
-                pass
-            try:
-                self._persist_verdict_state()
-            except Exception:
-                pass
-            try:
-                poll_inflight_landing_completions(
-                    self._project_root, self._session, self._inflight_landing,
-                    timeout_seconds=AGENT_STEP_TIMEOUT_SECONDS,
-                )
-            except Exception:
-                pass
-            try:
-                # T-AF036-US20-08: completión de las peticiones de creación en
-                # vuelo (parse + validación + escritura de la entidad real).
-                poll_inflight_creation_completions(
-                    self._project_root, self._project_name, self._session,
-                    self._inflight_creation,
-                    timeout_seconds=AGENT_STEP_TIMEOUT_SECONDS,
-                )
-            except Exception:
-                pass
-            for cycle, kwargs in (
-                (run_dispatch_cycle, {"inflight": self._inflight}),
-                (run_review_dispatch_cycle, {"inflight_review": self._inflight_review, "inflight": self._inflight}),
-                (run_architect_verdict_dispatch_cycle, {"inflight_architect_verdict": self._inflight_architect_verdict}),
-                (run_us_landing_dispatch_cycle, {"inflight_landing": self._inflight_landing}),
-                # T-AF036-US20-07: quinto nivel — peticiones de creación hacia
-                # el Arquitecto (Epic/US/Task desde descripción libre).
-                (run_creation_dispatch_cycle, {"inflight_creation": self._inflight_creation}),
-            ):
-                try:
-                    cycle(
-                        self._project_root, self._project_name, self._session, self._socket_name,
-                        **kwargs,
-                    )
-                except Exception:
-                    pass
             try:
                 self._persist_verdict_state()
             except Exception:

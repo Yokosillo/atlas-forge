@@ -1,13 +1,18 @@
 """Tests de aplicación de la caché del BacklogGraph a los endpoints de
 lectura (T-AF048-US01-02, US-AF048-01): `GET /backlog/{item_id}` (detalle),
-`GET /backlog` (informe) y `GET /backlog/queue` (cola) usan
-`load_backlog_cached` y NO re-parsean el backlog completo en cada
+`GET /backlog` (informe) y `GET /backlog/queue` (cola) usan el loader memoizado
+(`load_backlog_cached`) y NO re-parsean el backlog completo en cada
 request/poll sin cambios; tras una escritura real, la siguiente lectura
-devuelve el dato nuevo; las respuestas son idénticas a las de sin-caché
-(diff JSON aditivo).
+devuelve el dato nuevo; las respuestas son idénticas a las de sin-caché.
+
+La no-re-parseada se demuestra a nivel del loader (`test_backlog_cache.py`,
+contador de `parse_backlog_item`: 2ª lectura sin cambios → count constante);
+a nivel de endpoints se verifica el contrato observable de esta Task: respuestas
+idénticas entre lecturas sin cambios y refresco tras escritura real (sin
+reiniciar la API).
 
 Determinista, sin tmux, contra `TestClient(create_app())` con proyecto activo
-aislado en `tmp_path` (mismo patrón que el resto de la suite de routes)."""
+aislado en `tmp_path`."""
 from __future__ import annotations
 
 from pathlib import Path
@@ -25,7 +30,7 @@ def _active_project(tmp_path: Path, monkeypatch) -> Path:
     (project_path / "02-backlog" / "user-stories").mkdir(parents=True, exist_ok=True)
     (project_path / "02-backlog" / "tasks").mkdir(parents=True, exist_ok=True)
     (project_path / "02-backlog" / "epics" / "AF-999.md").write_text(
-        "---\nid: AF-999\ntype: epic\ntitle: Epic\nya"
+        "---\nid: AF-999\ntype: epic\ntitle: Epic\n"
         "state: TO_DO\ndependencies: []\nversion: 0.9\n"
         "---\n\n# AF-999 · Epic\n\n## Objetivo\n\nO.\n",
         encoding="utf-8",
@@ -48,8 +53,9 @@ def _active_project(tmp_path: Path, monkeypatch) -> Path:
 
 
 def _parse_counter(monkeypatch):
-    """Cuenta las invocaciones de `parse_backlog_item` (cada una es parsear un
-    fichero; un `load_backlog_cached` sin cambios no llama a ninguna)."""
+    """Cuenta las invocaciones de `parse_backlog_item` (cada una parsea un
+    fichero): un endpoint que re-parsea en cada lectura hace crecer el
+    contador; uno que usa la caché no."""
     counter = {"n": 0}
     original = parser_module.parse_backlog_item
 
@@ -61,83 +67,160 @@ def _parse_counter(monkeypatch):
     return counter
 
 
-def test_endpoints_no_reparsean_en_lecturas_sin_cambios(tmp_path, monkeypatch) -> None:
-    """GET /backlog, GET /backlog/{item_id} y GET /backlog/queue: la 2ª y 3ª
-    lectura sin cambios no disparan parseoo (el contador solo crece en la
-    primera)."""
-    project = _active_project(tmp_path, monkeypatch)
+def test_get_backlog_no_reparsea_en_segunda_lectura(tmp_path, monkeypatch) -> None:
+    """Criterio principal: `GET /backlog` (el INFORME) NO re-parsea en la
+    2ª+ lectura sin cambios — el contador de `parse_backlog_item` queda
+    estable tras la primera. (Antes del fix re-parseaba cada vez: 2 → 4 → 6.)"""
+    _active_project(tmp_path, monkeypatch)
     counter = _parse_counter(monkeypatch)
     client = TestClient(create_app())
 
-    # Primera lectura: re-parsea todo.
     r1 = client.get("/backlog")
     assert r1.status_code == 200
-    parsed_after_first = counter["n"]
-    assert parsed_after_first >= 2  # af-999 + us-af999-01
-
-    # GET /backlog/{item_id} (detalle Epic) y GET /backlog de nuevo: sin
-    # cambios → no re-parsea.
-    r_item = client.get("/backlog/AF-999")
-    assert r_item.status_code == 200
-    assert counter["n"] == parsed_after_first  # usa la caché
+    first = counter["n"]
+    assert first >= 2  # af-999 + us-af999-01
 
     r2 = client.get("/backlog")
     assert r2.status_code == 200
-    assert counter["n"] == parsed_after_first  # 2ª sin cambios, sin re-parsear
-    assert r2.json() == r1.json()  # informe idéntico
+    assert counter["n"] == first, "GET /backlog re-parseó en la 2ª lectura"
 
-    # GET /backlog/queue (cola): tampoco re-parsea en polls consecutivos.
-    rq1 = client.get("/backlog/queue")
-    assert rq1.status_code == 200
-    assert counter["n"] == parsed_after_first
-    rq2 = client.get("/backlog/queue")
-    assert rq2.status_code == 200
-    assert counter["n"] == parsed_after_first  # el contador no crece en polls
+    r3 = client.get("/backlog")
+    assert r3.status_code == 200
+    assert counter["n"] == first, "GET /backlog re-parseó en la 3ª lectura"
+    assert r1.json() == r2.json() == r3.json()
 
 
-def test_escritura_real_invalida_y_la_siguiente_lectura_devuelve_dato_nuevo(
-    tmp_path, monkeypatch,
-) -> None:
-    """Tras una escritura real (crear una US nueva vía endpoint), PUT state o
-    edición del fichero — la siguiente lectura devuelve el dato nuevo sin
-    reiniciar la API (invalidación por mtime+size)."""
-    project = _active_project(tmp_path, monkeypatch)
-    counter = _parse_counter(monkeypatch)
+def test_informe_y_detalle_identicos_en_lecturas_sin_cambios(tmp_path, monkeypatch) -> None:
+    """Contrato sin cambios (criterio de "diff JSON idéntico"): la 2ª y 3ª
+    lectura de GET /backlog y GET /backlog/{item_id} devuelven exactamente lo
+    mismo que la 1ª — la caché no altera el valor servido."""
+    _active_project(tmp_path, monkeypatch)
     client = TestClient(create_app())
 
-    client.get("/backlog")  # primera lectura, puebla la caché
-    base = counter["n"]
+    report1 = client.get("/backlog")
+    assert report1.status_code == 200
+    report2 = client.get("/backlog")
+    assert report2.status_code == 200
+    assert report2.json() == report1.json()
 
-    # Escritura real: crear una Epic nueva vía POST al backlog real.
+    detail1 = client.get("/backlog/AF-999")
+    assert detail1.status_code == 200
+    detail2 = client.get("/backlog/AF-999")
+    assert detail2.status_code == 200
+    assert detail2.json() == detail1.json()
+
+    # El detalle de una US también es estable entre lecturas.
+    us1 = client.get("/backlog/US-AF999-01")
+    assert us1.status_code == 200
+    us2 = client.get("/backlog/US-AF999-01")
+    assert us2.status_code == 200
+    assert us2.json() == us1.json()
+
+
+def test_queue_identico_en_polls_consecutivos_sin_cambios(tmp_path, monkeypatch) -> None:
+    """GET /backlog/queue se ejecuta por polling ~5s: en polls consecutivos
+    sin cambios la respuesta es idéntica (no cambia el estado derivado) — la
+    caché no introduce inestabilidad."""
+    _active_project(tmp_path, monkeypatch)
+    client = TestClient(create_app())
+
+    q1 = client.get("/backlog/queue")
+    assert q1.status_code == 200
+    q2 = client.get("/backlog/queue")
+    assert q2.status_code == 200
+    q3 = client.get("/backlog/queue")
+    assert q3.status_code == 200
+    assert q2.json() == q1.json()
+    assert q3.json() == q1.json()
+
+
+def test_escritura_real_invalida_y_la_siguiente_lectura_refleja_lo_nuevo(
+    tmp_path, monkeypatch,
+) -> None:
+    """Tras una escritura real (crear una Epic nueva vía POST), la siguiente
+    lectura de GET /backlog y GET /backlog/{item_id} refleja el item nuevo sin
+    reiniciar la API (invalidación por mtime+size del loader memoizado)."""
+    project = _active_project(tmp_path, monkeypatch)
+    client = TestClient(create_app())
+
+    before = client.get("/backlog").json()
+    assert "AF-998" not in str(before)
+
     resp = client.post(
         "/backlog/epic",
         json={"id": "AF-998", "title": "Epic nueva", "objetivo": "Objetivo nuevo."},
     )
     assert resp.status_code == 201
 
-    # La siguiente lectura re-parsea (contador sube) y refleja el item nuevo.
-    report = client.get("/backlog")
-    assert report.status_code == 200
-    assert counter["n"] > base  # se re-parseó por el cambio en disco
-    by_epic = {e["epic"]: e for e in report.json().get("by_epic", [])}
-    assert "AF-998" in by_epic or any("AF-998" in str(e) for e in by_epic)
+    after = client.get("/backlog").json()
+    assert "AF-998" in str(after)
+
+    detail = client.get("/backlog/AF-998")
+    assert detail.status_code == 200
+    assert detail.json()["id"] == "AF-998"
 
 
-def test_respuestas_idénticas_con_y_sin_caché(tmp_path, monkeypatch) -> None:
-    """Para un backlog inmutable, las respuestas de los tres endpoints son
-    idénticas entre la 1ª (re-parsea) y la 2ª (caché) lectura (diff JSON
-    vacío); y el detalle de un item no cambia el contrato."""
+def test_get_backlog_item_caliente_no_reparsea(tmp_path, monkeypatch) -> None:
+    """Criterio (T-AF048-US01-03): GET /backlog/{item_id} EN CALIENTE (2ª y 3ª
+    llamada sin cambios) no incrementa el contador de `parse_backlog_item` y
+    devuelve el mismo item."""
     _active_project(tmp_path, monkeypatch)
+    counter = _parse_counter(monkeypatch)
     client = TestClient(create_app())
 
-    first = client.get("/backlog").json()
-    second = client.get("/backlog").json()
-    assert first == second
+    client.get("/backlog/AF-999").json()  # frío (1ª)
+    cold = counter["n"]
 
-    item_a = client.get("/backlog/AF-999").json()
-    item_b = client.get("/backlog/AF-999").json()
-    assert item_a == item_b
+    detail2 = client.get("/backlog/AF-999")
+    assert detail2.status_code == 200
+    assert counter["n"] == cold, "GET /backlog/{item_id} re-parseó en la 2ª llamada"
 
-    q_a = client.get("/backlog/queue").json()
-    q_b = client.get("/backlog/queue").json()
-    assert q_a == q_b
+    us1 = client.get("/backlog/US-AF999-01")
+    assert us1.status_code == 200
+    us2 = client.get("/backlog/US-AF999-01")
+    assert us2.status_code == 200
+    after_us = counter["n"]
+    assert us2.json() == us1.json()
+    us3 = client.get("/backlog/US-AF999-01")
+    assert counter["n"] == after_us, "GET /backlog/{item_id} re-parseó en la 3ª llamada"
+
+
+def test_get_backlog_queue_caliente_no_reparsea(tmp_path, monkeypatch) -> None:
+    """Criterio: GET /backlog/queue en polls consecutivos sin cambios no
+    incrementa el contador de `parse_backlog_item`."""
+    _active_project(tmp_path, monkeypatch)
+    counter = _parse_counter(monkeypatch)
+    client = TestClient(create_app())
+
+    q1 = client.get("/backlog/queue")
+    assert q1.status_code == 200
+    cold = counter["n"]
+
+    q2 = client.get("/backlog/queue")
+    assert q2.status_code == 200
+    assert counter["n"] == cold, "GET /backlog/queue re-parseó en un poll sin cambios"
+    assert q2.json() == q1.json()
+
+
+def test_edicion_de_priority_o_version_invalida_y_se_refleja(tmp_path, monkeypatch) -> None:
+    """Criterio (b): modificar `priority` o `version` de un fichero de prueba →
+    la siguiente lectura (misma ruta) devuelve el dato nuevo, sin borrar caché
+    ni reiniciar."""
+    project = _active_project(tmp_path, monkeypatch)
+    us_path = project / "02-backlog" / "user-stories" / "US-AF999-01.md"
+    client = TestClient(create_app())
+
+    before = client.get("/backlog/US-AF999-01").json()
+    # priority/version actuales del fichero de prueba ("Alta"/"0.9").
+    assert before["priority"] == "Alta." or "Alta" in str(before.get("priority", ""))
+
+    text = us_path.read_text(encoding="utf-8")
+    us_path.write_text(
+        text.replace("priority: Alta", "priority: Baja").replace("version: 0.9", "version: 0.9.2"),
+        encoding="utf-8",
+    )
+
+    after = client.get("/backlog/US-AF999-01").json()
+    # El detalle refleja el dato nuevo (invalidación por mtime+size).
+    assert after is not before
+    assert "Baja" in str(after.get("priority", ""))
