@@ -110,13 +110,14 @@ Registered roles: `developer`, `arquitecto`, `tester`, `documentador`, `ux`, `au
 
 - **Job**: `create → running → {completed | failed | cancelled}`. Result reporting is **cooperative**: the agent writes its result to a temp file plus a final marker; the dispatcher waits for that file.
 - **Chaining**: `previous_job` injects the previous Job's result literally into the next Job's description. Developer→Developer is blocked (must go through the Architect).
-- **Backlog pipeline**: a single background worker polls every 5 seconds and drives each item forward purely by its `state` — queues Tasks `READY` as `TO_DEVELOP`, assigns a Task `TO_DEVELOP` to a Developer (`IN_PROGRESS`), hands a Task in `IN_REVIEW` to a free Tester, a User Story with all its Tasks `DONE` to a free Architect for final validation, and a US `TO_PLAN` to a free Architect for its US→Tasks landing. See [Jobs and the work pipeline](jobs.md#the-backlog-pipeline).
+- **Backlog pipeline**: a single background worker polls every 5 seconds and drives each item forward purely by its `state` — queues Tasks `READY` as `TO_DEVELOP`, assigns a Task `TO_DEVELOP` to a Developer (`IN_PROGRESS`), hands a Task in `IN_REVIEW` to a free Tester, returns the same Task to the same Developer as rework if the Tester fails it, a User Story with all its Tasks `DONE` to a free Architect for final validation, and a US `TO_PLAN` to a free Architect for its US→Tasks landing. See [Jobs and the work pipeline](jobs.md#the-backlog-pipeline).
 - **Automatic Scribe**: the dispatcher decides to invoke Scribe (by description size > 4000 chars or ≥ 10 consecutive Jobs) to pre-process context, saving remote runtime tokens.
 - **Verdict**: on a User Story in `IN_REVIEW` (all its Tasks `DONE`), the assigned Architect emits `APROBADO` / `APROBADO_CON_OBSERVACIONES` / `RECHAZADO`; approved moves the Story to `DONE`, rejected adds a new Task to the same Story instead of promoting it.
+- **Dispatch queue and scaling**: keeps a per-project queue (`dispatch_queue.json`) as a FIFO/audit record (eligibility is decided by the real `state`), and can scale/release agents autonomously according to demand (`autonomous_scaling.py`).
 
 ### Backlog (`atlas_forge/backlog/`)
 
-Deterministic parser of `02-backlog/` (Epics, User Stories, Tasks) → a graph of items with state, dependencies, priority and phase. Status report (`build_backlog_report`) with counts per Epic, LISTA/BLOQUEADA items, max-leverage chain and unblock degree. Schema validator for the backlog format.
+Deterministic parser of `02-backlog/` (Epics, User Stories, Tasks) → a graph of items with state, dependencies, priority and delivery version. Status report (`build_backlog_report`) with counts per Epic, LISTA/BLOQUEADA items, max-leverage chain and unblock degree. Schema validator for the backlog format. The source of truth for states and transitions is `core/state_machines.py` (AF-040).
 
 ### API (`atlas_forge/api/`)
 

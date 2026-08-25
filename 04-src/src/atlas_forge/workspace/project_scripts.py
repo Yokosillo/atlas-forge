@@ -71,14 +71,16 @@ from atlas_forge.workspace.discovery_cache import TTLCache
 
 MANIFEST_RELATIVE_PATH = Path(".atlas-forge") / "scripts.yml"
 
-# PARCHE PROVISIONAL (bug: suite de tests excede el timeout, 2026-08-19): subido de 30.0 a 600.0
-# para que el script genérico 'run_tests' (que ejecuta la suite completa de
-# Atlas Forge, 1237 tests de integración que tardan varios minutos) no
-# agote el timeout y haga fallar al Tester. NO es la solución de fondo: la
-# suite además adolece de contaminación de estado entre tests que la hace
-# colgarse; la task de reestructuración está pendiente de crear (ver
-# resumen para el Arquitecto). Este valor solo da margen mientras tanto.
-DEFAULT_SCRIPT_TIMEOUT_SECONDS = 600.0
+# T-AF025-US04-02 (valor DEFINITIVO, retirado el parche provisional del
+# 2026-08-19): timeout global por defecto de los scripts genéricos REGULARES
+# (git, análisis...), que terminan en segundos. `run_tests` NO usa este
+# default: pasa su propio timeout por-call
+# (`RUN_PROJECT_TESTS_TIMEOUT_SECONDS` en `generic_scripts.py`, acorde a la
+# suite que realmente ejecuta — el subconjunto determinista `unit` por
+# defecto). Subir EL GLOBAL no arreglaba el cuelgue por contaminación de
+# estado (causa de fondo abordada en esta misma Task); por eso aquí se
+# vuelve a un valor coherente con los scripts normales.
+DEFAULT_SCRIPT_TIMEOUT_SECONDS = 60.0
 
 # Caché TTL (T-AF001-US01-06): `discover_project_scripts` lee el manifiesto
 # del disco en cada llamada, y la API lo invoca de nuevo en cada `GET

@@ -186,7 +186,7 @@ Cancela un Job **en vuelo** (`running`). Espera la transición real del hilo del
 ## Backlog
 
 ### `GET /backlog`
-Informe estructurado del backlog del proyecto activo (`02-backlog/`): conteos por Epic (con `unblock_degree` y `fase`), ítems LISTA/BLOQUEADA, cadena de máximo apalancamiento, errores de parseo.
+Informe estructurado del backlog del proyecto activo (`02-backlog/`): conteos por Epic (con `unblock_degree` y `version`), ítems LISTA/BLOQUEADA, cadena de máximo apalancamiento, errores de parseo.
 
 ### `GET /backlog/{item_id}`
 Detalle de un ítem. Los IDs del tipo `AF-xxx` se resuelven como Epic; cualquier otra cosa como Task/User Story. Incluye objetivo/historia, criterios de aceptación, dependencias (con su estado) y, para User Stories, sus Tasks y (AF-024-US09) historial de ejecución. 404 con un motivo de parseo si el fichero existe pero no pudo parsearse.
@@ -211,13 +211,59 @@ Igual que lo anterior para todas las Tasks pendientes de una User Story en una s
 Revierte una Task `TO_DEVELOP` de vuelta a `READY`, solo si el Dispatcher todavía no la ha recogido.
 
 ### `GET /backlog/queue`
-Entradas actuales de la cola de despacho (datos auxiliares de ordenación FIFO/auditoría — el `state` en los ficheros reales es la fuente de verdad para la elegibilidad).
+Entradas actuales de la cola de despacho con `effective_status` agrupado (`queued / dispatched / awaiting_tester / completed / failed`) — el visor del pipeline en tiempo real (los datos auxiliares de ordenación FIFO/auditoría; el `state` en los ficheros reales es la fuente de verdad para la elegibilidad).
+
+### `DELETE /backlog/queue/history`
+Borra el histórico de la cola de despacho.
+
+### `DELETE /backlog/queue/completed`
+Borra masivamente solo las entradas `completed` de la cola.
+
+### `DELETE /backlog/queue/entry/{task_id}`
+Elimina una entrada concreta de la cola.
+
+### `POST /backlog/queue/entry/{task_id}/requeue`
+Vuelve a encolar una entrada de la cola.
+
+### `GET /backlog/creation-requests`
+Estado de las peticiones de creación de Epic/US/Task desde lenguaje natural pendientes del Arquitecto.
 
 ### `POST /backlog/epic/{epic_id}/propose-stories`
 Ejecuta el pipeline determinista Epic→User-Story (validador de formato + auto-auditoría) y escribe las User Stories aprobadas, nacidas en `NO_TASKS`.
 
 ### `POST /backlog/us/{us_id}/propose-tasks`
 Ejecuta el pipeline determinista User-Story→Task. Requiere que la Story esté en `TO_PLAN` (400 en caso contrario); en caso de éxito escribe las Tasks y a partir de ahí la US refleja el estado derivado de sus Tasks.
+
+## Creación desde lenguaje natural
+
+### `POST /backlog/epic/from-description` → 202
+Envía a la cola de peticiones una petición de creación de una Epic a partir de una descripción libre; el Arquitecto la procesa.
+
+### `POST /backlog/epic/{epic_id}/from-description-us` → 202
+Igual, para una User Story dentro de una Epic.
+
+### `POST /backlog/us/{us_id}/from-description-task` → 202
+Igual, para una Task dentro de una User Story.
+
+### `GET /backlog/creation-requests`
+Estado de las peticiones de creación pendientes del Arquitecto.
+
+## Otros endpoints de backlog
+
+### `POST /backlog/epic`, `POST /backlog/epic/{epic_id}/us`, `POST /backlog/us/{us_id}/task`
+Crean una Epic, una User Story o una Task con formato validado (cuerpo con los campos de frontmatter).
+
+### `PUT /backlog/{item_id}/version`
+Actualiza el campo `version` (versión de entrega) de un item. Rechaza User Stories `DONE`/`IN_REVIEW`.
+
+### `PUT /backlog/{item_id}/priority`
+Actualiza la prioridad de un item.
+
+### `GET /backlog/epic/{epic_id}/coverage`
+Cobertura del alcance declarado de una Epic vs sus US/Tasks.
+
+### `GET /backlog/reconciliations`
+Registro de reconciliaciones de la cola y de tasks huérfanas.
 
 ## Scripts
 
@@ -241,7 +287,7 @@ Para `backlog_status`: `data` es el informe parseado y `prose` el resumen opcion
 ## Acciones transversales de proyecto
 
 ### `POST /project/actions/{action_id}`
-Despacha una acción completa de proyecto (bloqueante). `action_id` ∈ `documentar | analizar-arquitectura | sugerir-ideas | testear | auditar-ux | indexar`. Persiste el informe en `07-informes/US-AF025-*/` sin sobrescribir. 400 para una acción desconocida; 404 sin sesión activa (acciones de agente).
+Despacha una acción completa de proyecto (bloqueante). `action_id` ∈ `documentar | analizar-arquitectura | sugerir-ideas | testear | auditar-ux | auditar-oss | auditar-backlog | verificar-auditoria | testear-ui | indexar`. Persiste el informe en `07-informes/US-AF025-*/` sin sobrescribir. 400 para una acción desconocida; 404 sin sesión activa (acciones de agente).
 
 ## WebSockets
 
@@ -252,14 +298,20 @@ Eventos `{"event": "job_status", id, session_id, agent_id, description, status, 
 - `created` — antes del despacho (expone el `job_id` real, necesario para poder cancelar).
 - `completed` / `failed` — al terminar.
 
+### `WS /ws/plans`
+Eventos de estado de planes (flujo de Plan con aprobación; el flujo queda deprecado en la web, sustituido por el pipeline único — los endpoints y el WebSocket se mantienen).
+
 Ver también `WS /ws/agents/{agent_id}/pane` más arriba (contenido vivo del pane de tmux, no un evento `job_status`).
 
 ## Estados (resumen)
 
 | Entidad | Estados |
 |---|---|
-| Agente | `idle`, `working`, `unavailable`, `stopped` (Developer nunca llega a `stopped` — detener un Developer lo borra) |
+| Agente | `idle`, `working`, `unavailable`, `stopped` (Developer nunca llega a `stopped` — detener un Developer lo borra; `POST /agents/{id}/release` libera un Developer caído) |
 | Job | `created`, `running`, `completed`, `failed`, `cancelled` |
 | Task | `READY`, `TO_DEVELOP`, `IN_PROGRESS`, `IN_REVIEW`, `DONE` (nunca `OUT_OF_SCOPE`) |
 | User Story | `NO_TASKS`, `TO_PLAN`, más estados derivados de sus Tasks (`READY`/`TO_DEVELOP`/`IN_PROGRESS`/`IN_REVIEW`/`DONE`) y `OUT_OF_SCOPE` (exclusivo de US) |
 | Sesión | `created`, `active`, `closed` |
+| Cola de despacho | `queued`, `dispatched`, `failed`, `completed` (+ `awaiting_tester` derivado) |
+
+La fuente de verdad del vocabulario de estados de Task/User Story es `core/state_machines.py` (AF-040).

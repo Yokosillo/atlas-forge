@@ -110,13 +110,14 @@ Roles registrados: `developer`, `arquitecto`, `tester`, `documentador`, `ux`, `a
 
 - **Job**: `create → running → {completed | failed | cancelled}`. El reporte de resultados es **cooperativo**: el agente escribe su resultado en un fichero temporal más un marcador final; el dispatcher espera ese fichero.
 - **Encadenamiento**: `previous_job` inyecta literalmente el resultado del Job anterior en la descripción del Job siguiente. Developer→Developer está bloqueado (debe pasar por el Arquitecto).
-- **Pipeline de backlog**: un único worker en segundo plano sondea cada 5 segundos e impulsa cada ítem puramente por su `state` — encola Tasks `READY` como `TO_DEVELOP`, asigna una Task `TO_DEVELOP` a un Developer (`IN_PROGRESS`), entrega una Task en `IN_REVIEW` a un Tester libre, una User Story con todas sus Tasks `DONE` a un Arquitecto libre para su validación final, y una US `TO_PLAN` a un Arquitecto libre para su aterrizaje US→Tasks. Ver [Jobs y el pipeline de trabajo](jobs.md#el-pipeline-de-backlog).
+- **Pipeline de backlog**: un único worker en segundo plano sondea cada 5 segundos e impulsa cada ítem puramente por su `state` — encola Tasks `READY` como `TO_DEVELOP`, asigna una Task `TO_DEVELOP` a un Developer (`IN_PROGRESS`), entrega una Task en `IN_REVIEW` a un Tester libre, devuelve la misma Task al mismo Developer como retrabajo si el Tester la falla, una User Story con todas sus Tasks `DONE` a un Arquitecto libre para su validación final, y una US `TO_PLAN` a un Arquitecto libre para su aterrizaje US→Tasks. Ver [Jobs y el pipeline de trabajo](jobs.md#el-pipeline-de-backlog).
 - **Scribe automático**: el dispatcher decide invocar Scribe (por tamaño de descripción > 4000 caracteres o ≥ 10 Jobs consecutivos) para pre-procesar contexto, ahorrando tokens de runtimes remotos.
 - **Veredicto**: en una User Story en `IN_REVIEW` (todas sus Tasks `DONE`), el Arquitecto asignado emite `APROBADO` / `APROBADO_CON_OBSERVACIONES` / `RECHAZADO`; aprobada mueve la Story a `DONE`, rechazada añade una nueva Task a la misma Story en lugar de promoverla.
+- **Cola de despacho y escalado**: mantiene una cola por proyecto (`dispatch_queue.json`) como registro FIFO/auditoría (la elegibilidad la decide el `state` real), y puede escalar/liberar agentes autónomamente según la demanda (`autonomous_scaling.py`).
 
 ### Backlog (`atlas_forge/backlog/`)
 
-Parser determinista de `02-backlog/` (Epics, User Stories, Tasks) → un grafo de ítems con estado, dependencias, prioridad y fase. Informe de estado (`build_backlog_report`) con conteos por Epic, ítems LISTA/BLOQUEADA, cadena de máximo apalancamiento y grado de desbloqueo. Validador de esquema para el formato de backlog.
+Parser determinista de `02-backlog/` (Epics, User Stories, Tasks) → un grafo de ítems con estado, dependencias, prioridad y versión de entrega. Informe de estado (`build_backlog_report`) con conteos por Epic, ítems LISTA/BLOQUEADA, cadena de máximo apalancamiento y grado de desbloqueo. Validador de esquema para el formato de backlog. La fuente de verdad de estados y transiciones es `core/state_machines.py` (AF-040).
 
 ### API (`atlas_forge/api/`)
 

@@ -40,6 +40,23 @@ DEFAULT_DEVELOPER_WAITS_FOR_TESTER_REVIEW = True
 # del Dispatcher la re-despache sin intervención manual; si False (default),
 # la Task vuelve a `READY` y el usuario la "Progresar" de nuevo.
 DEFAULT_AUTO_REENQUEUE_ORPHANED = False
+# T-AF023-US03-02: configuración del modo autónomo del Dispatcher (escalado
+# por demanda y liberación). `enabled=False` por defecto (el modo autónomo
+# está apagado hasta que se active explícitamente). `roles` define mínimos/
+# máximos/umbrales por rol; `max_agents_total` limita la saturación.
+DEFAULT_AUTONOMOUS_CONFIG = {
+    "enabled": False,
+    "roles": {
+        "developer": {"min": 0, "max": 3, "tasks_per_agent": 3},
+        "tester": {"min": 0, "max": 2, "tasks_per_agent": 4},
+    },
+    "max_agents_total": 6,
+}
+# T-AF036-US27-01: modo de expansión del backlog en la web — `"single"`
+# (una Epic/US expandida a la vez, comportamiento actual) o `"multi"`
+# (varias a la vez). Solo se persiste el valor del conjunto cerrado.
+DEFAULT_BACKLOG_MULTIPLE_EXPANSION = "single"
+VALID_BACKLOG_MULTIPLE_EXPANSION = {"single", "multi"}
 
 
 def _default_state_dir() -> Path:
@@ -67,6 +84,8 @@ def load_system_preferences(
             "tui_enabled": DEFAULT_TUI_ENABLED,
             "developer_waits_for_tester_review": DEFAULT_DEVELOPER_WAITS_FOR_TESTER_REVIEW,
             "auto_reenqueue_orphaned": DEFAULT_AUTO_REENQUEUE_ORPHANED,
+            "autonomous_config": DEFAULT_AUTONOMOUS_CONFIG,
+            "backlog_multiple_expansion": DEFAULT_BACKLOG_MULTIPLE_EXPANSION,
         }
     payload = json.loads(path.read_text(encoding="utf-8"))
     return {
@@ -84,6 +103,12 @@ def load_system_preferences(
         ),
         "auto_reenqueue_orphaned": payload.get(
             "auto_reenqueue_orphaned", DEFAULT_AUTO_REENQUEUE_ORPHANED
+        ),
+        "autonomous_config": payload.get(
+            "autonomous_config", DEFAULT_AUTONOMOUS_CONFIG
+        ),
+        "backlog_multiple_expansion": payload.get(
+            "backlog_multiple_expansion", DEFAULT_BACKLOG_MULTIPLE_EXPANSION
         ),
     }
 
@@ -110,7 +135,17 @@ def save_system_preferences(
       de una entrada `dispatched` huérfana la re-despacha automáticamente
       a `TO_DEVELOP` (default `DEFAULT_AUTO_REENQUEUE_ORPHANED` si no se
       indica).
+    - `backlog_multiple_expansion`: `"single"` o `"multi"` (T-AF036-US27-01).
+      Un valor fuera del conjunto cerrado se rechaza con `ValueError` y NO
+      se persiste (mismo criterio que el límite de developers: nunca
+      persistir un estado roto).
     """
+    expansion = preferences.get("backlog_multiple_expansion", DEFAULT_BACKLOG_MULTIPLE_EXPANSION)
+    if expansion not in VALID_BACKLOG_MULTIPLE_EXPANSION:
+        raise ValueError(
+            f"backlog_multiple_expansion inválido: '{expansion}' — debe ser "
+            f"una de {sorted(VALID_BACKLOG_MULTIPLE_EXPANSION)}."
+        )
     path = _preferences_file(state_dir)
     path.parent.mkdir(parents=True, exist_ok=True)
     payload = {
@@ -129,6 +164,7 @@ def save_system_preferences(
         "auto_reenqueue_orphaned": preferences.get(
             "auto_reenqueue_orphaned", DEFAULT_AUTO_REENQUEUE_ORPHANED
         ),
+        "backlog_multiple_expansion": expansion,
     }
     path.write_text(json.dumps(payload), encoding="utf-8")
 
@@ -167,3 +203,11 @@ def get_auto_reenqueue_orphaned(state_dir: Path | None = None) -> bool:
     automáticamente las entradas `dispatched` huérfanas a `TO_DEVELOP`
     (T-AF008-US10-05). Por defecto False (Task vuelve a `READY`)."""
     return load_system_preferences(state_dir=state_dir)["auto_reenqueue_orphaned"]
+
+
+def get_autonomous_config(state_dir: Path | None = None) -> dict:
+    """Atajo para obtener la configuración del modo autónomo del Dispatcher
+    (T-AF023-US03-02): dict con `enabled`, `roles` (mínimos/máximos/umbrales
+    por rol) y `max_agents_total` (límite de saturación). Por defecto el
+    modo autónomo está deshabilitado."""
+    return load_system_preferences(state_dir=state_dir)["autonomous_config"]

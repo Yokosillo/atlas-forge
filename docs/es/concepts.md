@@ -23,13 +23,13 @@ La sesión mantiene: el proyecto activo, los agentes lanzados, el historial de J
 
 Una instancia de un **rol** ejecutándose sobre un **runtime** en una sesión de tmux. No es un modelo de lenguaje ni un proceso genérico: es rol + prompt + runtime + estado.
 
-- Roles: `developer`, `arquitecto`, `tester`, más `auditor_oss`/`ux` (declarados en el registro de roles — ver [Agentes](agents.md)).
+- Roles: `developer`, `arquitecto`, `tester`, `documentador`, `ux`, `auditor_oss` (declarados en el registro de roles — ver [Agentes](agents.md)).
 - Estados: `idle` → `working` / `unavailable` / `stopped`; `unavailable → idle`; `stopped` es terminal (hay que relanzar) — excepto Developer, que nunca llega a `stopped`: detenerlo borra la instancia por completo en lugar de pausarla.
 - Reuso: al lanzar un rol reutilizable (Arquitecto, Tester), el agente vivo existente se reutiliza en lugar de duplicarse. Developer siempre crea una instancia nueva al lanzarse (hasta un límite simultáneo configurable), nunca se reutiliza.
 
 ## Runtime
 
-Un ejecutable de IA externo lanzado en tmux: **Claude Code**, **OpenCode** o **Codex**. Runtime y modelo se eligen explícitamente en el momento del lanzamiento — sin cambio en caliente para un agente vivo. Ver [Runtime y Scribe](runtime.md).
+Un ejecutable de IA externo lanzado en tmux: **Claude Code**, **OpenCode** o **Codex**. Runtime y modelo se eligen explícitamente en el momento del lanzamiento — sin cambio en caliente para un agente vivo (excepto el modelo en agentes OpenCode). Ver [Runtime y Scribe](runtime.md).
 
 ## Job
 
@@ -42,7 +42,7 @@ Una unidad de trabajo enviada a un agente: una descripción de texto. Estados: `
 
 ## El Dispatcher
 
-Un único proceso en segundo plano que sondea cada 5 segundos y mueve el trabajo hacia adelante, guiado por el `state` de cada ítem: encola Tasks `READY` como `TO_DEVELOP`, asigna Tasks `TO_DEVELOP` a un Developer libre (`IN_PROGRESS`), entrega una Task en `IN_REVIEW` a un Tester libre, y una User Story con todas sus Tasks `DONE` a un Arquitecto libre para su validación final (y una US en `TO_PLAN` a un Arquitecto libre para aterrizarla en Tasks). Ver [Jobs y el pipeline de trabajo](jobs.md#el-pipeline-de-backlog).
+Un único proceso en segundo plano que sondea cada 5 segundos y mueve el trabajo hacia adelante, guiado por el `state` de cada ítem: encola Tasks `READY` como `TO_DEVELOP`, asigna Tasks `TO_DEVELOP` a un Developer libre (`IN_PROGRESS`), entrega una Task en `IN_REVIEW` a un Tester libre, y una User Story con todas sus Tasks `DONE` a un Arquitecto libre para su validación final (y una US en `TO_PLAN` a un Arquitecto libre para aterrizarla en Tasks). Un `FALLO` del Tester devuelve la misma Task al mismo Developer como retrabajo. Ver [Jobs y el pipeline de trabajo](jobs.md#el-pipeline-de-backlog).
 
 ## Scribe
 
@@ -55,7 +55,7 @@ Una herramienta local determinista (no un agente conversacional) que resume/inde
 
 ## Backlog
 
-El conjunto de Epics, User Stories y Tasks del proyecto activo (`02-backlog/`), con estado, dependencias, prioridad y fase. Es el **panel de control central** del producto: el trabajo se despliega desde aquí. Ver [Backlog y pipeline](backlog.md).
+El conjunto de Epics, User Stories y Tasks del proyecto activo (`02-backlog/`), con estado, dependencias, prioridad y versión de entrega. Es el **panel de control central** del producto: el trabajo se despliega desde aquí. Ver [Backlog y pipeline](backlog.md).
 
 ## Flujo de trabajo típico
 

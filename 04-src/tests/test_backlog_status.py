@@ -469,7 +469,11 @@ def test_cli_json_output_is_structured_and_parseable() -> None:
     real tiene algún padre DONE con un hijo reabierto — condición real
     hoy sobre `REAL_BACKLOG_PATH` (drift preexistente detectado en vivo,
     2026-08-16), así que se acepta con o sin la clave en vez de fijar un
-    conjunto exacto que dependería del estado cambiante del backlog real."""
+    conjunto exacto que dependería del estado cambiante del backlog real.
+
+    `duplicate_ids` (T-AF008-US18-01) es igualmente opcional: solo aparece
+    si el backlog real tiene ids duplicados (hoy los detecta el checker);
+    un backlog sin duplicados no expone la clave."""
     _, json_text = _run_cli([str(REAL_BACKLOG_PATH), "--json"])
     parsed = json.loads(json_text)
 
@@ -480,10 +484,11 @@ def test_cli_json_output_is_structured_and_parseable() -> None:
         "by_epic",
         "items_lista",
         "items_bloqueada",
+        "items_in_progress",
         "max_leverage_chain",
         "errors",
     }
-    assert set(parsed) - {"drift"} == expected
+    assert set(parsed) - {"drift", "duplicate_ids"} == expected
 
 
 # ---------------------------------------------------------------------------
@@ -624,3 +629,247 @@ def test_build_backlog_report_exposes_version_per_epic(tmp_path: Path) -> None:
     by_epic = {entry["epic"]: entry for entry in report["by_epic"]}
     assert by_epic["AF-910"]["version"] == "0.9"
     assert "version" not in by_epic["AF-911"]
+
+
+# ---------------------------------------------------------------------------
+# T-AF008-US18-01: el informe expone los ids duplicados como error consultable
+# ---------------------------------------------------------------------------
+
+
+def test_build_backlog_report_exposes_duplicate_ids(tmp_path: Path) -> None:
+    """Criterio 4: un backlog YA escrito con dos ficheros del mismo `id`
+    (la causal raíz del hallazgo de operaciones) se señala en el informe como
+    error consultable (`duplicate_ids`), tanto en el dict como en la salida
+    humana — para que el backlog existente pueda auditarse."""
+    backlog = tmp_path / "backlog"
+    _yaml_us(backlog / "user-stories" / "US-AF910-01.md", "US-AF910-01", "AF-910", "NO_TASKS")
+    _yaml_task(
+        backlog / "tasks" / "T-AF910-US01-01-primera.md",
+        "T-AF910-US01-01", "AF-910", "US-AF910-01", "READY",
+    )
+    _yaml_task(
+        backlog / "tasks" / "T-AF910-US01-01-segunda.md",
+        "T-AF910-US01-01", "AF-910", "US-AF910-01", "READY",
+    )
+
+    report = build_backlog_report(backlog)
+
+    assert "duplicate_ids" in report
+    assert report["duplicate_ids"] == [
+        {
+            "id": "T-AF910-US01-01",
+            "paths": [
+                "tasks/T-AF910-US01-01-primera.md",
+                "tasks/T-AF910-US01-01-segunda.md",
+            ],
+        }
+    ]
+
+    human = format_human_report(report)
+    assert "IDs duplicados" in human
+    assert "T-AF910-US01-01" in human
+
+
+def test_build_backlog_report_no_duplicate_ids_key_when_clean(tmp_path: Path) -> None:
+    """Un backlog sin ids duplicados no expone la clave `duplicate_ids`
+    (campo opcional, igual que `drift`) — un backlog limpio no cambia su
+    respuesta respecto a antes de esta Task."""
+    backlog = tmp_path / "backlog"
+    _yaml_us(backlog / "user-stories" / "US-AF910-01.md", "US-AF910-01", "AF-910", "NO_TASKS")
+    _yaml_task(
+        backlog / "tasks" / "T-AF910-US01-01.md",
+        "T-AF910-US01-01", "AF-910", "US-AF910-01", "READY",
+    )
+
+    report = build_backlog_report(backlog)
+
+    assert "duplicate_ids" not in report
+    assert "IDs duplicados" not in format_human_report(report)
+
+
+# ---------------------------------------------------------------------------
+# T-AF022-US17-01: indicador de en vuelo/huérfana para items IN_PROGRESS
+# ---------------------------------------------------------------------------
+
+
+def _write_dispatch_queue(project_root: Path, entries: list[dict]) -> None:
+    """Escribe `dispatch_queue.json` en la ruta canónica del proyecto
+    (`<root>/.claude/state/<name>/dispatch_queue.json`) para que
+    `_dispatched_task_ids_from_queue` lo lea por la vía real (`get_queue`)."""
+    import json
+
+    from atlas_forge.runtime.generic import sanitize_session_name_part
+
+    state_dir = (
+        project_root
+        / ".claude"
+        / "state"
+        / sanitize_session_name_part(project_root.name)
+    )
+    state_dir.mkdir(parents=True, exist_ok=True)
+    (state_dir / "dispatch_queue.json").write_text(
+        json.dumps(entries, ensure_ascii=False), encoding="utf-8"
+    )
+
+
+def _in_progress_fixture(tmp_path: Path) -> Path:
+    """Mini-backlog con una US IN_PROGRESS y su Task IN_PROGRESS."""
+    backlog = tmp_path / "repo" / "02-backlog"
+    _yaml_us(
+        backlog / "user-stories" / "US-AF910-01.md", "US-AF910-01", "AF-910", "IN_PROGRESS"
+    )
+    _yaml_task(
+        backlog / "tasks" / "T-AF910-US01-01.md",
+        "T-AF910-US01-01", "AF-910", "US-AF910-01", "IN_PROGRESS",
+    )
+    return backlog
+
+
+def _dispatched_entry(task_id: str) -> dict:
+    return {
+        "task_id": task_id,
+        "us_id": "US-AF910-01",
+        "priority": "Alta",
+        "status": "dispatched",
+        "enqueued_at": "2026-08-24T00:00:00+00:00",
+    }
+
+
+class TestInFlightHuerfanaIndicator:
+    """T-AF022-US17-01 (backend): el reporte de `GET /backlog` expone por item
+    `IN_PROGRESS` el indicador `in_flight` — `True` si su `task_id` tiene
+    entrada `dispatched` en `dispatch_queue.json` (Job legítimo en vuelo),
+    `False` si está sin entrada (huérfana). Fuente persistida, determinista."""
+
+    def test_in_progress_task_with_dispatched_entry_is_in_flight(self, tmp_path) -> None:
+        backlog = _in_progress_fixture(tmp_path)
+        _write_dispatch_queue(tmp_path / "repo", [_dispatched_entry("T-AF910-US01-01")])
+
+        report = build_backlog_report(backlog)
+        by_id = {entry["id"]: entry for entry in report["items_in_progress"]}
+
+        assert by_id["T-AF910-US01-01"]["in_flight"] is True
+        # La US IN_PROGRESS derivada se considera en vuelo si alguna de sus
+        # Tasks lo está (la cola es por Task).
+        assert by_id["US-AF910-01"]["in_flight"] is True
+
+    def test_in_progress_task_without_queue_entry_is_orphan(self, tmp_path) -> None:
+        backlog = _in_progress_fixture(tmp_path)  # sin dispatch_queue.json
+
+        report = build_backlog_report(backlog)
+        by_id = {entry["id"]: entry for entry in report["items_in_progress"]}
+
+        assert by_id["T-AF910-US01-01"]["in_flight"] is False
+        assert by_id["US-AF910-01"]["in_flight"] is False
+
+    def test_dispatched_other_task_does_not_mark_this_one_in_flight(self, tmp_path) -> None:
+        """Solo la Task con entrada `dispatched` es en vuelo; otra IN_PROGRESS
+        sin entrada sigue siendo huérfana aunque la cola tenga otras entradas."""
+        backlog = _in_progress_fixture(tmp_path)
+        _yaml_task(
+            backlog / "tasks" / "T-AF910-US01-02.md",
+            "T-AF910-US01-02", "AF-910", "US-AF910-01", "IN_PROGRESS",
+        )
+        _write_dispatch_queue(
+            tmp_path / "repo", [_dispatched_entry("T-AF910-US01-01")]
+        )
+
+        report = build_backlog_report(backlog)
+        by_id = {entry["id"]: entry for entry in report["items_in_progress"]}
+
+        assert by_id["T-AF910-US01-01"]["in_flight"] is True
+        assert by_id["T-AF910-US01-02"]["in_flight"] is False
+        assert by_id["US-AF910-01"]["in_flight"] is True  # alguna de sus Tasks va en vuelo
+
+    def test_queued_entry_is_not_in_flight(self, tmp_path) -> None:
+        """Criterio: `in_flight: true` exige entrada `dispatched` — una entrada
+        `queued` (todavía sin agente) no cuenta como en vuelo."""
+        backlog = _in_progress_fixture(tmp_path)
+        queued = _dispatched_entry("T-AF910-US01-01")
+        queued["status"] = "queued"
+        _write_dispatch_queue(tmp_path / "repo", [queued])
+
+        report = build_backlog_report(backlog)
+        by_id = {entry["id"]: entry for entry in report["items_in_progress"]}
+
+        assert by_id["T-AF910-US01-01"]["in_flight"] is False
+
+    def test_rest_of_items_do_not_carry_in_flight(self, tmp_path) -> None:
+        """El resto de items no llevan el campo: su shape no cambia."""
+        backlog = tmp_path / "backlog"
+        _yaml_us(
+            backlog / "user-stories" / "US-AF910-01.md", "US-AF910-01", "AF-910", "NO_TASKS"
+        )
+        _yaml_task(
+            backlog / "tasks" / "T-AF910-US01-01.md",
+            "T-AF910-US01-01", "AF-910", "US-AF910-01", "READY",
+        )
+        _yaml_task(
+            backlog / "tasks" / "T-AF910-US01-02.md",
+            "T-AF910-US01-02", "AF-910", "US-AF910-01", "DONE",
+        )
+
+        report = build_backlog_report(backlog)
+
+        assert report["items_in_progress"] == []
+        for entry in report["items_lista"] + report["max_leverage_chain"]:
+            assert "in_flight" not in entry
+
+    def test_in_progress_items_surfaces_in_human_report(self, tmp_path) -> None:
+        backlog = _in_progress_fixture(tmp_path)  # huérfana (sin cola)
+
+        human = format_human_report(build_backlog_report(backlog))
+
+        assert "IN_PROGRESS" in human
+        assert "HUÉRFANA" in human
+        assert "T-AF910-US01-01" in human
+
+
+# ---------------------------------------------------------------------------
+# T-AF022-US17-05 · Escenario del caso real (2026-08-20): T-AF023-US03-01
+# IN_PROGRESS huérfana → T-AF023-US03-02 bloqueada por ella.
+# ---------------------------------------------------------------------------
+
+
+def _yaml_task_deps(
+    backlog: Path, task_id: str, epic_id: str, us_id: str, state: str, deps: list[str]
+) -> None:
+    target = backlog / "tasks" / f"{task_id}.md"
+    target.parent.mkdir(parents=True, exist_ok=True)
+    if deps:
+        dep_lines = "dependencies:\n" + "".join(f"  - {d}\n" for d in deps)
+    else:
+        dep_lines = "dependencies: []"
+    target.write_text(
+        "---\n"
+        f"id: {task_id}\ntype: task\ntitle: {task_id}\nstate: {state}\n"
+        f"{dep_lines}\n"
+        f"epic: {epic_id}\nuser_story: {us_id}\npriority: Alta\n"
+        "---\n\n## Objetivo\n\nO.\n\n## Criterios de aceptación\n\n- C.\n",
+        encoding="utf-8",
+    )
+
+
+def test_caso_real_t_af023_us03_01_huerfana_bloquea_a_us03_02(tmp_path) -> None:
+    """T-AF022-US17-05, escenario del caso real: T-AF023-US03-01 queda
+    IN_PROGRESS huérfana (sin entrada `dispatched` en la cola → `in_flight:
+    false`) y T-AF023-US03-02 (READY, depende de ella) aparece en
+    `items_bloqueada` esperando a `T-AF023-US03-01 [IN_PROGRESS]` — el
+    ataque que bloqueó la cadena (AT-023)."""
+    backlog = tmp_path / "backlog"
+    _yaml_task_deps(backlog, "T-AF023-US03-01", "AF-023", "US-AF023-03", "IN_PROGRESS", [])
+    _yaml_task_deps(
+        backlog, "T-AF023-US03-02", "AF-023", "US-AF023-03", "READY",
+        ["T-AF023-US03-01"],
+    )
+
+    # Sin `dispatch_queue.json` → ningún `dispatched` → la IN_PROGRESS es
+    # huérfana y la dependencia pendiente se señala con su estado.
+    report = build_backlog_report(backlog)
+
+    in_progress = {entry["id"]: entry for entry in report["items_in_progress"]}
+    assert in_progress["T-AF023-US03-01"]["in_flight"] is False
+    blocked = {entry["id"]: entry for entry in report["items_bloqueada"]}
+    assert blocked["T-AF023-US03-02"]["blocking_dependencies"] == [
+        {"id": "T-AF023-US03-01", "state": "IN_PROGRESS"}
+    ]

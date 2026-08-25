@@ -38,8 +38,7 @@ models:
 
 Reglas de validación (`models_catalog.py`): runtime soportado, sin IDs duplicados, campos obligatorios; un catálogo vacío o malformado → `MalformedModelCatalogError` con un mensaje concreto. Los cambios se reflejan al recargar (caché TTL validada por mtime/size); los errores de parseo no se cachean.
 
-!!! note "Codex"
-    El runtime `codex` se considera en el catálogo pero **no está activo**: la entrada `openai/gpt-5` está comentada porque Codex está fuera del alcance del roadmap actual. `launch_agent` solo acepta `claude-code` y `opencode` por ahora.
+Los tres runtimes (`opencode`, `claude_code`, `codex`) están soportados por `launch_agent`. El catálogo real del proyecto declara modelos de los tres.
 
 ## `.atlas-forge/scripts.yml` — scripts específicos de proyecto
 
@@ -80,14 +79,49 @@ Estado editable por el usuario, distinto del catálogo. Ubicación: `<state_dir>
 
 Se edita desde la pestaña **Models** de la web (`GET/PUT /models/preferences`). Si el fichero no existe, se usan los valores por defecto (`enabled_model_ids: []`, `default_model_by_role: {}`).
 
+## `.atlas-forge/version.yml` — esquema de versiones
+
+Declara el esquema de versiones de entrega del producto. Cada User Story del backlog declara a qué versión pertenece (`version:` en su frontmatter).
+
+```yaml
+current_closed: null
+open: "0.9"
+future:
+  - "0.9.1"
+  - "0.9.2"
+```
+
+| Campo | Semántica |
+|---|---|
+| `current_closed` | Última versión cerrada y entregada (`null` si no se ha cerrado ninguna). |
+| `open` | Versión abierta en desarrollo (a la que se asigna trabajo nuevo). |
+| `future` | Versiones posteriores planificadas, en orden. |
+
+Se actualiza con `04-src/scripts/close_version.py` cuando se cierra una versión.
+
 ## Estado persistido (`state_dir`)
 
 | Fichero | Contenido |
 |---|---|
 | `active_project.json` | Proyecto activo seleccionado (persistido). |
 | `model_preferences.json` | Preferencias de modelo (habilitados + valores por defecto). |
+| `version.yml` | Esquema de versiones (ver arriba). |
 
 `state_dir` por defecto es `$XDG_DATA_HOME/atlas_forge` o `~/.local/share/atlas_forge`.
+
+## Preferencias del sistema (`GET/PUT /system/preferences`)
+
+Preferencias de configuración a nivel de sistema, persistidas independientemente de cualquier proyecto:
+
+| Clave | Tipo | Default | Descripción |
+|---|---|---|---|
+| `max_simultaneous_developers` | int | `3` | Límite de Developers simultáneos. |
+| `difficulty_model_map` | dict | `Baja:1, Media:2, Alta:4, Crítica:5` | Mapa dificultad→tier de modelo para la asignación por dificultad. |
+| `developer_waits_for_tester_review` | bool | `true` | Un Developer no coge Task nueva mientras su Task anterior está en `IN_REVIEW` del Tester. |
+| `autonomous_config` | dict | `enabled: false` | Escalado autónomo: límites por rol (`developer`, `tester`), tasks por agente y máximo total. |
+| `backlog_multiple_expansion` | `"single"` \| `"multi"` | `"single"` | Expansión de epis en el listado del backlog. |
+| `tui_enabled` | bool | `false` | (Legacy, sin interfaz terminal activa.) |
+| `auto_reenqueue_orphaned` | bool | `false` | Re-encolar automáticamente tasks huérfanas. |
 
 ## Despliegue (systemd)
 

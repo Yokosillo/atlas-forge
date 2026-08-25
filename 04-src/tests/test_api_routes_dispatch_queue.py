@@ -535,3 +535,115 @@ def test_delete_queue_history_removes_terminal_and_keeps_active(
     queue = client.get("/backlog/queue").json()
     assert any(e["task_id"] == "T-AF999-US01-02" for e in queue["queued"])  # conservada
     assert not any(e["task_id"] == "T-AF999-US01-01" for e in queue["completed"])  # borrada
+
+
+# ---------------------------------------------------------------------------
+# T-AF036-US17-07: borrado individual de una sola entrada terminal.
+# ---------------------------------------------------------------------------
+
+
+def test_delete_queue_entry_removes_only_that_terminal_entry(
+    tmp_path, monkeypatch
+) -> None:
+    """`DELETE /backlog/queue/entry/{task_id}` borra SOLO la entrada terminal
+    de `task_id` y conserva el resto de la cola, devolviendo cuántas borró."""
+    from atlas_forge.dispatcher.dispatch_queue import mark_completed, mark_dispatched
+
+    project_path = _active_project(tmp_path, monkeypatch)
+    _seed_backlog(project_path)
+    client = TestClient(create_app())
+
+    # T-...-01 -> completed (se borra)
+    assert client.post("/backlog/T-AF999-US01-01/enqueue").status_code == 201
+    mark_dispatched(project_path, "project-a", "T-AF999-US01-01", agent_id="a1", agent_name="D1")
+    mark_completed(project_path, "project-a", "T-AF999-US01-01", result="ok")
+    # T-...-02 -> queued (se conserva)
+    assert client.post("/backlog/T-AF999-US01-02/enqueue").status_code == 201
+
+    resp = client.delete("/backlog/queue/entry/T-AF999-US01-01")
+
+    assert resp.status_code == 200
+    assert resp.json() == {"task_id": "T-AF999-US01-01", "removed": 1}
+
+    queue = client.get("/backlog/queue").json()
+    assert any(e["task_id"] == "T-AF999-US01-02" for e in queue["queued"])  # conservada
+    assert not any(e["task_id"] == "T-AF999-US01-01" for e in queue["completed"])  # borrada
+
+
+def test_delete_queue_entry_returns_404_when_task_not_in_queue(
+    tmp_path, monkeypatch
+) -> None:
+    """404 si `task_id` no tiene ninguna entrada en la cola, con detail."""
+    from atlas_forge.dispatcher.dispatch_queue import mark_completed, mark_dispatched
+
+    project_path = _active_project(tmp_path, monkeypatch)
+    _seed_backlog(project_path)
+    client = TestClient(create_app())
+
+    assert client.post("/backlog/T-AF999-US01-01/enqueue").status_code == 201
+    mark_dispatched(project_path, "project-a", "T-AF999-US01-01", agent_id="a1", agent_name="D1")
+    mark_completed(project_path, "project-a", "T-AF999-US01-01", result="ok")
+
+    resp = client.delete("/backlog/queue/entry/T-AF999-US01-999")
+
+    assert resp.status_code == 404
+    assert "T-AF999-US01-999" in resp.json()["detail"]
+    # La cola no cambia.
+    queue = client.get("/backlog/queue").json()
+    assert any(e["task_id"] == "T-AF999-US01-01" for e in queue["completed"])
+
+
+def test_delete_queue_entry_returns_409_when_entry_is_in_flight(
+    tmp_path, monkeypatch
+) -> None:
+    """409 si la entrada existe pero está en curso (`queued`/`dispatched`) —
+    no es borrable por esta vía, con detail del motivo."""
+    from atlas_forge.dispatcher.dispatch_queue import mark_dispatched
+
+    project_path = _active_project(tmp_path, monkeypatch)
+    _seed_backlog(project_path)
+    client = TestClient(create_app())
+
+    assert client.post("/backlog/T-AF999-US01-01/enqueue").status_code == 201
+    mark_dispatched(project_path, "project-a", "T-AF999-US01-01", agent_id="a1", agent_name="D1")
+
+    resp = client.delete("/backlog/queue/entry/T-AF999-US01-01")
+
+    assert resp.status_code == 409
+    assert "no es terminal" in resp.json()["detail"]
+    # La entrada sigue en la cola.
+    queue = client.get("/backlog/queue").json()
+    assert any(e["task_id"] == "T-AF999-US01-01" for e in queue["dispatched"])
+
+
+def test_delete_queue_entry_persists_and_does_not_affect_task_state(
+    tmp_path, monkeypatch
+) -> None:
+    """El borrado persiste en `dispatch_queue.json` y no toca el estado real
+    de la Task en el backlog."""
+    from atlas_forge.dispatcher.dispatch_queue import (
+        mark_completed,
+        mark_dispatched,
+    )
+
+    project_path = _active_project(tmp_path, monkeypatch)
+    _seed_backlog(project_path)
+    client = TestClient(create_app())
+
+    assert client.post("/backlog/T-AF999-US01-01/enqueue").status_code == 201
+    mark_dispatched(project_path, "project-a", "T-AF999-US01-01", agent_id="a1", agent_name="D1")
+    mark_completed(project_path, "project-a", "T-AF999-US01-01", result="ok")
+
+    resp = client.delete("/backlog/queue/entry/T-AF999-US01-01")
+    assert resp.status_code == 200
+
+    # La entrada desapareció del fichero persistente.
+    from atlas_forge.dispatcher.dispatch_queue import get_queue
+
+    entries = get_queue(project_path, "project-a")
+    assert not any(e.task_id == "T-AF999-US01-01" for e in entries)
+    # El estado real de la Task (que era READY) no cambia.
+    task_text = (
+        project_path / "02-backlog" / "tasks" / "T-AF999-US01-01.md"
+    ).read_text(encoding="utf-8")
+    assert "state: READY" in task_text

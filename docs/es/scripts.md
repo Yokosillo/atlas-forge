@@ -1,11 +1,12 @@
 # Scripts
 
-Atlas Forge cataloga y ejecuta scripts desde la interfaz, distinguiendo dos fuentes:
+Atlas Forge cataloga y ejecuta scripts desde la interfaz, distinguiendo tres fuentes que se exponen juntas en `GET /scripts`:
 
 - **Genéricos**: catálogo fijo incluido con Atlas Forge, disponible en cualquier proyecto del workspace.
 - **Específicos de proyecto**: declarados por el proyecto activo en `.atlas-forge/scripts.yml`.
+- **Acciones transversales**: acciones de proyecto despachadas a agentes o procesos externos (ver [Acciones](interfaces-web.md#acciones-transversales)).
 
-Ambos se ejecutan sobre el proyecto activo con el mismo mecanismo (`run_subprocess`, timeout de 30s) y se exponen juntos en `GET /scripts`.
+Los scripts se ejecutan sobre el proyecto activo con el mismo mecanismo (`run_subprocess`, timeout de 30s).
 
 ## Scripts genéricos
 
@@ -56,14 +57,14 @@ scripts:
 
 ## API
 
-- `GET /scripts` — catálogo combinado (primero genéricos, sin `command`; luego específicos de proyecto con `command`). Cada ítem tiene `origin: "generic" | "particular"` y `description`.
+- `GET /scripts` — catálogo combinado de scripts genéricos, scripts de proyecto y acciones transversales. Cada ítem tiene `origin` (`generic` / `particular`) y `description`; las acciones llevan `execution_type` (`script` / `agent_job` / `external_process`).
 - `POST /scripts/{script_id}/run` — ejecuta (bloqueante). Cuerpo opcional `{"message": ...}` (solo `commit`). Devuelve `{success, exit_code, stdout, stderr, error_message, data, prose}`; para `backlog_status`, `data` es el informe y `prose` el resumen opcional de Scribe.
 
 Los fallos de ejecución se devuelven **estructuralmente** dentro del resultado (nunca como error HTTP), excepto 404 sin proyecto activo.
 
 ## En las interfaces
 
-- **Web**: pestaña "Scripts" con grupos Genéricos/Proyecto, descripción visible y comando oculto tras "▶ View command"; un campo de mensaje solo para `commit`.
+- **Web**: el catálogo combinado de Scripts (genéricos + proyecto + acciones) en la pestaña Scripts, con descripción visible y comando oculto tras "▶ View command"; un campo de mensaje solo para `commit`.
 
 ## Relación con Scribe
 

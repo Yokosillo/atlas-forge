@@ -186,7 +186,7 @@ Cancels an **in-flight** (`running`) Job. Waits for the real dispatcher-thread t
 ## Backlog
 
 ### `GET /backlog`
-Structured report of the active project's backlog (`02-backlog/`): counts per Epic (with `unblock_degree` and `fase`), LISTA/BLOQUEADA items, max-leverage chain, parse errors.
+Structured report of the active project's backlog (`02-backlog/`): counts per Epic (with `unblock_degree` and `version`), LISTA/BLOQUEADA items, max-leverage chain, parse errors.
 
 ### `GET /backlog/{item_id}`
 Detail of an item. IDs of the type `AF-xxx` resolve as an Epic; anything else as Task/User Story. Includes objective/story, acceptance criteria, dependencies (with their state) and, for User Stories, its Tasks and (AF-024-US09) execution history. 404 with a parse reason if the file exists but could not be parsed.
@@ -211,13 +211,59 @@ Same as above for every pending Task of a User Story in one call.
 Reverts a `TO_DEVELOP` Task back to `READY`, only if the Dispatcher has not picked it up yet.
 
 ### `GET /backlog/queue`
-Current dispatch-queue entries (auxiliary FIFO ordering/audit data — `state` on the real files is the source of truth for eligibility).
+Current dispatch-queue entries with `effective_status` grouped (`queued / dispatched / awaiting_tester / completed / failed`) — the real-time pipeline viewer (auxiliary FIFO ordering/audit data; `state` on the real files is the source of truth for eligibility).
+
+### `DELETE /backlog/queue/history`
+Deletes the dispatch-queue history.
+
+### `DELETE /backlog/queue/completed`
+Bulk-deletes only `completed` queue entries.
+
+### `DELETE /backlog/queue/entry/{task_id}`
+Removes a specific queue entry.
+
+### `POST /backlog/queue/entry/{task_id}/requeue`
+Re-queues a queue entry.
+
+### `GET /backlog/creation-requests`
+State of the natural-language Epic/US/Task creation requests pending the Architect.
 
 ### `POST /backlog/epic/{epic_id}/propose-stories`
 Runs the deterministic Epic→User-Story pipeline (format validator + self-audit) and writes the approved User Stories, born in `NO_TASKS`.
 
 ### `POST /backlog/us/{us_id}/propose-tasks`
 Runs the deterministic User-Story→Task pipeline. Requires the Story to be in `TO_PLAN` (400 otherwise); on success writes the Tasks and from then on the US reflects the derived state of its Tasks.
+
+## Creation from natural language
+
+### `POST /backlog/epic/from-description` → 202
+Sends an Epic creation request from a free-form description to the request queue; the Architect processes it.
+
+### `POST /backlog/epic/{epic_id}/from-description-us` → 202
+Same, for a User Story within an Epic.
+
+### `POST /backlog/us/{us_id}/from-description-task` → 202
+Same, for a Task within a User Story.
+
+### `GET /backlog/creation-requests`
+State of the creation requests pending the Architect.
+
+## Other backlog endpoints
+
+### `POST /backlog/epic`, `POST /backlog/epic/{epic_id}/us`, `POST /backlog/us/{us_id}/task`
+Create an Epic, a User Story or a Task with validated format (body with the frontmatter fields).
+
+### `PUT /backlog/{item_id}/version`
+Updates an item's `version` (delivery version). Rejects User Stories `DONE`/`IN_REVIEW`.
+
+### `PUT /backlog/{item_id}/priority`
+Updates an item's priority.
+
+### `GET /backlog/epic/{epic_id}/coverage`
+Coverage of an Epic's declared scope vs its US/Tasks.
+
+### `GET /backlog/reconciliations`
+Log of queue and orphaned-task reconciliations.
 
 ## Scripts
 
@@ -241,7 +287,7 @@ For `backlog_status`: `data` is the parsed report and `prose` the optional Scrib
 ## Cross-cutting project actions
 
 ### `POST /project/actions/{action_id}`
-Dispatches a complete project action (blocking). `action_id` ∈ `documentar | analizar-arquitectura | sugerir-ideas | testear | auditar-ux | indexar`. Persists the report in `07-informes/US-AF025-*/` without overwriting. 400 for an unknown action; 404 without an active session (agent actions).
+Dispatches a complete project action (blocking). `action_id` ∈ `documentar | analizar-arquitectura | sugerir-ideas | testear | auditar-ux | auditar-oss | auditar-backlog | verificar-auditoria | testear-ui | indexar`. Persists the report in `07-informes/US-AF025-*/` without overwriting. 400 for an unknown action; 404 without an active session (agent actions).
 
 ## WebSockets
 
@@ -252,14 +298,20 @@ Events `{"event": "job_status", id, session_id, agent_id, description, status, r
 - `created` — before dispatch (exposes the real `job_id`, needed to be able to cancel).
 - `completed` / `failed` — on finish.
 
+### `WS /ws/plans`
+Plan-state events (Plan approval flow; the flow is deprecated in the web, replaced by the single pipeline — the endpoints and WebSocket are kept).
+
 See also `WS /ws/agents/{agent_id}/pane` above (live tmux pane content, not a `job_status` event).
 
 ## States (summary)
 
 | Entity | States |
 |---|---|
-| Agent | `idle`, `working`, `unavailable`, `stopped` (Developer never reaches `stopped` — stopping a Developer deletes it instead) |
+| Agent | `idle`, `working`, `unavailable`, `stopped` (Developer never reaches `stopped` — stopping a Developer deletes it instead; `POST /agents/{id}/release` frees a downed Developer) |
 | Job | `created`, `running`, `completed`, `failed`, `cancelled` |
 | Task | `READY`, `TO_DEVELOP`, `IN_PROGRESS`, `IN_REVIEW`, `DONE` (never `OUT_OF_SCOPE`) |
 | User Story | `NO_TASKS`, `TO_PLAN`, plus states derived from its Tasks (`READY`/`TO_DEVELOP`/`IN_PROGRESS`/`IN_REVIEW`/`DONE`) and `OUT_OF_SCOPE` (exclusive to US) |
 | Session | `created`, `active`, `closed` |
+| Dispatch queue | `queued`, `dispatched`, `failed`, `completed` (+ derived `awaiting_tester`) |
+
+The source of truth for the Task/User Story state vocabulary is `core/state_machines.py` (AF-040).

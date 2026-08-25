@@ -238,7 +238,10 @@ def test_real_backlog_of_this_project_passes_v2_validation() -> None:
     # 02-backlog/ (epics/user-stories/tasks) pasan validate_backlog_file_v2
     # sin excepción, así que el hook puede aplicarlo sin lista de
     # exclusión.
-    from atlas_forge.backlog.validator_v2 import validate_backlog_file_v2
+    from atlas_forge.backlog.validator_v2 import (
+        find_duplicate_ids_in_dir,
+        validate_backlog_file_v2,
+    )
 
     backlog_root = _SCRIPT_PATH.parents[2] / "02-backlog"
     invalid = []
@@ -251,4 +254,20 @@ def test_real_backlog_of_this_project_passes_v2_validation() -> None:
                 invalid.append((path, result.errors))
 
     assert total > 0
-    assert invalid == []
+
+    # T-AF008-US18-01: el validador ahora aplica el checker de unicidad de
+    # `id` por directorio. Los ÚNICOS ficheros que pueden ser inválidos son
+    # exactamente los implicados en un `id` duplicado — cualquier otro fallo
+    # es una regresión. Si el backlog real no tiene duplicados, todo pasa.
+    expected_dup_paths: set[str] = set()
+    for subdir in ("epics", "user-stories", "tasks"):
+        for paths in find_duplicate_ids_in_dir(backlog_root / subdir).values():
+            expected_dup_paths.update(str(p) for p in paths)
+
+    invalid_paths = {str(path) for path, _ in invalid}
+    if expected_dup_paths:
+        assert invalid_paths == expected_dup_paths
+        for _path, errors in invalid:
+            assert any("duplicado" in e.message for e in errors)
+    else:
+        assert invalid == []

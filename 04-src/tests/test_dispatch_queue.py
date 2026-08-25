@@ -15,6 +15,7 @@ from atlas_forge.dispatcher.dispatch_queue import (
     TaskAlreadyDispatchedError,
     TaskAlreadyQueuedError,
     TaskNotQueuedError,
+    TaskNotTerminalError,
     QueueEntry,
     clear_completed,
     clear_history,
@@ -26,6 +27,7 @@ from atlas_forge.dispatcher.dispatch_queue import (
     mark_completed,
     mark_dispatched,
     mark_failed,
+    remove_entry,
 )
 
 
@@ -438,11 +440,14 @@ def test_reconcile_leaves_in_review_untouched(tmp_path):
     assert get_queue(tmp_path, "proj")[0].status == STATUS_DISPATCHED
 
 
-def test_reconcile_reverts_in_progress_orphan_to_ready(tmp_path):
-    """T-AF008-US10-05, criterio 1: una entrada `dispatched` huérfana
-    (Task IN_PROGRESS, Job en vuelo perdido — sin reporte localizable) se
-    revierte a `READY` en el fichero real y la entrada queda `failed` con
-    el motivo, dejando la plaza libre para re-despachar."""
+def test_reconcile_does_not_revert_dispatched_in_progress_without_report(tmp_path):
+    """T-AF022-US20-01, criterio 1: una entrada `dispatched` cuya Task está
+    `IN_PROGRESS` NO se revierte aunque su `report_file` aún no exista en
+    disco — el fichero es el destino del informe que el agente escribirá al
+    terminar, y su ausencia transitoria es lo normal (reproduce la ventana de
+    despacho que causó decenas de falsos positivos el 2026-08-24). El residuo
+    de Job huérfano REAL (agente ya inexistente) lo limpia la función
+    dedicada del worker (`_reconcile_orphaned_agent_entries`, T-AF008-US18-05)."""
     backlog_dir = tmp_path / "02-backlog"
     _write_task_md(backlog_dir / "tasks", "T-AF999-US01-01", "US-AF999-01", "IN_PROGRESS")
     enqueue_task(tmp_path, "proj", task_id="T-AF999-US01-01", us_id="US-AF999-01", priority="Alta")
@@ -451,17 +456,18 @@ def test_reconcile_reverts_in_progress_orphan_to_ready(tmp_path):
     from atlas_forge.dispatcher.dispatch_queue import reconcile_dispatch_queue_entries
     reconciled = reconcile_dispatch_queue_entries(tmp_path, "proj", backlog_dir)
 
-    assert reconciled == ["T-AF999-US01-01"]
+    assert reconciled == []
     task_text = (backlog_dir / "tasks" / "T-AF999-US01-01.md").read_text(encoding="utf-8")
-    assert "state: READY" in task_text
+    assert "state: IN_PROGRESS" in task_text
     entry = get_queue(tmp_path, "proj")[0]
-    assert entry.status == STATUS_FAILED
-    assert "reencolada manualmente" in entry.result
+    assert entry.status == STATUS_DISPATCHED
+    assert entry.result is None
 
 
-def test_reconcile_in_progress_orphan_writes_reconciliation_log(tmp_path):
-    """Criterio 4: la reconciliación de una huérfana queda registrada en
-    `reconciliation_log.jsonl` con el motivo `dispatched_orphan_reconciled`."""
+def test_reconcile_does_not_log_reverted_for_dispatched_in_progress_without_report(tmp_path):
+    """T-AF022-US20-01, criterio 3: la reconciliación de una entrada
+    `dispatched` en la ventana (sin reporte aún) NO registra
+    `dispatched_orphan_reconciled → READY` en el log."""
     backlog_dir = tmp_path / "02-backlog"
     _write_task_md(backlog_dir / "tasks", "T-AF999-US01-01", "US-AF999-01", "IN_PROGRESS")
     enqueue_task(tmp_path, "proj", task_id="T-AF999-US01-01", us_id="US-AF999-01", priority="Alta")
@@ -471,19 +477,19 @@ def test_reconcile_in_progress_orphan_writes_reconciliation_log(tmp_path):
     reconcile_dispatch_queue_entries(tmp_path, "proj", backlog_dir)
 
     import json
+    from pathlib import Path as _Path
     log_path = tmp_path / ".claude" / "state" / "proj" / "reconciliation_log.jsonl"
-    lines = log_path.read_text(encoding="utf-8").strip().splitlines()
-    assert len(lines) == 1
-    entry = json.loads(lines[0])
-    assert entry["reason"] == "dispatched_orphan_reconciled"
-    assert entry["task_id"] == "T-AF999-US01-01"
-    assert entry["target_state"] == "READY"
+    assert not _Path(log_path).exists()
+
+    lines = get_queue(tmp_path, "proj")
+    assert lines[0].status == STATUS_DISPATCHED
 
 
-def test_reconcile_in_progress_orphan_with_auto_reenqueue_to_develop(tmp_path):
-    """Criterio 3 + preferencia automática: con `auto_reenqueue_orphaned`
-    activa, la Task huérfana vuelve a `TO_DEVELOP` — el siguiente
-    `run_dispatch_cycle` la despacha a un Developer idle sin intervención."""
+def test_reconcile_does_not_revert_dispatched_in_progress_even_with_auto_reenqueue(tmp_path):
+    """T-AF022-US20-01: la preferencia `auto_reenqueue_orphaned` no debe
+    revolver una entrada `dispatched` en la ventana (sin reporte aún) — el
+    guard "si hay entrada dispatched, no se revierte" es el de seguridad
+    principal y aplica con cualquier valor de la preferencia."""
     backlog_dir = tmp_path / "02-backlog"
     _write_task_md(backlog_dir / "tasks", "T-AF999-US01-01", "US-AF999-01", "IN_PROGRESS")
     enqueue_task(tmp_path, "proj", task_id="T-AF999-US01-01", us_id="US-AF999-01", priority="Alta")
@@ -494,12 +500,68 @@ def test_reconcile_in_progress_orphan_with_auto_reenqueue_to_develop(tmp_path):
         tmp_path, "proj", backlog_dir, auto_reenqueue_orphaned=True
     )
 
+    assert reconciled == []
+    task_text = (backlog_dir / "tasks" / "T-AF999-US01-01.md").read_text(encoding="utf-8")
+    assert "state: IN_PROGRESS" in task_text
+    assert get_queue(tmp_path, "proj")[0].status == STATUS_DISPATCHED
+
+
+def test_reconcile_reverts_in_progress_without_dispatched_real_orphan(tmp_path):
+    """T-AF022-US20-01, criterio 2 (+ T-AF022-US18-01): una task IN_PROGRESS
+    SIN entrada `dispatched`, SIN reporte, SIN `_inflight` (protegida) es una
+    huérfana REAL (caso T-AF023-US03-01) y SÍ se revierte a
+    READY/TO_DEVELOP — la detección de huérfanas reales no se debilita."""
+    backlog_dir = tmp_path / "02-backlog"
+    _write_task_md(backlog_dir / "tasks", "T-AF999-US01-01", "US-AF999-01", "IN_PROGRESS")
+    # NOTA: sin enqueue ni mark_dispatched — no hay entrada en la cola.
+
+    from atlas_forge.dispatcher.dispatch_queue import reconcile_orphaned_in_progress_tasks
+    reconciled = reconcile_orphaned_in_progress_tasks(tmp_path, "proj", backlog_dir)
+
     assert reconciled == ["T-AF999-US01-01"]
     task_text = (backlog_dir / "tasks" / "T-AF999-US01-01.md").read_text(encoding="utf-8")
-    assert "state: TO_DEVELOP" in task_text
-    entry = get_queue(tmp_path, "proj")[0]
-    assert entry.status == STATUS_FAILED
-    assert "reencolada automáticamente" in entry.result
+    assert "state: READY" in task_text
+
+    import json
+    from pathlib import Path as _Path
+    log_path = tmp_path / ".claude" / "state" / "proj" / "reconciliation_log.jsonl"
+    entry = json.loads(_Path(log_path).read_text(encoding="utf-8").strip().splitlines()[0])
+    assert entry["reason"] == "dispatched_orphan_reconciled"
+    assert entry["target_state"] == "READY"
+
+
+def test_reconcile_in_progress_real_orphan_respects_protected_and_auto_reenqueue(tmp_path):
+    """La huérfana real respeta `protected_task_ids` (_inflight) y la
+    preferencia `auto_reenqueue_orphaned` (TO_DEVELOP si activa)."""
+    backlog_dir = tmp_path / "02-backlog"
+    _write_task_md(backlog_dir / "tasks", "T-AF999-US01-01", "US-AF999-01", "IN_PROGRESS")
+    _write_task_md(backlog_dir / "tasks", "T-AF999-US01-02", "US-AF999-01", "IN_PROGRESS")
+
+    from atlas_forge.dispatcher.dispatch_queue import reconcile_orphaned_in_progress_tasks
+
+    # Con auto_reenqueue False y `protected` para la segunda task:
+    reconciled = reconcile_orphaned_in_progress_tasks(
+        tmp_path, "proj", backlog_dir,
+        auto_reenqueue_orphaned=False,
+        protected_task_ids={"T-AF999-US01-02"},
+    )
+
+    assert reconciled == ["T-AF999-US01-01"]
+    text1 = (backlog_dir / "tasks" / "T-AF999-US01-01.md").read_text(encoding="utf-8")
+    assert "state: READY" in text1
+    text2 = (backlog_dir / "tasks" / "T-AF999-US01-02.md").read_text(encoding="utf-8")
+    assert "state: IN_PROGRESS" in text2  # protegida: no se toca.
+
+    # Con la preferencia activa, la real revierte a TO_DEVELOP.
+    from pathlib import Path as _Path
+    backlog_dir2 = tmp_path / "backlog2"
+    _write_task_md(backlog_dir2 / "tasks", "T-AF999-US01-03", "US-AF999-01", "IN_PROGRESS")
+    reconciled2 = reconcile_orphaned_in_progress_tasks(
+        tmp_path, "proj", backlog_dir2, auto_reenqueue_orphaned=True
+    )
+    assert reconciled2 == ["T-AF999-US01-03"]
+    text3 = (backlog_dir2 / "tasks" / "T-AF999-US01-03.md").read_text(encoding="utf-8")
+    assert "state: TO_DEVELOP" in text3
 
 
 def test_reconcile_leaves_in_progress_with_live_report_untouched(tmp_path):
@@ -779,6 +841,60 @@ def test_clear_completed_is_idempotent_when_no_completed_entries(tmp_path):
     assert {e.task_id for e in get_queue(tmp_path, "proj")} == {"T-1", "T-2"}
 
 
+def test_remove_entry_removes_only_the_terminal_entry_and_keeps_the_rest(tmp_path):
+    """T-AF036-US17-07: `remove_entry` borra SOLO la entrada terminal de
+    `task_id` y conserva el resto de la cola (completed + failed + en curso)."""
+    enqueue_task(tmp_path, "proj", task_id="T-1", us_id="US-1", priority=None)  # completed
+    enqueue_task(tmp_path, "proj", task_id="T-2", us_id="US-2", priority=None)  # failed
+    enqueue_task(tmp_path, "proj", task_id="T-3", us_id="US-3", priority=None)  # queued (en curso)
+    mark_dispatched(tmp_path, "proj", "T-1", agent_id="a", agent_name="D")
+    mark_completed(tmp_path, "proj", "T-1", result="ok")
+    mark_dispatched(tmp_path, "proj", "T-2", agent_id="a", agent_name="D")
+    mark_failed(tmp_path, "proj", "T-2", result="fail")
+
+    removed = remove_entry(tmp_path, "proj", "T-1")
+
+    assert removed is True
+    by_id = {e.task_id: e.status for e in get_queue(tmp_path, "proj")}
+    assert by_id == {"T-2": "failed", "T-3": "queued"}
+
+
+def test_remove_entry_removes_a_failed_entry_too(tmp_path):
+    """T-AF036-US17-07: `failed` es terminal y también se borra por esta vía."""
+    enqueue_task(tmp_path, "proj", task_id="T-1", us_id="US-1", priority=None)
+    mark_dispatched(tmp_path, "proj", "T-1", agent_id="a", agent_name="D")
+    mark_failed(tmp_path, "proj", "T-1", result="fail")
+
+    assert remove_entry(tmp_path, "proj", "T-1") is True
+    assert get_queue(tmp_path, "proj") == []
+
+
+def test_remove_entry_raises_when_task_not_queued(tmp_path):
+    """T-AF036-US17-07: 404 — `task_id` sin ninguna entrada no borra nada y
+    lanza `TaskNotQueuedError`."""
+    enqueue_task(tmp_path, "proj", task_id="T-1", us_id="US-1", priority=None)
+
+    with pytest.raises(TaskNotQueuedError):
+        remove_entry(tmp_path, "proj", "T-desconocida")
+
+    assert {e.task_id for e in get_queue(tmp_path, "proj")} == {"T-1"}
+
+
+def test_remove_entry_raises_when_entry_not_terminal(tmp_path):
+    """T-AF036-US17-07: 409 — una entrada en curso (`queued`/`dispatched`)
+    no es borrable por esta vía y lanza `TaskNotTerminalError`."""
+    enqueue_task(tmp_path, "proj", task_id="T-1", us_id="US-1", priority=None)
+    enqueue_task(tmp_path, "proj", task_id="T-2", us_id="US-2", priority=None)
+    mark_dispatched(tmp_path, "proj", "T-2", agent_id="a", agent_name="D")
+
+    with pytest.raises(TaskNotTerminalError):
+        remove_entry(tmp_path, "proj", "T-1")
+    with pytest.raises(TaskNotTerminalError):
+        remove_entry(tmp_path, "proj", "T-2")
+
+    assert {e.task_id for e in get_queue(tmp_path, "proj")} == {"T-1", "T-2"}
+
+
 # ---------------------------------------------------------------------------
 # T-AF022-US18-01: reconciliar tasks IN_PROGRESS huérfanas SIN entrada JSON
 # (cierra el hueco de `reconcile_dispatch_queue_entries`, que solo recorre
@@ -969,3 +1085,58 @@ def test_reconcile_orphaned_empty_backlog_returns_empty(tmp_path):
     from atlas_forge.dispatcher.dispatch_queue import reconcile_orphaned_in_progress_tasks
 
     assert reconcile_orphaned_in_progress_tasks(tmp_path, "proj", tmp_path / "no-backlog") == []
+
+
+def test_reconcile_periodic_respects_protected_inflight_task(tmp_path):
+    """T-AF022-US18-02 (regresión observada en vivo): la reconciliación
+    periódica NO debe marcar `failed` un Job recién despachado cuyo
+    `report_file` aún no existe — el fichero de reporte solo se crea cuando
+    el agente TERMINA de escribir su informe. Antes del fix, una tarea que
+    acababa de coger un Developer pasaba a `failed` a los pocos segundos
+    (mensaje "Job en vuelo perdido tras reinicio") y se re-despachaba,
+    duplicando trabajo mientras el agente seguía completándola."""
+    from atlas_forge.dispatcher.dispatch_queue import (
+        reconcile_dispatch_queue_entries,
+        reconcile_orphaned_in_progress_tasks,
+    )
+    from atlas_forge.dispatcher.dispatch_queue import set_entry_report_file
+
+    backlog_dir = tmp_path / "02-backlog"
+    _write_task_md(backlog_dir / "tasks", "T-AF999-US01-01", "US-AF999-01", "IN_PROGRESS")
+    enqueue_task(tmp_path, "proj", task_id="T-AF999-US01-01", us_id="US-AF999-01", priority="Alta")
+    mark_dispatched(tmp_path, "proj", "T-AF999-US01-01", agent_id="a-1", agent_name="Developer-1")
+    # `dispatch_job_send` ya registró la ruta del reporte, pero el agente aún
+    # está trabajando: el fichero NO existe todavía (estado NORMAL en vuelo).
+    pending_report = tmp_path / "atlas-forge-job-pendiente.txt"
+    set_entry_report_file(tmp_path, "proj", "T-AF999-US01-01", pending_report)
+    assert not pending_report.exists()
+
+    # El worker vigila esta task en su registro `_inflight` en memoria.
+    protected = {"T-AF999-US01-01"}
+
+    assert reconcile_dispatch_queue_entries(
+        tmp_path, "proj", backlog_dir, protected_task_ids=protected
+    ) == []
+    assert reconcile_orphaned_in_progress_tasks(
+        tmp_path, "proj", backlog_dir, protected_task_ids=protected
+    ) == []
+
+    entry = get_queue(tmp_path, "proj")[0]
+    assert entry.status == STATUS_DISPATCHED
+    assert _read_state(backlog_dir / "tasks" / "T-AF999-US01-01.md") == "IN_PROGRESS"
+
+
+def test_reconcile_periodic_still_reverts_unprotected_in_progress(tmp_path):
+    """La protección de task_ids en vuelo no anula la reconciliación de
+    huérfanas reales: una Task IN_PROGRESS sin protección y sin reporte
+    localizable sigue revertiéndose (comportamiento vigente para reinicios
+    reales y colas huérfanas)."""
+    from atlas_forge.dispatcher.dispatch_queue import reconcile_orphaned_in_progress_tasks
+
+    backlog_dir = tmp_path / "02-backlog"
+    _write_task_md(backlog_dir / "tasks", "T-AF999-US01-99", "US-AF999-01", "IN_PROGRESS")
+
+    reconciled = reconcile_orphaned_in_progress_tasks(tmp_path, "proj", backlog_dir)
+
+    assert reconciled == ["T-AF999-US01-99"]
+    assert _read_state(backlog_dir / "tasks" / "T-AF999-US01-99.md") == "READY"

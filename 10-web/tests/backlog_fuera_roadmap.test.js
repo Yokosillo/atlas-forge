@@ -67,6 +67,22 @@ async function _setUsStateToOutOfScope(projectPath, usId) {
 }
 
 async function _openEpicDetail(page, epicId) {
+  // Vista "Lista" primero: la vista por defecto "Por Versión" agrupa las
+  // Epics por versión y una Epic cuyas US todavía no tienen versión se
+  // clasifica como terminada en el grupo SIN_VERSION (oculta bajo
+  // "Terminadas"); la vista plana clasifica por conteos de estado reales
+  // (la US NO_TASKS cuenta como pendiente), donde la Epic siempre es
+  // visible.
+  const listaClicked = await page.evaluate(() => {
+    const btn = Array.from(document.querySelectorAll(".backlog-view-toggle")).find((b) =>
+      b.textContent.trim().startsWith("Lista")
+    );
+    if (!btn) return false;
+    btn.click();
+    return true;
+  });
+  assert.ok(listaClicked, "Debe existir el toggle 'Lista' para fijar la vista plana.");
+
   await waitVisible(page, ".backlog-epic-line");
   const clicked = await page.evaluate((id) => {
     const line = Array.from(document.querySelectorAll(".backlog-epic-line")).find((l) =>
@@ -91,15 +107,30 @@ async function test_out_of_scope_us_is_distinguished_in_listing_and_selector() {
     await _goToBacklogTab(page);
     await _openEpicDetail(page, "AF-943");
 
-    // Criterio 2: el texto "Fuera de roadmap" es visible en la propia
-    // línea de la US sin desplegar el detalle, y NO se muestra el valor
-    // crudo del estado.
+    // Criterio 2 (decisión 2026-08-25): la US fuera de roadmap NO aparece
+    // en el bloque de pendientes del detalle de la Epic — solo queda la US
+    // activa (US-AF943-02) a la vista. Se localiza el encabezado colapsable
+    // "Fuera de roadmap" y se despliega: la revelación y la lectura de la
+    // línea se hacen en el MISMO `evaluate` (el click re-renderiza de forma
+    // síncrona, sin carrera con un re-render del polling entre medias).
     await waitVisible(page, ".backlog-us-line");
+    const inPendingBlock = await page.evaluate(() =>
+      Array.from(document.querySelectorAll(".backlog-us-line")).some((l) =>
+        l.textContent.includes("US-AF943-01")
+      )
+    );
+    assert.strictEqual(inPendingBlock, false, "La US fuera de roadmap no debe mostrarse en el apartado de pendientes de la Epic.");
+
     const lineInfo = await page.evaluate(() => {
+      const header = Array.from(document.querySelectorAll(".backlog-done-header")).find((h) =>
+        h.textContent.includes("Fuera de roadmap")
+      );
+      if (!header) return { error: "no existe el encabezado colapsable 'Fuera de roadmap'" };
+      header.click();
       const line = Array.from(document.querySelectorAll(".backlog-us-line")).find((l) =>
         l.textContent.includes("US-AF943-01")
       );
-      if (!line) return null;
+      if (!line) return { error: "la US postergada no aparece tras expandir el bloque" };
       return {
         text: line.textContent,
         titleText: (line.querySelector(".backlog-us-line-title") || {}).textContent || "",
@@ -107,7 +138,7 @@ async function test_out_of_scope_us_is_distinguished_in_listing_and_selector() {
         titleClass: (line.querySelector(".backlog-us-line-title") || {}).className || "",
       };
     });
-    assert.ok(lineInfo, "No se encontró la línea de la US postergada.");
+    assert.ok(!lineInfo.error, lineInfo.error);
     assert.ok(
       lineInfo.text.includes("Fuera de roadmap"),
       "La línea debe mostrar 'Fuera de roadmap' sin desplegar el detalle."
@@ -154,6 +185,9 @@ async function test_out_of_scope_us_is_distinguished_in_listing_and_selector() {
     );
 
     // Criterio 1: el detalle expandido también muestra "Fuera de roadmap".
+    // (La `renderItemDetail` actual ya no pinta un campo "Estado:" — el
+    // estado queda en la etiqueta "— Fuera de roadmap" de la propia línea,
+    // visible también con el detalle desplegado.)
     const clicked = await page.evaluate(() => {
       const line = Array.from(document.querySelectorAll(".backlog-us-line")).find((l) =>
         l.textContent.includes("US-AF943-01")
@@ -163,9 +197,14 @@ async function test_out_of_scope_us_is_distinguished_in_listing_and_selector() {
     });
     assert.ok(clicked);
     await page.waitForFunction(
-      () => Array.from(document.querySelectorAll(".job-detail-field")).some((f) =>
-        f.textContent.startsWith("Estado: Fuera de roadmap")
-      ),
+      () => {
+        const lines = Array.from(document.querySelectorAll(".backlog-us-line"));
+        const line = lines.find((l) => l.textContent.includes("US-AF943-01"));
+        if (!line || !line.className.includes("job-line-selected")) return false;
+        const title = (line.querySelector(".backlog-us-line-title") || {}).textContent || "";
+        const detail = (line.closest(".job-card") || {}).textContent || "";
+        return title.includes("Fuera de roadmap") && detail.includes("H.");
+      },
       { timeout: 10000 }
     );
   });
@@ -207,8 +246,15 @@ async function test_out_of_scope_task_is_distinguished_in_listing() {
     await _openEpicDetail(page, "AF-943");
     await waitVisible(page, ".backlog-us-line");
 
-    // Abre el detalle de la US para que su lista de Tasks anidadas se pinte.
+    // La US fuera de roadmap vive bajo el bloque colapsable "Fuera de
+    // roadmap", no en el apartado de pendientes (decisión 2026-08-25) — se
+    // expande el bloque en el MISMO `evaluate` en que se localiza la US,
+    // para abrir su detalle a continuación sin carrera con un re-render.
     const openedUs = await page.evaluate(() => {
+      const header = Array.from(document.querySelectorAll(".backlog-done-header")).find((h) =>
+        h.textContent.includes("Fuera de roadmap")
+      );
+      if (header) header.click();
       const line = Array.from(document.querySelectorAll(".backlog-us-line")).find((l) =>
         l.textContent.includes("US-AF943-01")
       );

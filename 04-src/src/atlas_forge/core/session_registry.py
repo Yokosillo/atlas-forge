@@ -1,7 +1,17 @@
 from pathlib import Path
 
 from atlas_forge.core.session_lifecycle import activate, close
+from atlas_forge.core.session_recovery import (
+    build_session_snapshot,
+    deserialize_snapshot,
+    is_recoverable,
+    serialize_snapshot,
+)
 from atlas_forge.models import DevelopmentSession
+from atlas_forge.storage.session_snapshot_store import (
+    load_session_snapshot,
+    save_session_snapshot,
+)
 from atlas_forge.workspace.startup import ProjectRecovered, StartupOutcome, resolve_startup_project
 
 
@@ -27,11 +37,71 @@ class _SessionRegistry:
             self._focused_project_id = project_id
             return existing
 
+        # T-AF003-US02-02: antes de crear una sesión "de cero", se intenta
+        # recuperar la sesión persistida del proyecto (snapshot RECUPERABLE
+        # guardado al cerrar/reabrir Atlas Forge). Reutiliza la lógica de
+        # dominio (`deserialize_snapshot` + `is_recoverable` +
+        # `record_activity`) — esta capa solo decide cuándo invocarla.
+        recovered = self._recover_session(project_id)
+        if recovered is not None:
+            self._sessions[project_id] = recovered
+            self._focused_project_id = project_id
+            return recovered
+
         session = DevelopmentSession(id=f"session-{project_id}", project_id=project_id)
         activate(session)
         self._sessions[project_id] = session
         self._focused_project_id = project_id
+        # T-AF003-US02-02 (carga/persistencia): en cuanto la sesión queda
+        # activa, se persiste su snapshot recuperable — así la próxima vez
+        # que se abra Atlas Forge sobre el mismo proyecto, `_recover_session`
+        # la encuentra. Best-effort: un fallo de I/O no bloquea el arranque.
+        self._persist_snapshot(project_id, session)
         return session
+
+    def _recover_session(self, project_id: str) -> DevelopmentSession | None:
+        """Recupera la sesión persistida de `project_id` si su snapshot
+        guardado es recuperable. Conecta el módulo de dominio al flujo de
+        arranque: la reconstrucción de la sesión NO duplica la lógica de
+        negocio (decisión de recuperabilidad = `is_recoverable`), solo la
+        invoca y registra el evento en el historial persistido."""
+        data = load_session_snapshot(project_id)
+        if data is None:
+            return None
+        snapshot = deserialize_snapshot(data)
+        if not is_recoverable(snapshot):
+            return None
+        # La sesión recuperada se reconstruye como activa en esta ejecución;
+        # los agentes reales vivos los reengancha AF-031
+        # (`reconcile_session_agents`, arranque) sobre la sesión ya viva.
+        session = DevelopmentSession(id=f"session-{project_id}", project_id=project_id)
+        session.status = "active"
+        # Registro en el historial persistido del propio evento de
+        # recuperación (mismo patrón que `record_activity` del dominio).
+        recovered = snapshot.record_activity(
+            "sesion_recuperada",
+            detail="recuperada de snapshot persistido al reabrir Atlas Forge",
+        )
+        self._persist_snapshot(project_id, session, override=serialize_snapshot(recovered))
+        return session
+
+    def _persist_snapshot(
+        self,
+        project_id: str,
+        session: DevelopmentSession,
+        override: dict | None = None,
+    ) -> None:
+        """Serializa y persiste el snapshot recuperable de `session` (usando
+        `build_session_snapshot` + `serialize_snapshot` de la capa de
+        dominio). Best-effort: un fallo de disco no debe abortar el flujo."""
+        try:
+            if override is not None:
+                data = override
+            else:
+                data = serialize_snapshot(build_session_snapshot(session))
+            save_session_snapshot(project_id, data)
+        except Exception:
+            pass
 
     def get_current_session(self) -> DevelopmentSession | None:
         if self._focused_project_id is None:

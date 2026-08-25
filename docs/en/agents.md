@@ -26,7 +26,7 @@ The initial prompt of an agent is built in two layers, both decided by Atlas For
 
 ## Launching
 
-`launch_agent(role, runtime_type, model, session, project_path, socket_name)` validates in order: active session → known role → known runtime (`claude-code` | `opencode`) → model only allowed for OpenCode. If the role is reusable and there is already a live agent (`idle`/`working`) of that role, it is **reused** instead of duplicated; if it is `stopped`/`unavailable`, it is replaced with a new one.
+`launch_agent(role, runtime_type, model, session, project_path, socket_name)` validates in order: active session → known role → known runtime (`claude-code` | `opencode` | `codex`) → model only allowed for OpenCode. If the role is reusable and there is already a live agent (`idle`/`working`) of that role, it is **reused** instead of duplicated; if it is `stopped`/`unavailable`, it is replaced with a new one.
 
 With `initial_job_description`, besides launching, an initial blocking Job is created and dispatched (`launch_agent_with_initial_job`); a dispatch failure leaves the Job `failed` with the reason in `job.result` but does **not** un-register the agent.
 

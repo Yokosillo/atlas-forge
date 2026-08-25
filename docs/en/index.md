@@ -53,16 +53,16 @@ The core concept is not the backlog and it is not the agents themselves — it i
 | **Deterministic automation first** | Deterministic scripts → local automations → local model (Ollama) → remote model. Never an LLM for something a script can do. |
 | **Persistent context** | The session keeps the project, agents, runtimes, history and context. Agents are not destroyed when a Job finishes. |
 | **Backlog-centric pipeline** | The backlog is the central control panel: all work is deployed from it, not from scattered manual commands. |
-| **Capability-based architecture** *(in backlog)* | The Dispatcher asks for capabilities, not specific models. The Capability Engine (AF-010) is planned, not implemented. |
+| **Capability-based architecture** *(planned)* | The Dispatcher asks for capabilities, not specific models. The Capability Engine (AF-010) is planned, not implemented. |
 | **One process, one client** | Web consumes the API; the domain does not belong to any client. |
 
 ## Project status
 
 See the [roadmap](roadmap.md) for full detail.
 
-- **Phases 0.1 to 0.4: complete.** Workspace, Session, Runtime (Claude Code, OpenCode, Codex), Agents, isolated Jobs (chaining, cancellation), Scribe, backend API, generic scripts, backlog management and web interface.
-- **Phase 0.9 (backlog-centric pipeline): in progress.** Architect and Tester roles, Epic→US→Task generators, the state-driven Developer→Tester→Architect pipeline, structured backlog format, cross-cutting actions (AF-025), parallelizable thread analysis (AF-026), simultaneous multi-project sessions, agent reconciliation on backend restart, and live agent log in the web are implemented and in production.
-- **Planned, not implemented:** Context Engine (AF-006), Knowledge Engine (AF-007), Capability Engine (AF-010), Plugin System (AF-011), Automation Engine (AF-009/012), Config Management (AF-013), automatic stuck-agent detection (AF-023), persistent control bar for critical agents (AF-028). **There is no plugin system or MCP yet.**
+- **Version 0.9 — backlog-centric pipeline, implemented.** Architect and Tester roles, Epic→US→Task generators, the state-driven Developer→Tester→Architect pipeline with rework, structured backlog format, unified state machines, dispatch queue and pipeline viewer, cross-cutting actions, parallelizable thread analysis, simultaneous multi-project sessions, agent reconciliation on backend restart, live agent log in the web and safe restart.
+- **Runtimes:** Claude Code, OpenCode and Codex.
+- **Planned, not implemented:** Context Engine (AF-006), Knowledge Engine (AF-007), Capability Engine (AF-010), Plugin System (AF-011), Automation Engine (AF-009/012), Config Management (AF-013), automatic stuck-agent detection (AF-023), persistent control bar for critical agents (AF-028), operational auditor (AF-044), Investigator role (AF-045) and Documenter integrated into the pipeline (AF-046). **There is no plugin system or MCP yet.**
 
 ## Getting started
 
@@ -74,7 +74,7 @@ See the [roadmap](roadmap.md) for full detail.
 
 | Section | Content |
 |---|---|
-| [Web interface](interfaces-web.md) | The main interface: Backlog, Agentes, Arquitecto, Scripts, Acciones, Configuración. |
+| [Web interface](interfaces-web.md) | The main interface: Backlog, Pipeline, Agents, Architect, Scripts, Configuración. |
 | [API](api.md) | Complete REST + WebSocket reference. |
 | [Agents](agents.md) | Roles, launching, lifecycle, governance. |
 | [Runtime and Scribe](runtime.md) | Claude Code, OpenCode, Codex, tmux, Scribe/Ollama. |
@@ -82,7 +82,7 @@ See the [roadmap](roadmap.md) for full detail.
 | [Scripts](scripts.md) | Generic and project-specific scripts. |
 | [Backlog and pipeline](backlog.md) | Backlog management, validator, Epic→US→Task generators. |
 | [Configuration](configuration.md) | `models.yml`, `scripts.yml`, model preferences. |
-| [Roadmap](roadmap.md) | Phases, status by Epic, backlog hold. |
+| [Roadmap](roadmap.md) | Versions, status by Epic, backlog hold. |
 | [FAQ and troubleshooting](faq.md) | Frequently asked questions and problem solving. |
 | [Development](development.md) | Guide for new developers. |
 

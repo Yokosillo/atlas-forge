@@ -6,13 +6,15 @@ Atlas Forge treats the **backlog** (`02-backlog/` of the active project) as a st
 
 Canonical structure (see `02-backlog/README.md`): Roadmap → Epic (`AF-NNN`) → User Story (`US-AFNNN-nn`) → Task (`T-AFNNN-USnn-mm`). Each file is **YAML frontmatter + Markdown body**: the frontmatter block (delimited by `---`) holds the structured fields, the Markdown body holds free prose (`## Objetivo`, `## Criterios de aceptación`, etc.).
 
-Common frontmatter fields: `id`, `type` (`epic | user_story | task`), `title`, `state`, `dependencies` (a YAML list of IDs — no bold markup, no free text). Optional: `priority` (User Story/Task), `fase`. User Stories and Tasks also carry `epic` (and Tasks additionally `user_story`) pointing to their parent.
+Common frontmatter fields: `id`, `type` (`epic | user_story | task`), `title`, `state`, `dependencies` (a YAML list of IDs — no bold markup, no free text). Optional: `priority` (User Story/Task), `version` (delivery version of the User Story, e.g. `0.9`). User Stories and Tasks also carry `epic` (and Tasks additionally `user_story`) pointing to their parent.
 
-Task `state`: `READY | TO_DEVELOP | IN_PROGRESS | IN_REVIEW | DONE` (a Task can **never** be `OUT_OF_SCOPE`). User Story `state`: initial own states `NO_TASKS | TO_PLAN`; once its Tasks are created, the state is **derived** (the least advanced Task, `READY` < `TO_DEVELOP` < `IN_PROGRESS` < `IN_REVIEW` < `DONE`), and with all its Tasks `DONE` the US moves to `IN_REVIEW` pending Architect validation before `DONE`. `OUT_OF_SCOPE` is exclusive to User Stories — see [Jobs and the work pipeline](jobs.md#the-backlog-pipeline) for what each state means and how the Dispatcher moves items through them.
+Task `state`: `READY | TO_DEVELOP | IN_PROGRESS | IN_REVIEW | DONE` (a Task can **never** be `OUT_OF_SCOPE`). User Story `state`: initial own states `NO_TASKS | TO_PLAN`; once its Tasks are created, the state is **derived** (the least advanced Task, `READY` < `TO_DEVELOP` < `IN_PROGRESS` < `IN_REVIEW` < `DONE`), and with all its Tasks `DONE` the US moves to `IN_REVIEW` pending Architect validation before `DONE`. `OUT_OF_SCOPE` is exclusive to User Stories — see [Jobs and the work pipeline](jobs.md#the-backlog-pipeline) for what each state means and how the Dispatcher moves items through them. The source of truth for the state vocabulary and transitions is `core/state_machines.py` (AF-040).
+
+The version scheme lives in `.atlas-forge/version.yml`: each User Story declares which version it belongs to (`version:`), and Epics are versioned likewise. `version` is the canonical delivery field (in place of the previous `fase`).
 
 ## Deterministic parser (`atlas_forge/backlog/parser.py`)
 
-- Extracts per file: id, type, `state`, `dependencies` (parsed directly from the YAML list), priority, phase, parent references — all read from the frontmatter, no regex over free-form Markdown.
+- Extracts per file: id, type, `state`, `dependencies` (parsed directly from the YAML list), priority, `version`, difficulty, parent references — all read from the frontmatter, no regex over free-form Markdown.
 - `load_backlog(backlog_path) → BacklogGraph`: parses the three subdirectories; malformed files are collected in `graph.errors` without aborting the rest.
 - `classify_todo_items(graph)`: splits ready (READY) items into **LISTA** (all dependencies DONE) and **BLOQUEADA** (some pending/missing dependency).
 - `calculate_unblock_degree(graph, epic)`: ratio of a Epic's US/Tasks whose dependencies are all resolved (basis of the heat map).
@@ -23,7 +25,7 @@ Task `state`: `READY | TO_DEVELOP | IN_PROGRESS | IN_REVIEW | DONE` (a Task can 
 `build_backlog_report(backlog_path) → dict` (JSON-serializable):
 
 - `empty` / `total` (counts per type and state + errors).
-- `by_epic` (per Epic: US/Task counts + `unblock_degree` + `fase`).
+- `by_epic` (per Epic: US/Task counts + `unblock_degree` + `version`).
 - `items_lista` (READY LISTA ordered by priority) and `items_bloqueada` (with `blocking_dependencies`).
 - `max_leverage_chain`.
 - `errors`.
@@ -64,12 +66,25 @@ Packages the input of a Tester Job: acceptance criteria of the Task + `git diff 
 
 ## In the interfaces
 
-- **Web**: Backlog tab — List/By-Phase toggle, heat map per Epic (`unblock_degree`), global pending badge, state visual differentiation, Epic→US→detail breakdown with dependencies (launch blocking), execution history per US and the "Progresar" flow.
+- **Web**: Backlog tab — List/By-Version toggle, heat map per Epic (`unblock_degree`), global pending badge, state visual differentiation, Epic→US→detail breakdown with dependencies (launch blocking), execution history per US, the "Progresar" flow and creation forms (including natural-language creation with the Architect request queue).
+
+## Item creation
+
+Besides the Architect's Epic→US→Task generator, the backlog can be extended from the web:
+
+- **Direct forms**: `POST /backlog/epic`, `POST /backlog/epic/{epic_id}/us`, `POST /backlog/us/{us_id}/task` create items with validated format.
+- **From natural language**: `POST /backlog/epic/from-description`, `POST /backlog/epic/{epic_id}/from-description-us` and `POST /backlog/us/{us_id}/from-description-task` send a creation request to a **request queue** (`creation_queue.py`); the Architect processes it and writes the item. Request state is queried via `GET /backlog/creation-requests`.
 
 ## Parallelizable development thread analysis
 
 `atlas_forge/backlog/dependency_graph.py` computes, for an Epic, which groups of US/Tasks are mutually independent (parallelizable threads) and in what order to tackle them, based on the real dependency graph — so development can be split across several Developers with an actual basis instead of guesswork. Exposed as `POST /backlog/epic/{epic_id}/analyze-threads` (accepts the number of target agents as a query param); the result is persisted as a report.
 
+## Backlog audit against the code
+
+Two cross-cutting project actions audit the backlog against the real code (see [Actions](interfaces-web.md#cross-cutting-actions)):
+- `auditar-backlog`: the Architect crosses the declared `## Estado` of each item against the real code evidence and persists a dated report in `07-informes/`.
+- `verificar-auditoria`: the Auditor-OSS role verifies each finding of the previous step and issues a concrete action per finding (`corregir_estado` / `crear_task_correccion` / `descartar`).
+
 ## Planned (not implemented)
 
-- **Full Epic→US generator in the product** (the current pipeline validates the schema format; content generation is sketched as scaffolding).
+- **Full Epic→US generator in the product**: the pipeline generates User Stories and Tasks with validator + self-audit; content generation for entire Epics is sketched as scaffolding.

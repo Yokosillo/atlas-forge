@@ -190,3 +190,87 @@ def test_landing_job_prompt_rejects_old_user_story_contract(tmp_path: Path) -> N
 """
     tasks = parse_landing_proposal(proposal)
     assert tasks == []
+
+
+# ---------------------------------------------------------------------------
+# T-AF008-US18-01: el aterrizaje auto-deniegue cualquier id duplicado ANTES de
+# escribir — bien porque ya existe en `tasks_dir` (refuerza
+# `_collect_existing_task_ids`) o porque se repite DENTRO de la misma
+# propuesta. La Task se registra en `rejected` y NO se escribe el fichero.
+# ---------------------------------------------------------------------------
+
+
+def test_within_proposal_duplicate_id_rejected_without_writing(tmp_path: Path) -> None:
+    """Criterio 3: dos Tasks propuestas con el mismo `id` — la primera se
+    escribe, la segunda se rechaza como duplicada y NO crea un segundo
+    fichero."""
+    proposal = """tasks:
+  - id: T-AF999-US01-01
+    title: Primera task
+    objective: Objetivo uno.
+    description: Desc uno.
+    criteria:
+      - C1
+    priority: Alta
+    difficulty: Alta
+    dependencies: []
+    epic_id: AF-999
+    us_id: US-AF999-01
+  - id: T-AF999-US01-01
+    title: Segunda task con el mismo id
+    objective: Objetivo dos.
+    description: Desc dos.
+    criteria:
+      - C2
+    priority: Media
+    difficulty: Media
+    dependencies: []
+    epic_id: AF-999
+    us_id: US-AF999-01
+"""
+    tasks = parse_landing_proposal(proposal)
+    assert len(tasks) == 2
+
+    result = write_validated_landing_tasks(tasks, tmp_path)
+
+    assert len(result.written) == 1
+    assert len(result.rejected) == 1
+    assert result.rejected[0][0] == "T-AF999-US01-01"
+    assert "no se duplica" in result.rejected[0][1][0].lower()
+    # Solo UNA Task quedó en disco, nunca dos ficheros con el mismo id.
+    md_files = list(tmp_path.glob("T-AF999-US01-01-*.md"))
+    assert len(md_files) == 1
+
+
+def test_id_already_in_backlog_rejected_without_overwriting(tmp_path: Path) -> None:
+    """Criterio 2: un Task propuesto cuyo `id` YA existe en `tasks_dir` se
+    auto-deniegue: se registra en `rejected` y NO se escribe ni sobreescribe
+    el fichero existente (refuerza el guard `_collect_existing_task_ids`)."""
+    first = write_validated_landing_tasks(
+        parse_landing_proposal(_VALID_PROPOSAL), tmp_path
+    )
+    assert len(first.written) == 1
+    original = first.written[0].read_text(encoding="utf-8")
+
+    second = """tasks:
+  - id: T-AF999-US01-01
+    title: Distinto titulo con el mismo id
+    objective: Otro objetivo.
+    description: Otra descripcion.
+    criteria:
+      - C1
+    priority: Baja
+    difficulty: Baja
+    dependencies: []
+    epic_id: AF-999
+    us_id: US-AF999-01
+"""
+
+    result = write_validated_landing_tasks(parse_landing_proposal(second), tmp_path)
+
+    assert result.written == []
+    assert len(result.rejected) == 1
+    assert result.rejected[0][0] == "T-AF999-US01-01"
+    # No se creó un segundo fichero ni se sobrescribió el original.
+    assert list(tmp_path.glob("T-AF999-US01-01-*.md")) == [first.written[0]]
+    assert first.written[0].read_text(encoding="utf-8") == original

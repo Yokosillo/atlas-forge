@@ -17,7 +17,13 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
-from atlas_forge.backlog.fases import format_valid_fases, is_assignable_fase
+from atlas_forge.backlog.fases import (
+    VALID_VERSIONS,
+    format_valid_fases,
+    format_valid_versions,
+    is_assignable_fase,
+    is_assignable_version,
+)
 from atlas_forge.backlog.promote import upsert_updated_at
 from atlas_forge.backlog.validator_v2 import validate_backlog_content_v2
 from atlas_forge.core.state_machines import TASK_STATES, USER_STORY_STATES, can_transition
@@ -117,6 +123,41 @@ def set_item_fase(item_path: str | Path, new_fase: str | None) -> None:
     else:
         new_value_raw = new_fase if new_fase is not None else "null"
         updated = _replace_frontmatter_field(content, "fase", current, new_value_raw)
+
+    result = validate_backlog_content_v2(updated, filename=path.name)
+    if not result.valid:
+        raise BacklogValidationError([error.message for error in result.errors])
+
+    path.write_text(updated, encoding="utf-8")
+
+
+def set_item_version(item_path: str | Path, new_version: str | None) -> None:
+    """Cambia el campo `version` del fichero real de una Epic/User Story a
+    `new_version` (una de `VALID_VERSIONS`, o `None` para "sin versión"),
+    validando el contenido resultante ANTES de escribir a disco
+    (T-AF036-US25-01).
+
+    Conjunto cerrado: `new_version` debe pertenecer a `VALID_VERSIONS` o
+    ser `None` — se lanza `InvalidFieldValueError` (mismo patrón que
+    `set_item_fase`) sin tocar el fichero para cualquier otro valor. Si el
+    item no declara aún el campo `version`, se inserta. Lanza
+    `BacklogValidationError` si el contenido resultante no pasa el
+    validador determinista — el fichero real NO se modifica en ese caso."""
+    if not is_assignable_version(new_version):
+        raise InvalidFieldValueError(
+            f"'{new_version}' no es una versión válida — debe ser una de "
+            f"{format_valid_versions()} o null (sin versión)."
+        )
+
+    path = Path(item_path)
+    content = path.read_text(encoding="utf-8")
+
+    current = _read_frontmatter_field(content, "version")
+    if current is None:
+        updated = _insert_frontmatter_field(content, "version", new_version)
+    else:
+        new_value_raw = new_version if new_version is not None else "null"
+        updated = _replace_frontmatter_field(content, "version", current, new_value_raw)
 
     result = validate_backlog_content_v2(updated, filename=path.name)
     if not result.valid:

@@ -17,6 +17,25 @@ Orden:
 
 La documentación no puede inventar una capacidad porque aparezca en roadmap.
 
+### Interpretar los estados del backlog (regla previa a todo)
+
+No todo lo que hay en `02-backlog/` representa realidad actual de Atlas Forge.
+Filtra por `state` del frontmatter antes de decidir qué documentar:
+
+- `OUT_OF_SCOPE` / `FUERA_ROADMAP` / en estado `deprecated`: trabajo
+  deprecado o descartado. NO se documenta — ni como existente ni como
+  planeado. Se omite por completo (no alimenta secciones, no aparece en
+  roadmap ni en contribución).
+- `NO_TASKS` / `TO_PLAN` / `EN_DISEÑO`: pre-diseño. Nunca documentable como
+  capacidad real de Atlas Forge.
+- `DONE`: existe de verdad — documentar.
+- `READY` con tasks reales: trabajo planificado vigente — puede aparecer
+  como roadmap, nunca como funcionalidad existente.
+
+Si dudas de si una US/Task es deprecada (p. ej. US antigua sin estado
+explícito), trátala como NO documentable: señala la incertidumbre en vez de
+asumir que existe.
+
 ## Alcance
 
 Revisar cuando existan:

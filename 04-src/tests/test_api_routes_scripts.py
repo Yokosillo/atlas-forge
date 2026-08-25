@@ -72,6 +72,12 @@ def _generic_ids() -> list[str]:
     return [entry.id for entry in list_generic_scripts()]
 
 
+def _action_ids() -> list[str]:
+    from atlas_forge.actions.transversal import list_actions
+
+    return [entry["id"] for entry in list_actions()]
+
+
 def test_get_scripts_returns_404_when_no_project_is_active(monkeypatch) -> None:
     monkeypatch.setattr(routes_module, "get_active_project", lambda **_kwargs: None)
     client = TestClient(create_app())
@@ -87,7 +93,11 @@ def test_get_scripts_returns_the_generic_catalog_for_a_project_without_a_manifes
     """Criterio de aceptación de T-AF018-US01-03: "un proyecto sin scripts
     particulares sigue mostrando el catálogo genérico con normalidad (no
     depende de que existan ambos)" — sin manifiesto, `GET /scripts` devuelve
-    el catálogo genérico completo, cada entrada con `origin: "generic"`."""
+    el catálogo genérico completo, cada entrada con `origin: "generic"`.
+
+    T-AF034-US01-01: el catálogo combinado incluye también las Acciones
+    transversales, todas con `origin: "generic"` — un proyecto sin scripts
+    particulares sigue devolviendo genéricos + acciones sin error."""
     _active_project(tmp_path, monkeypatch)
     client = TestClient(create_app())
 
@@ -95,15 +105,25 @@ def test_get_scripts_returns_the_generic_catalog_for_a_project_without_a_manifes
 
     assert response.status_code == 200
     body = response.json()
-    assert [entry["id"] for entry in body] == _generic_ids()
-    assert all(entry["origin"] == "generic" for entry in body)
-    # Los genéricos no tienen comando (ninguno ejecuta un subproceso declarado
-    # externamente), pero sí descripción (T-AF024-US03-01).
-    assert all(entry["command"] is None for entry in body)
+    script_ids = [entry["id"] for entry in body if "command" in entry]
+    action_ids = [entry["id"] for entry in body if "command" not in entry]
+    # Genéricos + Acciones, sin particulares (no hay manifiesto).
+    assert script_ids == _generic_ids()
+    assert action_ids == _action_ids()
+    scripts = {entry["id"]: entry for entry in body if "command" in entry}
+    actions = {entry["id"]: entry for entry in body if "command" not in entry}
+    # Scripts genéricos: origin generic, sin comando, con descripción y con
+    # execution_type 'script'.
+    assert all(entry["origin"] == "generic" for entry in scripts.values())
+    assert all(entry["command"] is None for entry in scripts.values())
+    assert all(entry["execution_type"] == "script" for entry in scripts.values())
     assert all(
         isinstance(entry.get("description"), str) and entry["description"].strip()
-        for entry in body
+        for entry in scripts.values()
     )
+    # Acciones: origin generic, con execution_type declarado (no vacío).
+    assert all(entry["origin"] == "generic" for entry in actions.values())
+    assert all(entry["execution_type"] for entry in actions.values())
 
 
 def test_get_scripts_returns_both_catalogs_distinguishable_by_origin(
@@ -111,7 +131,8 @@ def test_get_scripts_returns_both_catalogs_distinguishable_by_origin(
 ) -> None:
     """Criterio 1 de T-AF018-US01-03: `GET /scripts` devuelve ambos
     catálogos (genéricos + particulares) juntos, distinguibles por el campo
-    `origin` — no fusionados en una lista indistinguible."""
+    `origin` — no fusionados en una lista indistinguible. T-AF034-US01-01:
+    además incluye las Acciones transversales."""
     project_path = _active_project(tmp_path, monkeypatch)
     _write_manifest(
         project_path,
@@ -130,12 +151,68 @@ def test_get_scripts_returns_both_catalogs_distinguishable_by_origin(
     assert response.status_code == 200
     body = response.json()
     by_id = {entry["id"]: entry for entry in body}
-    # Ambos catálogos presentes, cada entrada con su origen.
-    assert set(by_id) == set(_generic_ids()) | {"lint"}
+    # Ambos catálogos presentes + las Acciones, cada entrada con su origen.
+    assert set(by_id) == set(_generic_ids()) | {"lint"} | set(_action_ids())
     assert by_id["lint"]["origin"] == "particular"
     assert by_id["lint"]["command"] == "ruff check ."
+    assert by_id["lint"]["execution_type"] == "script"
     assert by_id["commit"]["origin"] == "generic"
     assert by_id["commit"]["command"] is None
+    assert by_id["commit"]["execution_type"] == "script"
+    # Una Acción del catálogo combinado (ej. testear) con su metadata.
+    assert by_id["testear"]["origin"] == "generic"
+    assert by_id["testear"]["execution_type"] == "script"
+    assert "name" in by_id["testear"]
+    assert "description" in by_id["testear"]
+
+
+def test_get_scripts_includes_actions_with_execution_type_and_generic_origin(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """Criterios 1 y 4: `GET /scripts` devuelve también las Acciones de
+    ACCIONES_DISPONIBLES con sus metadatos (id, name, description,
+    origin='generic', execution_type). Un proyecto sin scripts particulares
+    sigue devolviendo genéricos + acciones sin error."""
+    _active_project(tmp_path, monkeypatch)
+    client = TestClient(create_app())
+
+    response = client.get("/scripts")
+
+    assert response.status_code == 200
+    body = response.json()
+    actions = {
+        entry["id"]: entry for entry in body if "command" not in entry
+    }
+    assert actions["testear"]["origin"] == "generic"
+    assert actions["testear"]["execution_type"] == "script"
+    assert actions["documentar"]["origin"] == "generic"
+    assert actions["documentar"]["execution_type"] == "agent_job"
+    assert actions["indexar"]["origin"] == "generic"
+    assert actions["indexar"]["execution_type"] == "external_process"
+    # Todas las Acciones tienen name y description no vacíos.
+    for entry in actions.values():
+        assert entry["name"]
+        assert entry["description"]
+
+
+def test_get_scripts_actions_execution_type_matches_transversal_nature(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """Criterio 2/3: el execution_type de cada Acción refleja su naturaleza
+    real en transversal.py (determinista, agente o proceso externo)."""
+    from atlas_forge.actions.transversal import list_actions
+
+    _active_project(tmp_path, monkeypatch)
+    client = TestClient(create_app())
+
+    response = client.get("/scripts")
+
+    assert response.status_code == 200
+    body = response.json()
+    by_id = {entry["id"]: entry for entry in body}
+    expected = {entry["id"]: entry["execution_type"] for entry in list_actions()}
+    for action_id, execution_type in expected.items():
+        assert by_id[action_id]["execution_type"] == execution_type
 
 
 def test_get_scripts_returns_400_with_the_real_domain_message_for_a_malformed_manifest(
@@ -149,6 +226,113 @@ def test_get_scripts_returns_400_with_the_real_domain_message_for_a_malformed_ma
 
     assert response.status_code == 400
     assert "scripts" in response.json()["detail"]
+
+
+# ---------------------------------------------------------------------------
+# T-AF034-US01-04: cobertura adicional del catálogo combinado — conteos
+# deterministas frente a las fuentes canónicas (no literales sueltos) y
+# retrocompatibilidad del shape previo de `GET /scripts`.
+# ---------------------------------------------------------------------------
+
+
+def test_get_scripts_catalogo_combinado_conteos_deterministas_incluye_particulares(
+    tmp_path: Path, monkeypatch,
+) -> None:
+    """Criterio 1: el catálogo combinado incluye las Acciones de
+    `ACCIONES_DISPONIBLES` + los Scripts genéricos (`list_generic_scripts`)
+    y, con manifiesto presente, los particulares. Los conteos se derivan de
+    las fuentes canónicas (nunca literales) — la descripción de la Task citaba
+    "Acciones (7)", pero la fuente única es `ACCIONES_DISPONIBLES` (9 hoy,
+    creció con auditar-backlog/testear-ui/...), y aquí se exige exactamente
+    ese conjunto."""
+    from atlas_forge.actions.transversal import ACCIONES_DISPONIBLES
+    from atlas_forge.workspace.generic_scripts import list_generic_scripts
+
+    project_path = _active_project(tmp_path, monkeypatch)
+    _write_manifest(
+        project_path,
+        """
+        scripts:
+          - id: deploy
+            name: "Deploy"
+            command: "scripts/deploy.sh"
+            description: "Despliega."
+        """,
+    )
+    client = TestClient(create_app())
+
+    response = client.get("/scripts")
+
+    assert response.status_code == 200
+    body = response.json()
+    scripts = [entry for entry in body if "command" in entry]
+    actions = [entry for entry in body if "command" not in entry]
+
+    generic_count = len(list_generic_scripts())
+    assert len(actions) == len(ACCIONES_DISPONIBLES)
+    # Genéricos (N) + el particular del manifiesto.
+    assert len(scripts) == generic_count + 1
+    particular = [entry for entry in scripts if entry["origin"] == "particular"]
+    assert [entry["id"] for entry in particular] == ["deploy"]
+    assert all(
+        entry["origin"] == "generic" for entry in scripts if entry["id"] != "deploy"
+    )
+    # Sin lista vacía ni error: genéricos + acciones presentes a la vez.
+    assert generic_count > 0 and len(ACCIONES_DISPONIBLES) > 0
+
+
+def test_get_scripts_retrocompat_conserva_los_campos_previos(
+    tmp_path: Path, monkeypatch,
+) -> None:
+    """Criterio de retrocompatibilidad: los consumidores actuales de
+    `GET /scripts` dependen de los campos previos (`id`, `name`, `command`,
+    `description`, `origin`). La ampliación añade `execution_type` y las
+    Acciones, pero NO elimina ni renombra ningún campo del shape anterior —
+    ni en scripts genéricos/particulares ni en las Acciones nuevas."""
+    from atlas_forge.actions.transversal import list_actions
+    from atlas_forge.workspace.generic_scripts import list_generic_scripts
+
+    project_path = _active_project(tmp_path, monkeypatch)
+    _write_manifest(
+        project_path,
+        """
+        scripts:
+          - id: deploy
+            name: "Deploy"
+            command: "scripts/deploy.sh"
+            description: "Despliega."
+        """,
+    )
+    client = TestClient(create_app())
+
+    body = client.get("/scripts").json()
+    expected_action_ids = {entry["id"] for entry in list_actions()}
+    generic_ids = {entry.id for entry in list_generic_scripts()}
+
+    for entry in body:
+        # Campos previos del contrato conservados en TODA entrada.
+        for field in ("id", "name", "description", "origin"):
+            assert field in entry, f"{entry.get('id')} perdió el campo '{field}'"
+        if entry["id"] in expected_action_ids:
+            base = {"id", "name", "description", "origin"}
+        else:
+            # Script (genérico o particular): conserva `command` (null o string).
+            base = {"id", "name", "command", "description", "origin"}
+        # `execution_type` es ADITIVO: no sustituye ningún campo previo.
+        assert base <= set(entry), f"{entry['id']} no cumple el shape previo: {base - set(entry)}"
+        assert entry["execution_type"] in {"script", "agent_job", "external_process"}
+        assert entry["origin"] in {"generic", "particular"}
+
+    # Detalle por tipo: el particular conserva el command real del manifiesto,
+    # los genéricos lo traen a `null`, y las Acciones siguen sin `command`.
+    by_id = {entry["id"]: entry for entry in body}
+    assert by_id["deploy"]["command"] == "scripts/deploy.sh"
+    assert by_id["deploy"]["origin"] == "particular"
+    assert by_id["commit"]["command"] is None
+    assert by_id["commit"]["origin"] == "generic"
+    assert by_id["commit"]["id"] in generic_ids
+    for action_id in expected_action_ids:
+        assert "command" not in by_id[action_id]
 
 
 def test_post_script_run_returns_404_when_no_project_is_active(monkeypatch) -> None:

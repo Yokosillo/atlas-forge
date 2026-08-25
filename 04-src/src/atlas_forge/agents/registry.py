@@ -2,6 +2,7 @@ import uuid
 
 from atlas_forge.core.session_lifecycle import assign_agent, list_agents
 from atlas_forge.agents.roles import is_persistent_role
+from atlas_forge.core.agent_capabilities import build_default_capability_declarations
 from atlas_forge.models import Agent, DevelopmentSession, Runtime
 from atlas_forge.runtime import (
     RuntimeInstance,
@@ -54,6 +55,12 @@ def register_agent(
         # T-AF023-US03-01: el flag persistent se decide por rol, no por
         # instancia — se asigna en el punto de creación del Agent.
         persistent=is_persistent_role(role),
+        # T-AF005-US03-02: capacidades declaradas por el agente (metadato
+        # consultable por el Dispatcher), tomadas de las declaraciones por rol
+        # de US-AF005-03. Sin lógica de decisión aquí (eso es AF-010).
+        capabilities=tuple(
+            build_default_capability_declarations().get(role, [])
+        ),
     )
 
     runtime_instance = start_runtime(runtime, agent, project_path, socket_name=socket_name)

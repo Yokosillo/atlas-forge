@@ -163,9 +163,10 @@ async function test_encabezado_us_muestra_fase_y_fecha() {
       "La US debe mostrar '[última actualización: " + expected + "]', got: " + usMeta
     );
 
-    // Abrir la US para ver su Task anidada.
+    // Abrir la US para ver su Task anidada — la cabecera de Task muestra
+    // solo ID + título, sin meta de versión/fecha.
     await _openUsDetail(page, "US-AF981-01");
-    await waitVisible(page, ".backlog-task-line-meta");
+    await waitVisible(page, ".backlog-task-line-title");
     const taskMeta = await page.evaluate(() => {
       const line = Array.from(document.querySelectorAll(".job-line")).find((l) =>
         l.querySelector(".backlog-task-line-title") &&
@@ -174,15 +175,7 @@ async function test_encabezado_us_muestra_fase_y_fecha() {
       const meta = line && line.querySelector(".backlog-task-line-meta");
       return meta ? meta.textContent : null;
     });
-    assert.ok(taskMeta, "Debe existir .backlog-task-line-meta para la Task.");
-    assert.ok(
-      taskMeta.includes("[fase: Fase 1.1]"),
-      "La Task debe mostrar '[fase: Fase 1.1]', got: " + taskMeta
-    );
-    assert.ok(
-      taskMeta.includes("[última actualización: " + expected + "]"),
-      "La Task debe mostrar '[última actualización: " + expected + "]', got: " + taskMeta
-    );
+    assert.strictEqual(taskMeta, null, "La Task ya no debe renderizar .backlog-task-line-meta.");
   });
 }
 
@@ -221,7 +214,7 @@ async function test_encabezado_con_datos_ausentes_muestra_sin_asignar_y_guion() 
     );
 
     await _openUsDetail(page, "US-AF982-01");
-    await waitVisible(page, ".backlog-task-line-meta");
+    await waitVisible(page, ".backlog-task-line-title");
     const taskMeta = await page.evaluate(() => {
       const line = Array.from(document.querySelectorAll(".job-line")).find((l) =>
         l.querySelector(".backlog-task-line-title") &&
@@ -230,11 +223,7 @@ async function test_encabezado_con_datos_ausentes_muestra_sin_asignar_y_guion() 
       const meta = line && line.querySelector(".backlog-task-line-meta");
       return meta ? meta.textContent : null;
     });
-    assert.ok(taskMeta, "Debe existir .backlog-task-line-meta para la Task sin fase.");
-    assert.ok(
-      taskMeta.includes("[fase: SIN_ASIGNAR]") && taskMeta.includes("[última actualización: —]"),
-      "Task sin fase/updated_at debe mostrar SIN_ASIGNAR y '—', got: " + taskMeta
-    );
+    assert.strictEqual(taskMeta, null, "La Task sin fase no debe renderizar .backlog-task-line-meta.");
   });
 }
 

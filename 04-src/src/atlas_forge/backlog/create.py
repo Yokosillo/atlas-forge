@@ -15,7 +15,10 @@ from pathlib import Path
 import yaml
 
 from atlas_forge.backlog.edit import InvalidFieldValueError
-from atlas_forge.backlog.fases import format_valid_fases, is_assignable_fase
+from atlas_forge.backlog.fases import (
+    format_valid_versions,
+    is_assignable_version,
+)
 from atlas_forge.backlog.parser import parse_frontmatter
 from atlas_forge.backlog.validator_v2 import validate_backlog_content_v2
 from atlas_forge.runtime import sanitize_session_name_part
@@ -226,7 +229,7 @@ def _build_user_story_content(
     objetivo: str,
     criterios_aceptacion: str,
     priority: str | None,
-    fase: str | None,
+    version: str | None,
 ) -> str:
     # Mismo criterio que `_build_epic_content`: `yaml.safe_dump`, nunca
     # concatenación manual — evita el mismo bug de `title`/`epic`/etc. con
@@ -246,7 +249,7 @@ def _build_user_story_content(
             "dependencies": [],
             "epic": epic_id,
             "priority": priority,
-            "fase": fase,
+            "version": version,
         },
         sort_keys=False,
         allow_unicode=True,
@@ -268,7 +271,7 @@ def create_user_story(
     objetivo: str,
     criterios_aceptacion: str,
     priority: str | None = None,
-    fase: str | None = None,
+    version: str | None = None,
 ) -> Path:
     """Crea el fichero real de una User Story nueva en
     `<backlog_path>/user-stories/{us_id}-{slug(title)}.md`, bajo la Epic
@@ -285,8 +288,9 @@ def create_user_story(
     tiene un fichero de Epic real en `epics/` (`EpicNotFoundError` — no
     tiene sentido crear una US bajo una Epic inexistente); (3) `priority`
     pertenece al conjunto cerrado o es `None` (`InvalidPriorityError`);
-    (4) `fase` pertenece al conjunto cerrado `VALID_FASES` o es `None`
-    (T-AF036-US14-05, `InvalidFieldValueError`); (5) ningún fichero
+    (4) `version` pertenece al conjunto cerrado `VALID_VERSIONS` o es `None`
+    (T-AF036-US25-01, `InvalidFieldValueError` — `fase` ya NO es asignable
+    por creación, se sustituye por `version`); (5) ningún fichero
     `{us_id}*.md` ya existente en `user-stories/`
     (`UserStoryAlreadyExistsError`); (6) el contenido generado contra
     `validate_backlog_content_v2` (`BacklogValidationError`, mensajes
@@ -308,10 +312,10 @@ def create_user_story(
             f"{', '.join(VALID_PRIORITIES)} o null (sin prioridad)."
         )
 
-    if not is_assignable_fase(fase):
+    if not is_assignable_version(version):
         raise InvalidFieldValueError(
-            f"'{fase}' no es una fase válida — debe ser una de "
-            f"{format_valid_fases()} o null (sin fase)."
+            f"'{version}' no es una versión válida — debe ser una de "
+            f"{format_valid_versions()} o null (sin versión)."
         )
 
     stories_dir = Path(backlog_path) / "user-stories"
@@ -320,7 +324,7 @@ def create_user_story(
         raise UserStoryAlreadyExistsError(us_id, existing)
 
     filename = f"{us_id}-{_slug(title)}.md"
-    content = _build_user_story_content(us_id, epic_id, title, objetivo, criterios_aceptacion, priority, fase)
+    content = _build_user_story_content(us_id, epic_id, title, objetivo, criterios_aceptacion, priority, version)
 
     result = validate_backlog_content_v2(content, filename=filename)
     if not result.valid:

@@ -1801,3 +1801,402 @@ def test_review_completion_passed_verdict_terminalizes_queue_entry(tmp_path) -> 
     entries = get_queue(backlog_root, "proj")
     assert entries[0].status == STATUS_COMPLETED
     assert entries[0].result == "Veredicto EXITO del Tester."
+
+
+# ---------------------------------------------------------------------------
+# T-AF008-US18-02: `_inflight` claveado por `job.id` (no por `task_id`) — un
+# re-despacho del MISMO task_id produce DOS entradas independientes en vuelo,
+# ambas vigiladas por su propio `report_file`. Ningún Job se orfa ("no el
+# último gana").
+# ---------------------------------------------------------------------------
+
+
+def test_two_inflight_jobs_for_same_task_id_both_finalized(tmp_path) -> None:
+    """Criterios 1/2/3/5: dos Jobs del MISMO `task_id` (re-despacho) registrados
+    en `inflight` por `job.id` — ambos se vigilan y ambos completan cuando su
+    `report_file` tiene el marcador; los dos agentes vuelven a `idle`. El orden
+    de finalización no depende del orden de despacho."""
+    from atlas_forge.agents.lifecycle import mark_working
+    from atlas_forge.dispatcher.dispatch_queue_worker import (
+        InFlightJob,
+        poll_inflight_job_completions,
+    )
+    from atlas_forge.dispatcher.job_lifecycle import mark_running
+
+    agent1 = Agent(id="a1", name="dev1", role="developer", prompt="p", runtime_id="r1")
+    agent2 = Agent(id="a2", name="dev2", role="developer", prompt="p", runtime_id="r2")
+    session = DevelopmentSession(id="s1", project_id="p1")
+    activate(session)
+    assign_agent(session, agent1)
+    assign_agent(session, agent2)
+
+    job1 = Job(id="j1", session_id="s1", agent_id="a1", description="d1")
+    job2 = Job(id="j2", session_id="s1", agent_id="a2", description="d2")
+    r1 = tmp_path / "report-1.txt"
+    r2 = tmp_path / "report-2.txt"
+    r1.write_text("done\n___ATLAS_FORGE_JOB_DONE___\n", encoding="utf-8")
+    r2.write_text("done\n___ATLAS_FORGE_JOB_DONE___\n", encoding="utf-8")
+    mark_running(job1)
+    mark_running(job2)
+    mark_working(agent1)
+    mark_working(agent2)
+
+    inflight = {
+        job1.id: InFlightJob(
+            task_id="T-AF900-US01-01", agent_id="a1", report_file=r1, job=job1,
+            dispatched_at=time.monotonic(),
+        ),
+        job2.id: InFlightJob(
+            task_id="T-AF900-US01-01", agent_id="a2", report_file=r2, job=job2,
+            dispatched_at=time.monotonic(),
+        ),
+    }
+
+    resolved = poll_inflight_job_completions(
+        tmp_path, "proj", session, inflight, timeout_seconds=5.0,
+    )
+
+    assert job1.status == "completed"
+    assert job2.status == "completed"
+    assert agent1.status == "idle"
+    assert agent2.status == "idle"
+    # El mismo task_id no se duplica en la lista de resueltos del ciclo.
+    assert resolved == ["T-AF900-US01-01"]
+    assert inflight == {}
+
+
+def test_second_dispatch_same_task_does_not_orphan_first_job(tmp_path) -> None:
+    """Criterios 1/2/3: un segundo despacho del mismo `task_id` NO sobrescribe
+    al primero — cuando el segundo completa, el PRIMERO sigue registrado en
+    `inflight` (su `report_file` no deja de vigilarse) y su agente sigue
+    `working` hasta que termine."""
+    from atlas_forge.agents.lifecycle import mark_working
+    from atlas_forge.dispatcher.dispatch_queue_worker import (
+        InFlightJob,
+        poll_inflight_job_completions,
+    )
+    from atlas_forge.dispatcher.job_lifecycle import mark_running
+
+    agent1 = Agent(id="a1", name="dev1", role="developer", prompt="p", runtime_id="r1")
+    agent2 = Agent(id="a2", name="dev2", role="developer", prompt="p", runtime_id="r2")
+    session = DevelopmentSession(id="s1", project_id="p1")
+    activate(session)
+    assign_agent(session, agent1)
+    assign_agent(session, agent2)
+
+    job1 = Job(id="j1", session_id="s1", agent_id="a1", description="d1")
+    job2 = Job(id="j2", session_id="s1", agent_id="a2", description="d2")
+    r1 = tmp_path / "report-1.txt"  # aún NO tiene el marcador (sigue trabajando)
+    r2 = tmp_path / "report-2.txt"
+    r2.write_text("done\n___ATLAS_FORGE_JOB_DONE___\n", encoding="utf-8")
+    mark_running(job1)
+    mark_running(job2)
+    mark_working(agent1)
+    mark_working(agent2)
+
+    inflight = {
+        job1.id: InFlightJob(
+            task_id="T-AF900-US01-01", agent_id="a1", report_file=r1, job=job1,
+            dispatched_at=time.monotonic(),
+        ),
+        job2.id: InFlightJob(
+            task_id="T-AF900-US01-01", agent_id="a2", report_file=r2, job=job2,
+            dispatched_at=time.monotonic(),
+        ),
+    }
+
+    resolved = poll_inflight_job_completions(
+        tmp_path, "proj", session, inflight, timeout_seconds=5.0,
+    )
+
+    # Solo el segundo completó; el PRIMERO sigue registrado y vigilado.
+    assert job2.status == "completed"
+    assert agent2.status == "idle"
+    assert job1.status == "running"
+    assert agent1.status == "working"
+    assert resolved == ["T-AF900-US01-01"]
+    assert set(inflight) == {job1.id}
+    assert inflight[job1.id].task_id == "T-AF900-US01-01"
+
+
+def test_inflight_registry_keys_by_job_id_after_restore(tmp_path) -> None:
+    """Criterios 1/4: la reconstrucción al arrancar (`_restore_inflight_from_queue`)
+    clavea `_inflight` por `job.id`, y los task_ids protegidos de la
+    reconciliación se derivan de los valores del registro, no de las claves."""
+    from atlas_forge.dispatcher.dispatch_queue import set_entry_report_file
+
+    backlog_root = tmp_path / "backlog_root"
+    backlog = backlog_root / "02-backlog"
+    _write_task_yaml(
+        backlog / "tasks", "T-AF999-US01-01", "US-AF999-01", "IN_PROGRESS", priority="Alta"
+    )
+    enqueue_task(backlog_root, "proj", task_id="T-AF999-US01-01", us_id="US-AF999-01", priority="Alta")
+    mark_dispatched(backlog_root, "proj", "T-AF999-US01-01", agent_id="a-dev", agent_name="Developer-1")
+    set_entry_report_file(backlog_root, "proj", "T-AF999-US01-01", tmp_path / "report.txt")
+
+    session = DevelopmentSession(id="s1", project_id="p1")
+    activate(session)
+    assign_agent(
+        session,
+        Agent(id="a-dev", name="Developer-1", role="developer", prompt="p", runtime_id="r1"),
+    )
+
+    worker = DispatchQueueWorker(backlog_root, "proj", session)
+    worker._restore_inflight_from_queue()
+
+    assert len(worker._inflight) == 1
+    key, infl = next(iter(worker._inflight.items()))
+    assert key == infl.job.id
+    assert key != "T-AF999-US01-01"
+    assert infl.task_id == "T-AF999-US01-01"
+    protected = {i.task_id for i in worker._inflight.values()}
+    assert protected == {"T-AF999-US01-01"}
+
+
+# ---------------------------------------------------------------------------
+# T-AF008-US18-03: reconciliación de _inflight huérfano al arrancar desde
+# dispatch_queue.json
+# ---------------------------------------------------------------------------
+
+
+def _task_state_on_disk(backlog_root, task_id: str) -> str:
+    from atlas_forge.dispatcher.dispatch_queue_worker import _read_task_state
+
+    tasks_dir = Path(backlog_root) / "02-backlog" / "tasks"
+    candidates = sorted(tasks_dir.glob(f"{task_id}-*.md")) or sorted(tasks_dir.glob(f"{task_id}.md"))
+    text = next(iter(candidates)).read_text(encoding="utf-8")
+    return _read_task_state(text).strip()
+
+
+def test_startup_reconcile_finalizes_finished_report_without_redispatch(tmp_path) -> None:
+    """Criterios 1a y 4 (T-AF008-US18-03): un Job cuyo `report_file` YA tiene el
+    marcador al arrancar (trabajo terminado antes del reinicio) se finaliza — la
+    Task pasa a `IN_REVIEW` — y NO se re-registra en `_inflight` ni se
+    re-despacha: no hay doble ejecución del mismo trabajo."""
+    from atlas_forge.dispatcher.dispatch_queue import set_entry_report_file
+
+    backlog_root = tmp_path / "backlog_root"
+    backlog = backlog_root / "02-backlog"
+    _write_task_yaml(
+        backlog / "tasks", "T-AF999-US01-01", "US-AF999-01", "IN_PROGRESS", priority="Alta"
+    )
+    enqueue_task(backlog_root, "proj", task_id="T-AF999-US01-01", us_id="US-AF999-01", priority="Alta")
+    mark_dispatched(backlog_root, "proj", "T-AF999-US01-01", agent_id="a-dev", agent_name="Developer-1")
+    report_file = tmp_path / "report-done.txt"
+    report_file.write_text(
+        "trabajo terminado\n___ATLAS_FORGE_JOB_DONE___\n", encoding="utf-8"
+    )
+    set_entry_report_file(backlog_root, "proj", "T-AF999-US01-01", report_file)
+
+    session = DevelopmentSession(id="s1", project_id="p1")
+    activate(session)
+    assign_agent(
+        session, Agent(id="a-dev", name="Developer-1", role="developer", prompt="p", runtime_id="r1")
+    )
+
+    worker = DispatchQueueWorker(backlog_root, "proj", session)
+    worker._restore_inflight_from_queue()
+
+    # Se finalizó (no se re-vigila ni se re-despacha) y la Task pasó a IN_REVIEW.
+    assert worker._inflight == {}
+    assert _task_state_on_disk(backlog_root, "T-AF999-US01-01") == "IN_REVIEW"
+    # La entrada sigue `dispatched` (el Developer queda retenido para el Tester).
+    assert get_queue(backlog_root, "proj")[0].status == "dispatched"
+    assert not report_file.exists()
+
+
+def test_startup_reconcile_marks_orphan_when_agent_gone(tmp_path) -> None:
+    """Criterios 2 y 5b (T-AF008-US18-03): una entrada `dispatched` cuyo agente
+    ya NO existe en la sesión (crash/stop/tmux reiniciado) se marca explícitamente
+    como huérfana: la cola pasa a `failed`, la Task sale de IN_PROGRESS perpetuo
+    (vuelve a READY por defecto) y se informa en `reconciliation_log.jsonl` — sin
+    bloquear la cola."""
+    from atlas_forge.core.reconciliation_log import reconciliation_log_path
+    from atlas_forge.dispatcher.dispatch_queue import set_entry_report_file
+
+    backlog_root = tmp_path / "backlog_root"
+    backlog = backlog_root / "02-backlog"
+    _write_task_yaml(
+        backlog / "tasks", "T-AF999-US01-01", "US-AF999-01", "IN_PROGRESS", priority="Alta"
+    )
+    enqueue_task(backlog_root, "proj", task_id="T-AF999-US01-01", us_id="US-AF999-01", priority="Alta")
+    mark_dispatched(backlog_root, "proj", "T-AF999-US01-01", agent_id="a-vanished", agent_name="Developer-X")
+    set_entry_report_file(backlog_root, "proj", "T-AF999-US01-01", tmp_path / "report.txt")
+
+    session = DevelopmentSession(id="s1", project_id="p1")
+    activate(session)  # el agente a-vanished NO está en la sesión
+
+    worker = DispatchQueueWorker(backlog_root, "proj", session)
+    worker._restore_inflight_from_queue()
+
+    assert worker._inflight == {}
+    entry = get_queue(backlog_root, "proj")[0]
+    assert entry.status == STATUS_FAILED
+    assert "agente ya no existe" in (entry.result or "")
+    assert _task_state_on_disk(backlog_root, "T-AF999-US01-01") == "READY"
+    # Informado de forma consultable en el log de reconciliación.
+    log_text = reconciliation_log_path(backlog_root, "proj").read_text(encoding="utf-8")
+    assert "T-AF999-US01-01" in log_text
+    assert "dispatched_orphan_reconciled" in log_text
+
+
+def test_startup_reconcile_is_idempotent_and_keeps_live_job_watched(tmp_path) -> None:
+    """Criterios 3 y 5c (T-AF008-US18-03): reiniciar dos veces no duplica Jobs
+    ni cambia una Task sana — un Job en curso (agente vivo, reporte aún sin
+    marcador, la "huérfana del bug de clave" de US18-02) se re-vigila UNA vez;
+    una segunda reconstrucción no crea una entrada extra ni re-despacha nada."""
+    from atlas_forge.dispatcher.dispatch_queue import set_entry_report_file
+
+    backlog_root = tmp_path / "backlog_root"
+    backlog = backlog_root / "02-backlog"
+    _write_task_yaml(
+        backlog / "tasks", "T-AF999-US01-01", "US-AF999-01", "IN_PROGRESS", priority="Alta"
+    )
+    enqueue_task(backlog_root, "proj", task_id="T-AF999-US01-01", us_id="US-AF999-01", priority="Alta")
+    mark_dispatched(backlog_root, "proj", "T-AF999-US01-01", agent_id="a-dev", agent_name="Developer-1")
+    set_entry_report_file(backlog_root, "proj", "T-AF999-US01-01", tmp_path / "report.txt")
+
+    session = DevelopmentSession(id="s1", project_id="p1")
+    activate(session)
+    assign_agent(
+        session, Agent(id="a-dev", name="Developer-1", role="developer", prompt="p", runtime_id="r1")
+    )
+
+    worker = DispatchQueueWorker(backlog_root, "proj", session)
+    worker._restore_inflight_from_queue()
+    worker._restore_inflight_from_queue()  # segundo "reinicio" del mismo workspace
+
+    assert len(worker._inflight) == 1
+    key, infl = next(iter(worker._inflight.items()))
+    assert key == infl.job.id
+    assert infl.task_id == "T-AF999-US01-01"
+    assert _task_state_on_disk(backlog_root, "T-AF999-US01-01") == "IN_PROGRESS"
+    assert get_queue(backlog_root, "proj")[0].status == "dispatched"
+
+
+# ---------------------------------------------------------------------------
+# T-AF008-US18-05: limpiar en runtime (sin esperar al reinicio) el residuo de
+# Job huérfano `running` — entrada `dispatched` cuyo agente ya no existe y
+# cuyo `report_file` existe sin marcador (caso que la reconciliación general
+# deja en `dispatched` para siempre). Un agente sano NUNCA se limpia.
+# ---------------------------------------------------------------------------
+
+
+def test_runtime_cleanup_cleans_orphan_running_residue_when_agent_gone(tmp_path) -> None:
+    """Criterios 1/5 (T-AF008-US18-05): en un ciclo de reconciliación en
+    RUNTIME (no en el arranque), una entrada `dispatched` con Task
+    `IN_PROGRESS` cuyo agente ya no está en la sesión se limpia de inmediato:
+    la entrada pasa a `failed` (con motivo), la Task sale de IN_PROGRESS
+    (vuelve a READY por defecto) y se informa en `reconciliation_log.jsonl` —
+    sin esperar al reinicio del backend."""
+    from atlas_forge.core.reconciliation_log import reconciliation_log_path
+    from atlas_forge.dispatcher.dispatch_queue import set_entry_report_file
+
+    backlog_root = tmp_path / "backlog_root"
+    backlog = backlog_root / "02-backlog"
+    _write_task_yaml(
+        backlog / "tasks", "T-AF999-US01-01", "US-AF999-01", "IN_PROGRESS", priority="Alta"
+    )
+    enqueue_task(backlog_root, "proj", task_id="T-AF999-US01-01", us_id="US-AF999-01", priority="Alta")
+    mark_dispatched(backlog_root, "proj", "T-AF999-US01-01", agent_id="a-vanished", agent_name="Developer-X")
+    # El fichero de reporte EXISTE pero sin marcador (el agente cayó sin
+    # terminar): `reconcile_dispatch_queue_entries` lo dejaría `dispatched`.
+    report_file = tmp_path / "report-vacio.txt"
+    report_file.write_text("trabajo en curso, nunca terminó\n", encoding="utf-8")
+    set_entry_report_file(backlog_root, "proj", "T-AF999-US01-01", report_file)
+
+    session = DevelopmentSession(id="s1", project_id="p1")
+    activate(session)  # el agente a-vanished NO está en la sesión
+
+    worker = DispatchQueueWorker(backlog_root, "proj", session)
+    reconciled = worker.run_reconciliation_once()
+
+    assert "T-AF999-US01-01" in reconciled
+    assert worker._inflight == {}
+    entry = get_queue(backlog_root, "proj")[0]
+    assert entry.status == STATUS_FAILED
+    assert "agente ya no existe" in (entry.result or "")
+    assert _task_state_on_disk(backlog_root, "T-AF999-US01-01") == "READY"
+    log_text = reconciliation_log_path(backlog_root, "proj").read_text(encoding="utf-8")
+    assert "T-AF999-US01-01" in log_text
+    assert "dispatched_orphan_reconciled" in log_text
+
+
+def test_runtime_cleanup_does_not_touch_healthy_agent(tmp_path) -> None:
+    """Criterios 3/4 (T-AF008-US18-05): una entrada `dispatched` legítima —
+    agente sano presente en la sesión, Job en vuelo real (reporte sin
+    marcador, estado normal en curso) — NUNCA se limpia por este mecanismo:
+    `run_reconciliation_once` la deja intacta (entrada `dispatched`, Task
+    `IN_PROGRESS`)."""
+    from atlas_forge.dispatcher.dispatch_queue import set_entry_report_file
+
+    backlog_root = tmp_path / "backlog_root"
+    backlog = backlog_root / "02-backlog"
+    _write_task_yaml(
+        backlog / "tasks", "T-AF999-US01-01", "US-AF999-01", "IN_PROGRESS", priority="Alta"
+    )
+    enqueue_task(backlog_root, "proj", task_id="T-AF999-US01-01", us_id="US-AF999-01", priority="Alta")
+    mark_dispatched(backlog_root, "proj", "T-AF999-US01-01", agent_id="a-dev", agent_name="Developer-1")
+    report_file = tmp_path / "report-en-curso.txt"
+    report_file.write_text("sigue trabajando\n", encoding="utf-8")
+    set_entry_report_file(backlog_root, "proj", "T-AF999-US01-01", report_file)
+
+    session = DevelopmentSession(id="s1", project_id="p1")
+    activate(session)
+    assign_agent(
+        session, Agent(id="a-dev", name="Developer-1", role="developer", prompt="p", runtime_id="r1")
+    )
+
+    worker = DispatchQueueWorker(backlog_root, "proj", session)
+    reconciled = worker.run_reconciliation_once()
+
+    assert "T-AF999-US01-01" not in reconciled
+    assert get_queue(backlog_root, "proj")[0].status == "dispatched"
+    assert _task_state_on_disk(backlog_root, "T-AF999-US01-01") == "IN_PROGRESS"
+
+
+# ---------------------------------------------------------------------------
+# T-AF022-US18-03: la reconciliación periódica del worker reconcilia también
+# la cola de peticiones de creación (T-AF036-US20-06) — in_flight sin
+# report_file vuelve a pending para reintentarla; la legítima no se toca.
+# ---------------------------------------------------------------------------
+
+
+def test_worker_periodic_reconcile_creation_queue_orphan(tmp_path) -> None:
+    """Criterios 1/2 (T-AF022-US18-03): un `run_reconciliation_once()` en
+    runtime reconcilia la cola de peticiones de creación — una `in_flight`
+    cuyo report_file se perdió vuelve a `pending` (se reintentará en el
+    siguiente ciclo de creación), y una `in_flight` con report_file presente
+    (Job legítimo) queda intacta."""
+    from atlas_forge.dispatcher.creation_queue import (
+        STATUS_IN_FLIGHT,
+        STATUS_PENDING,
+        enqueue_creation_request,
+        get_creation_requests,
+        mark_creation_in_flight,
+    )
+
+    backlog_root = tmp_path / "backlog_root"
+    (backlog_root / "02-backlog" / "user-stories").mkdir(parents=True, exist_ok=True)
+
+    live = enqueue_creation_request(
+        backlog_root, "proj", tipo="us", description="En vuelo legítimo",
+    )
+    orphan = enqueue_creation_request(
+        backlog_root, "proj", tipo="task", description="Huérfana",
+    )
+
+    live_report = tmp_path / "report-live.txt"
+    live_report.write_text("escribiendo...", encoding="utf-8")
+    mark_creation_in_flight(backlog_root, "proj", live.request_id, live_report)
+    mark_creation_in_flight(backlog_root, "proj", orphan.request_id, tmp_path / "report-borrado.txt")
+
+    session = DevelopmentSession(id="s1", project_id="p1")
+    activate(session)
+
+    worker = DispatchQueueWorker(backlog_root, "proj", session)
+    worker.run_reconciliation_once()
+
+    by_id = {r.request_id: r for r in get_creation_requests(backlog_root, "proj")}
+    assert by_id[live.request_id].status == STATUS_IN_FLIGHT   # legítimo intacto
+    assert by_id[orphan.request_id].status == STATUS_PENDING   # reintentable

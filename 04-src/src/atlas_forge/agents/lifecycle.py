@@ -29,12 +29,23 @@ from atlas_forge.models import Agent
 # normal de la aplicación. `unavailable`/`stopped` siguen alcanzables
 # desde `limited`: el proceso tmux puede morir o detenerse a propósito
 # igual que en cualquier otro estado.
+#
+# `failed` (T-AF008-US18-04, US-AF008-18): auto-liberación operativa de un
+# agente que quedó `working` sin Job en vuelo (huérfano por re-despacho del
+# mismo task_id o por reinicio/duplicado) y sin actividad reciente — el
+# watcher `agents/stuck_working_watcher.py` lo marca `failed` con motivo
+# consultable en `failure_reason`, desbloqueando la cola. A diferencia de
+# `unavailable` (fallo del runtime), `failed` es un fallo de SUPERVISIÓN
+# del ciclo operativo: el runtime puede seguir vivo. Vuelve a `idle` de
+# forma automática cuando su runtime está vivo (RuntimeDeathWatcher) o por
+# liberación manual; `stopped`/`unavailable` siguen alcanzables.
 _ALLOWED_TRANSITIONS: dict[str, set[str]] = {
     "idle": {"working", "unavailable", "stopped", "limited"},
-    "working": {"idle", "unavailable", "stopped", "limited"},
+    "working": {"idle", "unavailable", "stopped", "limited", "failed"},
     "unavailable": {"idle"},
     "stopped": set(),
     "limited": {"idle", "unavailable", "stopped"},
+    "failed": {"idle", "unavailable", "stopped"},
 }
 
 
@@ -59,10 +70,31 @@ def mark_working(agent: Agent) -> None:
 
 def mark_idle(agent: Agent) -> None:
     _transition(agent, "idle")
+    # T-AF008-US18-04: al recuperar un agente a `idle` se limpia el motivo
+    # de fallo previo (si lo hubiera) — un agente operativo no debe seguir
+    # exponiendo un fallo obsoleto.
+    if getattr(agent, "failure_reason", None) is not None:
+        agent.failure_reason = None
 
 
 def mark_unavailable(agent: Agent) -> None:
     _transition(agent, "unavailable")
+
+
+def mark_failed(agent: Agent, reason: str) -> None:
+    """Transiciona `agent` a `failed` (T-AF008-US18-04) registrando el
+    `failure_reason` consultable ANTES de la transición, para que si
+    `_transition` lanza (origen no permitido) el agente no quede con un
+    motivo de fallo obsoleto sin `status == "failed"` que lo respalde."""
+    agent.failure_reason = reason
+    _transition(agent, "failed")
+
+
+def clear_failure(agent: Agent) -> None:
+    """Limpia `failure_reason` al recuperar un agente `failed` a `idle` —
+    un agente operativo no debe seguir exponiendo un motivo de fallo
+    obsoleto."""
+    agent.failure_reason = None
 
 
 def mark_stopped(agent: Agent) -> None:

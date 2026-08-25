@@ -180,6 +180,9 @@ def build_epic_detail(backlog_path: str | Path, graph: BacklogGraph, epic_id: st
                 # transición de cada US, para el encabezado de la web
                 # (`None` si el fichero no los declara — retrocompatibilidad).
                 "fase": item.fase,
+                # T-AF036-US25-02: `version` de la US en el detalle de la
+                # Epic (se refleja el valor editado por el endpoint).
+                "version": item.version,
                 "updated_at": item.updated_at,
                 "task_count": task_counts.get(item.id, 0),
                 **({"drift": True} if drifted_ids.get(item.id, item.state) != item.state else {}),
@@ -256,6 +259,10 @@ def build_item_detail(graph: BacklogGraph, item_id: str) -> dict | None:
         # para una Task todavía no puntuada, mismo criterio que `priority`.
         "difficulty": item.difficulty,
         "fase": item.fase,
+        # T-AF036-US25-02: `version` del item (Epics y User Stories), para
+        # que el nuevo valor editado vía `PUT /backlog/{item_id}/version` se
+        # refleje en `GET /backlog/{item_id}`. Campo aditivo.
+        "version": item.version,
         # T-AF036-US13-02: timestamp ISO-8601 UTC de la última transición
         # de estado (leído del frontmatter), `None` si el fichero aún no lo
         # declara (retrocompatibilidad).

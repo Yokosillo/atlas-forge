@@ -37,7 +37,7 @@ codex -a never -s workspace-write [--model <model>] <prompt>
 
 ## Model selection
 
-Runtime and model are chosen **at launch time only**, for all three runtimes above — there is no on-the-fly model switch for a live agent. `atlas_forge/agent_model.py` exposes `get_active_model(agent_id)` (reads the model currently reported by the runtime's pane, `None` for a dead session or an unrecognized pattern) and `get_available_models()`/`get_available_model_entries()` (reads the `.atlas-forge/models.yml` catalog). `resolve_runtime_for_model(model_id)` maps a catalog entry to its real launch type.
+Runtime and model are chosen **at launch time**. There is no on-the-fly runtime switch for a live agent; the **model** hot switch is only available for OpenCode agents (`PUT /agents/{agent_id}/model`). `atlas_forge/agent_model.py` exposes `get_active_model(agent_id)` (reads the model currently reported by the runtime's pane, `None` for a dead session or an unrecognized pattern) and `get_available_models()`/`get_available_model_entries()` (reads the `.atlas-forge/models.yml` catalog). `resolve_runtime_for_model(model_id)` maps a catalog entry to its real launch type.
 
 Exposed in the API: `GET /agents/{id}/model`, `GET /agents/{id}/available-models`.
 

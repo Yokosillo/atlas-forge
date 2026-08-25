@@ -26,7 +26,7 @@ El prompt inicial de un agente se construye en dos capas, ambas decididas por At
 
 ## Lanzamiento
 
-`launch_agent(role, runtime_type, model, session, project_path, socket_name)` valida en orden: sesión activa → rol conocido → runtime conocido (`claude-code` | `opencode`) → modelo solo permitido para OpenCode. Si el rol es reutilizable y ya hay un agente vivo (`idle`/`working`) de ese rol, se **reutiliza** en lugar de duplicarse; si está `stopped`/`unavailable`, se sustituye por uno nuevo.
+`launch_agent(role, runtime_type, model, session, project_path, socket_name)` valida en orden: sesión activa → rol conocido → runtime conocido (`claude-code` | `opencode` | `codex`) → modelo solo permitido para OpenCode. Si el rol es reutilizable y ya hay un agente vivo (`idle`/`working`) de ese rol, se **reutiliza** en lugar de duplicarse; si está `stopped`/`unavailable`, se sustituye por uno nuevo.
 
 Con `initial_job_description`, además de lanzar, se crea y despacha un Job bloqueante inicial (`launch_agent_with_initial_job`); un fallo de despacho deja el Job `failed` con el motivo en `job.result` pero **no** des-registra el agente.
 

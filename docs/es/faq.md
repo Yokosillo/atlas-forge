@@ -8,7 +8,7 @@ No. Es una plataforma de **coordinación**. Los agentes ejecutan con sus propios
 
 ### ¿Qué runtimes soporta?
 
-Claude Code y OpenCode (lanzados en sesiones de tmux). **Codex todavía no se soporta** — aparece en el catálogo de modelos como entrada comentada (futuro). Ver [Runtime y Scribe](runtime.md).
+Claude Code, OpenCode y Codex (lanzados en sesiones de tmux). Los tres son runtimes de pleno derecho. Ver [Runtime y Scribe](runtime.md).
 
 ### ¿Necesito Ollama?
 
@@ -28,7 +28,7 @@ Proyecto activo y preferencias de modelo en `~/.local/share/atlas_forge/`. Sesi�
 
 ### ¿Por qué el backlog es el centro del producto?
 
-Desde la Fase 0.9 (2026-08-05) el producto es **centrado en el backlog**: todo el trabajo se despliega desde el backlog (Epic → US → Task → Implementar) con botones, no escribiendo Markdown a mano ni hablando con cada agente por separado. Ver [Backlog y pipeline](backlog.md).
+Atlas Forge es **centrado en el backlog**: todo el trabajo se despliega desde el backlog (Epic → US → Task → Implementar) con botones, no escribiendo Markdown a mano ni hablando con cada agente por separado. Ver [Backlog y pipeline](backlog.md).
 
 ## Resolución de problemas
 

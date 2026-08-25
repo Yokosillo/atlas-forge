@@ -482,6 +482,30 @@
     });
   }
 
+  /* ------------------------------------------------------------------ */
+  /* Peticiones de creación desde descripción (T-AF036-US20-01/02/03)     */
+  /* ------------------------------------------------------------------ */
+
+  /** `POST /backlog/epic/from-description` (T-AF036-US20-01) — encola una
+   * petición de creación de Epic desde descripción libre. Devuelve
+   * `{request_id, tipo, status}`; la Epic se materializa cuando el
+   * Arquitecto la procesa (T-AF036-US20-07/08), no en la petición. */
+  async function createFromDescriptionEpic(description) {
+    return request("POST", "/backlog/epic/from-description", { post: true, body: { description } });
+  }
+
+  /** `POST /backlog/epic/{epicId}/from-description-us` (T-AF036-US20-02) —
+   * encola una petición de creación de User Story bajo `epicId`. */
+  async function createFromDescriptionUserStory(epicId, description) {
+    return request("POST", "/backlog/epic/" + encodeURIComponent(epicId) + "/from-description-us", { post: true, body: { description } });
+  }
+
+  /** `POST /backlog/us/{usId}/from-description-task` (T-AF036-US20-03) —
+   * encola una petición de creación de Task bajo `usId`. */
+  async function createFromDescriptionTask(usId, description) {
+    return request("POST", "/backlog/us/" + encodeURIComponent(usId) + "/from-description-task", { post: true, body: { description } });
+  }
+
   /** `POST /backlog/epic/{epic_id}/propose-stories` (T-AF036-US10-01) —
    * pipeline Epic→User Story: propone User Stories desde el alcance v1 de
    * la Epic, ejecuta validación + autoauditoría y, si se aprueban
@@ -559,6 +583,28 @@
     return request("DELETE", "/backlog/queue/history");
   }
 
+  /** `DELETE /backlog/queue/completed` — borra TODAS las entradas
+   * `completed` (DONE) de la cola, conservando `failed`/`queued`/`dispatched`
+   * (T-AF042-US07-01). Devuelve `{removed: N}`. */
+  async function clearCompleted() {
+    return request("DELETE", "/backlog/queue/completed");
+  }
+
+  /** `DELETE /backlog/queue/entry/{task_id}` — borra SOLO la entrada
+   * terminal (`completed`/`failed`) de `taskId`, conservando el resto de la
+   * cola (T-AF036-US17-07/-09: el aspa ✕ por fila `done`). Devuelve
+   * `{removed: 0|1}`. */
+  async function deleteQueueEntry(taskId) {
+    return request("DELETE", "/backlog/queue/entry/" + encodeURIComponent(taskId));
+  }
+
+  /** `POST /backlog/queue/entry/{task_id}/requeue` — reencola una entrada
+   * `failed` devolviéndola a `queued` para que el Dispatcher la reintente
+   * (T-AF036-US17-08). La task real pasa a `TO_DEVELOP` (si estaba `READY`). */
+  async function requeueQueueEntry(taskId) {
+    return request("POST", "/backlog/queue/entry/" + encodeURIComponent(taskId) + "/requeue");
+  }
+
   /* ------------------------------------------------------------------ */
   /* Edición en línea de prioridad/estado (T-AF036-US08-01)              */
   /* ------------------------------------------------------------------ */
@@ -581,6 +627,17 @@
   async function setBacklogItemFase(itemId, newFase) {
     return request("PUT", "/backlog/" + encodeURIComponent(itemId) + "/fase", {
       post: true, body: { fase: newFase }
+    });
+  }
+
+  /** `PUT /backlog/{item_id}/version` — cambia el campo `version` de una
+   * Epic/User Story ya existente directamente en su fichero real
+   * (T-AF036-US25-01). `newVersion` es una de `0.9`/`0.9.1`/`0.9.2`, o
+   * `null` para "sin versión". 400 (valor inválido, o contenido resultante
+   * que no valida) propaga el `detail` real del backend. */
+  async function setBacklogItemVersion(itemId, newVersion) {
+    return request("PUT", "/backlog/" + encodeURIComponent(itemId) + "/version", {
+      post: true, body: { version: newVersion }
     });
   }
 
@@ -648,6 +705,9 @@
     createEpic: createEpic,
     createUserStory: createUserStory,
     createTask: createTask,
+createFromDescriptionEpic: createFromDescriptionEpic,
+    createFromDescriptionUserStory: createFromDescriptionUserStory,
+    createFromDescriptionTask: createFromDescriptionTask,
     proposeStories: proposeStories,
     proposeTasks: proposeTasks,
     launchDevelopment: launchDevelopment,
@@ -656,8 +716,12 @@
     dequeueTask: dequeueTask,
     getDispatchQueue: getDispatchQueue,
     clearQueueHistory: clearQueueHistory,
+    clearCompleted: clearCompleted,
+    deleteQueueEntry: deleteQueueEntry,
+    requeueQueueEntry: requeueQueueEntry,
     setBacklogItemPriority: setBacklogItemPriority,
     setBacklogItemFase: setBacklogItemFase,
+    setBacklogItemVersion: setBacklogItemVersion,
     setBacklogItemState: setBacklogItemState,
   });
 })();

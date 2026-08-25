@@ -613,6 +613,7 @@ def reconcile_dispatch_queue_entries(
     backlog_dir: Path | str,
     *,
     auto_reenqueue_orphaned: bool = False,
+    protected_task_ids: set[str] | None = None,
 ) -> list[str]:
     """T-AF008-US10-04, criterio 3/4: al arrancar el worker, las entradas
     `dispatched` cuyo estado real del fichero ya no las justifica
@@ -622,18 +623,35 @@ def reconcile_dispatch_queue_entries(
     pendientes (Task `DONE` cerrada fuera del pipeline, o Task revertida
     a `READY`/inexistente):
 
+    `protected_task_ids` (T-AF022-US18-02): conjunto de `task_id` que el
+    worker actual vigila ACTIVAMENTE (sus registros `_inflight`/
+    `_inflight_review`). Cuando la reconciliación se ejecuta en cada ciclo
+    de polling (no solo al arrancar), una entrada `dispatched` con Task
+    `IN_PROGRESS` y `report_file` ausente es lo NORMAL: el fichero de
+    reporte solo se crea cuando el agente TERMINA de escribir su informe.
+    Sin esta protección, la reconciliación periódica marcaría `failed` (y
+    revertiría a `READY`) todo Job legítimamente en vuelo, provocando
+    re-despachos duplicados y agentes que completan trabajo ya dado por
+    perdido. Las `task_id` protegidas se saltan siempre (no son
+    huérfanas: el propio worker está esperando su `report_file`).
+
     - Task `DONE` -> entrada `completed` (cierre por veredicto previo que
       nunca llegó a terminalizarse en la cola, o Task cerrada por otra
       vía sin pasar por esta cola).
     - Task `READY`/`TO_DEVELOP`, o Task que ya no existe -> entrada
       `failed` con el motivo real de la reconciliación.
-    - Task `IN_PROGRESS` (T-AF008-US10-05): si el fichero de reporte del
-      Job en vuelo ya no existe (o no se registró) es una huérfana real —
-      la Task vuelve a `READY` (o `TO_DEVELOP` si `auto_reenqueue_orphaned`
-      está activa) en su fichero real y la entrada queda `failed` con el
-      motivo, dejando la plaza libre para que el siguiente ciclo la
-      re-despache. Si el fichero de reporte todavía existe, el Job sigue
-      legítimamente en vuelo y NO se toca (no se duplica trabajo).
+    - Task `IN_PROGRESS` (T-AF022-US20-01, decisión de producto US-AF022-20):
+      una entrada `dispatched` cuya Task está `IN_PROGRESS` es un Job
+      DESPACHADO EN CURSO — el `report_file` es el DESTINO del informe que el
+      agente escribirá al terminar, y su ausencia transitoria en disco es lo
+      normal (el fichero solo se crea al finalizar). Por eso una entrada
+      `dispatched` NUNCA se revierte aquí por la ausencia del fichero (guard
+      de seguridad principal: no revolver trabajo en vuelo legítimo — corrige
+      los falsos positivos del 2026-08-24 que revertieron a READY decenas de
+      tasks implementadas). El residuo de Job huérfano REAL (agente ya
+      inexistente en la sesión) NO se gestiona en esta función: lo limpia
+      `_reconcile_orphaned_agent_entries` del worker (T-AF008-US18-05), que
+      sí puede probar la orfandad (agente ausente + sin Job en vuelo vigilado).
     - Task `IN_REVIEW` se deja intacta: el ciclo de revisión del Tester
       (`run_review_dispatch_cycle`) la re-despacha sola cada poll, no
       necesita reconciliación (y revertirla descartaría el trabajo ya
@@ -658,9 +676,15 @@ def reconcile_dispatch_queue_entries(
     if not pending:
         return []
 
+    protected = protected_task_ids or set()
     graph = load_backlog(Path(backlog_dir))
     reconciled: list[str] = []
     for entry in pending:
+        if entry.task_id in protected:
+            # El worker está vigilando activamente este Job en vuelo (su
+            # `report_file` lo creará el agente al terminar) — nunca se
+            # considera huérfana en un ciclo periódico.
+            continue
         item = graph.items.get(entry.task_id)
         state = item.state if item is not None else None
         if state == "DONE":
@@ -686,30 +710,21 @@ def reconcile_dispatch_queue_entries(
             )
             reconciled.append(entry.task_id)
         elif state == "IN_PROGRESS":
-            # T-AF008-US10-05: huérfana real solo si el Job en vuelo ya no
-            # tiene reporte (o nunca se registró). Si el reporte existe, el
-            # Job sigue vivo — no se toca para no duplicar trabajo.
-            report_file = Path(entry.report_file) if entry.report_file else None
-            if report_file is not None and report_file.is_file():
-                continue
-            target_state = "TO_DEVELOP" if auto_reenqueue_orphaned else "READY"
-            # T-AF036-US22-01: `IN_PROGRESS -> TO_DEVELOP/READY` (reencolar
-            # una huérfana tras reinicio) no la modela la máquina canónica —
-            # es una reconciliación operativa interna, se fuerza.
-            set_item_state(item.path, target_state, force=True)
-            mark_failed(
-                project_root, project_name, entry.task_id,
-                result=(
-                    "Job en vuelo perdido tras reinicio — "
-                    + ("reencolada automáticamente" if auto_reenqueue_orphaned else "reencolada manualmente")
-                ),
-            )
-            append_dispatched_orphan_reconciliation(
-                project_root, project_name,
-                task_id=entry.task_id,
-                target_state=target_state,
-            )
-            reconciled.append(entry.task_id)
+            # T-AF022-US20-01 (corrección de los falsos positivos del
+            # 2026-08-24): una entrada `dispatched` cuya Task está
+            # `IN_PROGRESS` es un Job DESPACHADO EN CURSO — el `report_file`
+            # es el DESTINO del informe que el agente escribirá al terminar,
+            # y su ausencia transitoria en disco es lo NORMAL (el fichero
+            # solo se crea al finalizar). Revertir aquí por la ausencia del
+            # fichero revierte a `READY` decenas de tasks legítimamente en
+            # vuelo (T-AF034-US01-01/-02, T-AF036-US17-07, ...). Decisión de
+            # producto (US-AF022-20): "si hay entrada `dispatched`, NO se
+            # revierte" como guard de seguridad principal. El residuo de Job
+            # huérfano REAL (agente ya inexistente en la sesión) NO se
+            # gestiona aquí: lo limpia `_cleanup_orphaned_running_jobs` del
+            # worker (T-AF008-US18-05), que es el que sí puede probar la
+            # orfandad (agente ausente + sin Job en vuelo vigilado).
+            continue
     return reconciled
 
 
@@ -719,6 +734,7 @@ def reconcile_orphaned_in_progress_tasks(
     backlog_dir: Path | str,
     *,
     auto_reenqueue_orphaned: bool = False,
+    protected_task_ids: set[str] | None = None,
 ) -> list[str]:
     """T-AF022-US18-01 (US-AF022-18, criterio 1/2/7): cierra el hueco de
     `reconcile_dispatch_queue_entries`, que solo recorre entradas CON
@@ -774,6 +790,10 @@ def reconcile_orphaned_in_progress_tasks(
         for e in entries
         if e.report_file and Path(e.report_file).is_file()
     }
+    # T-AF022-US18-02: task_ids que el worker vigila activamente en memoria
+    # (sus Jobs en vuelo; el `report_file` aún no existe hasta que el agente
+    # termina) — nunca se revierten en un ciclo periódico.
+    protected = protected_task_ids or set()
 
     graph = load_backlog(Path(backlog_dir))
     reconciled: list[str] = []
@@ -784,6 +804,8 @@ def reconcile_orphaned_in_progress_tasks(
         if item.state != "IN_PROGRESS":
             continue
         if task_id in dispatched_task_ids or task_id in live_report_task_ids:
+            continue
+        if task_id in protected:
             continue
         target_state = "TO_DEVELOP" if auto_reenqueue_orphaned else "READY"
         set_item_state(item.path, target_state, force=True)

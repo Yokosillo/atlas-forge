@@ -270,11 +270,11 @@ def parse_backlog_item(path: Path) -> BacklogItem:
         # la vista "Por Fase" y el filtro por fase siguen dependiendo de
         # `epic.fase` hasta que T-AF036-US15-06 migre la vista a `VERSION`
         # (criterio de no-regresión, T-AF036-US18-01 criterio 4). `version`
-        # solo tiene sentido en Epics; una Epic nueva (creada con `version`,
-        # sin `fase`) devuelve `epic.fase == None` de forma natural.
+        # se carga para Epics y para User Stories (T-AF036-US24/25: la US
+        # se asigna a una versión de entrega, editable desde la web).
         kind = _item_kind(item_id)
         fase = data.get("fase")
-        version = data.get("version") if kind == ITEM_KIND_EPIC else None
+        version = data.get("version")
         if version is not None and not isinstance(version, str):
             # T-AF036-US15-06: `version: 0.9` sin comillas lo lee PyYAML como
             # float (no str) y el parser lo descartaba — normaliza la versión
@@ -342,6 +342,63 @@ def load_backlog(backlog_path: Path) -> BacklogGraph:
         items=items,
         errors=tuple(sorted(errors, key=lambda e: str(e.path))),
     )
+
+
+# ---------------------------------------------------------------------------
+# T-AF048-US01-01 (US-AF048-01): caché determinista del BacklogGraph por
+# proyecto con invalidación por mtime+size. `load_backlog` re-parsea todos
+# los ficheros de `02-backlog/` en cada llamada; los endpoints de solo
+# lectura (`GET /backlog`, `GET /backlog/{item_id}`, `GET /backlog/queue`)
+# los re-parsean sin necesidad. Esta variante memoiza por `backlog_path`
+# con un fingerprint determinista = lista ordenada de (ruta relativa, size,
+# mtime_ns) de todos los `.md` de epics/user-stories/tasks: si ningún
+# fichero cambió se devuelve el grafo ya parseado (sin re-parsear); si
+# alguno cambió se re-parsea y se actualiza la caché. Thread-safe (lock)
+# porque FastAPI atiende peticiones concurrentes.
+# ---------------------------------------------------------------------------
+
+import threading as _threading
+
+_BACKLOG_CACHE: dict[str, tuple[tuple[tuple[str, int, int], ...], BacklogGraph]] = {}
+_BACKLOG_CACHE_LOCK = _threading.Lock()
+
+
+def _backlog_fingerprint(backlog_path: Path) -> tuple[tuple[str, int, int], ...]:
+    """Fingerprint determinista del estado de `02-backlog/`: `(ruta relativa,
+    size, mtime_ns)` de cada fichero `.md` de epics/user-stories/tasks,
+    ordenado. Cambia si cualquier fichero cambia su tamaño o su mtime."""
+    entries: list[tuple[str, int, int]] = []
+    for subdir in ("epics", "user-stories", "tasks"):
+        directory = backlog_path / subdir
+        if not directory.is_dir():
+            continue
+        for file_path in sorted(directory.glob("*.md")):
+            try:
+                stat = file_path.stat()
+            except OSError:
+                continue
+            entries.append((file_path.relative_to(backlog_path).as_posix(), stat.st_size, stat.st_mtime_ns))
+    return tuple(entries)
+
+
+def load_backlog_cached(backlog_path: Path) -> BacklogGraph:
+    """`load_backlog` memoizado por proyecto (T-AF048-US01-01).
+
+    Devuelve el MISMO `BacklogGraph` que `load_backlog` (corrección idéntica)
+    pero sin re-parsear cuando el fingerprint (mtime+size de los ficheros de
+    `02-backlog/`) no cambió. Si cambió, re-parsea y actualiza la caché. El
+    fingerprint se recalcula en cada llamada, así que una edición en disco se
+    refleja automáticamente en la siguiente lectura — sin `--cache-clear` ni
+    reinicio. Acceso thread-safe vía lock."""
+    backlog_path = Path(backlog_path)
+    fingerprint = _backlog_fingerprint(backlog_path)
+    with _BACKLOG_CACHE_LOCK:
+        cached = _BACKLOG_CACHE.get(str(backlog_path))
+        if cached is not None and cached[0] == fingerprint:
+            return cached[1]
+        graph = load_backlog(backlog_path)
+        _BACKLOG_CACHE[str(backlog_path)] = (fingerprint, graph)
+        return graph
 
 
 # AF-040 (2026-08-18): vocabulario canónico en `atlas_forge/core/state_machines.py` —

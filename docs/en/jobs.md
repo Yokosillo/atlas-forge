@@ -79,21 +79,35 @@ The same **"Progresar"** button only acts in `NO_TASKS` (→ `TO_PLAN`); from th
 `IN_REVIEW` means something different for a Task than for a User Story:
 
 1. **Task in `IN_REVIEW`**: the Developer closed the implementation — the Dispatcher assigns it to a free **Tester**, who verifies the Task's acceptance criteria functionally.
-   - Pass → the Task moves to `DONE`.
-   - Fail → the Task goes **directly back to the same Developer** via the Dispatcher (back to `IN_PROGRESS`), with the Tester's findings attached — no new Task is created. It re-enters `IN_REVIEW` once the Developer closes it again.
-   - While a Developer's Task is in `IN_REVIEW`, that Developer is not considered free for a new Task (configurable via the `developer_waits_for_tester_review` system preference) — so no Developer can have two Tasks self-certifying in parallel.
+   - `EXITO` → the Task moves to `DONE`.
+   - `FALLO` → the **same Task** goes directly back to the same Developer who closed it (rework, no new Task created): it goes back to `IN_PROGRESS` with a `## Corrección pendiente` section annotated in the file, and the correction Job is registered as in-flight work. It re-enters `IN_REVIEW` once the Developer closes it again.
+   - **Fallback**: if the Developer who closed the Task is no longer available (dead runtime or out of session), the Task returns to `TO_DEVELOP` so the normal cycle re-dispatches it to any free Developer — it is never blocked.
+   - While a Developer's Task is in `IN_REVIEW`, that Developer is not considered free for a new Task (configurable via the `developer_waits_for_tester_review` system preference, on by default) — so no Developer can have two Tasks self-certifying in parallel.
 
 2. **User Story in `IN_REVIEW`**: only once **all** of its Tasks are `DONE`, the Dispatcher assigns the Story to a free **Architect**, who evaluates whether the Story's Tasks fully cover the declared need.
    - Approved (with or without notes) → the Story moves to `DONE`.
    - Rejected for missing coverage → the Architect adds a new Task to the **same** Story — the Story is not promoted to `DONE` in this case.
 
-The Dispatcher repeats this polling cycle for all four levels (US landing, implementation, Task review, final Story validation) with the same "one free agent at a time" rule at each level.
+The Dispatcher repeats this polling cycle for the US-landing, implementation, Task-review and final-Story-validation levels with the same "one free agent at a time" rule at each level.
 
-## Job aislado (isolated Job)
+### Difficulty-based assignment
+
+When dispatching a `TO_DEVELOP` Task to a Developer, the Dispatcher picks the free Developer according to the Task's **difficulty** and the `difficulty_model_map` system preference (which maps each difficulty level to a model tier). It automatically degrades to any free Developer if the level is not recognized, there are no models, or the runtime does not support hot model switching.
+
+### Dispatch queue
+
+Besides the `state` in the real file (the source of truth for eligibility), the Dispatcher keeps a per-project **dispatch queue** (`dispatch_queue.json`). Each queued Task has an entry with state `queued | dispatched | failed | completed` (plus derived `awaiting_tester`). The queue provides FIFO ordering and auditability; it is exposed via `GET /backlog/queue` and in the web **Pipeline** tab.
+
+### Autonomous scaling
+
+The Dispatcher can **scale and release agents** automatically according to pending demand (`dispatcher/autonomous_scaling.py`, `autonomous_config.enabled` preference): it computes the desired number of Developers and Testers from pending work and the per-role configured limits, never exceeding a total maximum. It only releases `idle`, non-persistent, non-retained agents with no Job in flight.
+
+## Isolated Job
 
 Outside the Story-state pipeline, a direct path exists for dispatching one-off work to a specific agent without going through any Story cycle: `POST /jobs` — the human picks the agent and writes (or the UI pre-fills) the description. "Lanzar desarrollo" (context already resolved: a Story's objective plus its pending Tasks) and "Crear Job manual" (free-form description) both use this same mechanism, available from a User Story's detail view in the Backlog screen.
 
 ## Planned (not implemented)
 
 - **Full Dispatcher v2** (AF-008): pipeline with declarative dependencies, retries, automatic multi-agent coordination and capability resolution (via AF-010 Capability Engine).
-- **Scheduler / global Job queue**: does not exist as a separate entity today.
+- **Parallel test-planting** (AF-043): the Tester generating acceptance tests when the Task enters `TO_DEVELOP` (today the Tester generates tests within its verification, not as a prior phase).
+- **Rework events for telemetry** (AF-043): today rework is recorded in the log, but not as a structured telemetry event (AF-041).

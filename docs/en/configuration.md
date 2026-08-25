@@ -38,8 +38,7 @@ models:
 
 Validation rules (`models_catalog.py`): supported runtime, no duplicate IDs, mandatory fields; an empty or malformed catalog → `MalformedModelCatalogError` with a concrete message. Changes are reflected on reload (TTL cache validated by mtime/size); parse errors are not cached.
 
-!!! note "Codex"
-    The `codex` runtime is considered in the catalog but **not active**: the `openai/gpt-5` entry is commented out because Codex is outside the current roadmap scope. `launch_agent` only accepts `claude-code` and `opencode` for now.
+All three runtimes (`opencode`, `claude_code`, `codex`) are supported by `launch_agent`. The project's real catalog declares models of all three.
 
 ## `.atlas-forge/scripts.yml` — project-specific scripts
 
@@ -98,8 +97,23 @@ It is edited from the **Models** tab of the web (`GET/PUT /models/preferences`).
 |---|---|
 | `active_project.json` | Selected active project (persisted). |
 | `model_preferences.json` | Model preferences (enabled + defaults). |
+| `version.yml` | Version scheme (see above). |
 
 `state_dir` defaults to `$XDG_DATA_HOME/atlas_forge` or `~/.local/share/atlas_forge`.
+
+## System preferences (`GET/PUT /system/preferences`)
+
+System-level configuration preferences, persisted independently of any project:
+
+| Key | Type | Default | Description |
+|---|---|---|---|
+| `max_simultaneous_developers` | int | `3` | Simultaneous-Developer limit. |
+| `difficulty_model_map` | dict | `Baja:1, Media:2, Alta:4, Crítica:5` | Difficulty→model-tier map for difficulty-based assignment. |
+| `developer_waits_for_tester_review` | bool | `true` | A Developer takes no new Task while its previous Task is in Tester `IN_REVIEW`. |
+| `autonomous_config` | dict | `enabled: false` | Autonomous scaling: per-role limits (`developer`, `tester`), tasks per agent and total maximum. |
+| `backlog_multiple_expansion` | `"single"` \| `"multi"` | `"single"` | Epic expansion in the backlog listing. |
+| `tui_enabled` | bool | `false` | (Legacy, no active terminal interface.) |
+| `auto_reenqueue_orphaned` | bool | `false` | Auto re-queue orphaned tasks. |
 
 ## Deployment (systemd)
 

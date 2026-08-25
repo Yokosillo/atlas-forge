@@ -79,15 +79,28 @@ El mismo botón **"Progresar"** solo actúa en `NO_TASKS` (→ `TO_PLAN`); a par
 `IN_REVIEW` significa algo distinto para una Task que para una User Story:
 
 1. **Task en `IN_REVIEW`**: el Developer cerró la implementación — el Dispatcher la asigna a un **Tester** libre, que verifica funcionalmente los criterios de aceptación de la Task.
-   - PASS → la Task pasa a `DONE`.
-   - FAIL → la Task vuelve **directamente al mismo Developer** vía el Dispatcher (pasa de nuevo a `IN_PROGRESS`), con los hallazgos del Tester adjuntos — no se crea una Task nueva. Re-entra en `IN_REVIEW` cuando el Developer la cierra de nuevo.
-   - Mientras la Task de un Developer está en `IN_REVIEW`, ese Developer no se considera libre para una Task nueva (configurable vía la preferencia de sistema `developer_waits_for_tester_review`) — así ningún Developer puede tener dos Tasks auto-certificándose en paralelo.
+   - `EXITO` → la Task pasa a `DONE`.
+   - `FALLO` → la **misma Task** vuelve directamente al mismo Developer que la cerró (retrabajo, sin crear una Task nueva): pasa de nuevo a `IN_PROGRESS` con una sección `## Corrección pendiente` anotada en el fichero, y el Job de corrección se registra como trabajo en vuelo. Re-entra en `IN_REVIEW` cuando el Developer la cierra de nuevo.
+   - **Fallback**: si el Developer que cerró la Task ya no está disponible (runtime caído o fuera de sesión), la Task vuelve a `TO_DEVELOP` para que el ciclo normal la re-despache a cualquier Developer libre — nunca se bloquea.
+   - Mientras la Task de un Developer está en `IN_REVIEW`, ese Developer no se considera libre para una Task nueva (preferencia de sistema `developer_waits_for_tester_review`, activa por defecto) — así ningún Developer puede tener dos Tasks auto-certificándose en paralelo.
 
 2. **User Story en `IN_REVIEW`**: solo cuando **todas** sus Tasks están `DONE`, el Dispatcher asigna la US a un **Arquitecto** libre, que evalúa si las Tasks de la Story cubren completamente la necesidad declarada.
    - Aprobada (con o sin notas) → la Story pasa a `DONE`.
    - Rechazada por cobertura insuficiente → el Arquitecto añade una Task nueva a la **misma** Story — la Story no se promueve a `DONE` en este caso.
 
-El Dispatcher repite este ciclo de polling para los cuatro niveles (aterrizaje de US, implementación, revisión de Tasks, validación final de Story) con la misma regla de "un agente libre a la vez" en cada nivel.
+El Dispatcher repite este ciclo de polling para los niveles de aterrizaje de US, implementación, revisión de Tasks y validación final de Story con la misma regla de "un agente libre a la vez" en cada nivel.
+
+### Asignación por dificultad
+
+Al despachar una Task `TO_DEVELOP` a un Developer, el Dispatcher elige al Developer libre según la **dificultad** de la Task y el mapa `difficulty_model_map` de las preferencias del sistema (que asocia cada nivel de dificultad a un tier de modelo). Degrada automáticamente a cualquier Developer libre si el nivel no se reconoce, no hay modelos o el runtime no soporta cambio de modelo en caliente.
+
+### Cola de despacho
+
+Además del `state` en el fichero real (fuente de verdad de elegibilidad), el Dispatcher mantiene una **cola de despacho** por proyecto (`dispatch_queue.json`). Cada Task encolada tiene una entrada con estado `queued | dispatched | failed | completed` (más `awaiting_tester` derivado). La cola aporta el orden FIFO y la auditoría; se expone en `GET /backlog/queue` y en la pestaña **Pipeline** de la web.
+
+### Escalado autónomo
+
+El Dispatcher puede **escalar y liberar agentes** automáticamente según la demanda pendiente (`dispatcher/autonomous_scaling.py`, preferencia `autonomous_config.enabled`): calcula el número deseado de Developers y Testers a partir del trabajo pendiente y los límites configurados por rol, sin superar nunca un máximo total. Solo libera agentes `idle`, no persistentes, no retenidos y sin Job en vuelo.
 
 ## Job aislado
 
@@ -96,4 +109,5 @@ Fuera del pipeline guiado por estados de la Story, existe una ruta directa para 
 ## Planificado (no implementado)
 
 - **Dispatcher v2 completo** (AF-008): pipeline con dependencias declarativas, reintentos, coordinación multi-agente automática y resolución de capacidades (vía el Capability Engine AF-010).
-- **Scheduler / cola global de Jobs**: no existe como entidad separada hoy.
+- **Test-planting en paralelo** (AF-043): que el Tester genere tests de aceptación al entrar la Task en `TO_DEVELOP` (hoy el Tester genera tests dentro de su verificación, no como fase previa).
+- **Eventos de retrabajo para telemetría** (AF-043): hoy el retrabajo se registra en el log, pero no como evento estructurado de telemetría (AF-041).

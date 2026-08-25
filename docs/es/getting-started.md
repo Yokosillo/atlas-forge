@@ -6,14 +6,15 @@ Instalación, configuración y primeras ejecuciones de Atlas Forge.
 
 - **Python ≥ 3.10**
 - **tmux** (los runtimes se ejecutan en sesiones de tmux; el socket por defecto es `atlas-forge`)
-- Un **runtime de IA** instalado y disponible en el PATH:
+- Un **runtime de IA** instalado y disponible en el PATH (al menos uno):
   - **OpenCode** (CLI `opencode`) — soporta selección de modelo.
   - **Claude Code** (CLI `claude`) — sin flag de modelo.
+  - **Codex** (CLI `codex`) — soporta selección de modelo.
 - **Opcional — Ollama** en `http://localhost:11434` para **Scribe** (modelo local, p. ej. `qwen2.5-coder:14b`). Scribe es un ahorrador de tokens opcional: todo funciona sin él, degradándose explícitamente.
 - **Opcional — acceso remoto** si quieres llegar al backend desde un dispositivo móvil.
 
 !!! note "Proveedores de LLM"
-    Atlas Forge no ejecuta modelos directamente: delega en runtimes externos. El catálogo de modelos (`.atlas-forge/models.yml`) declara los modelos disponibles por runtime. Codex aparece en el catálogo como entrada futura (comentada) — todavía no se soporta como runtime.
+    Atlas Forge no ejecuta modelos directamente: delega en runtimes externos. El catálogo de modelos (`.atlas-forge/models.yml`) declara los modelos disponibles por runtime. Los tres runtimes — OpenCode, Claude Code y Codex — se soportan.
 
 ## Instalación
 

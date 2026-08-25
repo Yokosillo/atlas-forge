@@ -248,13 +248,45 @@ def _find_test_runner(project_path: str) -> list[str] | None:
     return None
 
 
-def _run_project_tests(project_path: str) -> ScriptRunResult:
+# T-AF025-US04-02: timeout DEFINITIVO de `run_tests`, acorde a la suite que
+# realmente ejecuta el Tester (el subconjunto determinista `unit` por defecto,
+# rápido; la integración completa, si el operador la pide con `scope=all`,
+# tarda varios minutos con tmux real). Por-call: no infla el default global de
+# los scripts regulares (`DEFAULT_SCRIPT_TIMEOUT_SECONDS`).
+RUN_PROJECT_TESTS_TIMEOUT_SECONDS = 1800.0
+
+# Guard anti-recursión (T-AF025-US04-02, hallazgo del Tester): si un test
+# del subconjunto `unit` lanza la acción `testear` (que a su vez ejecuta
+# `pytest -m unit`), se produciría una recursión infinita (el pytest anidado
+# re-colecta el mismo test, que vuelve a lanzar otro pytest...) hasta el
+# timeout de 1800s. Este marcador de entorno lo setea el subproceso que
+# `run_tests` lanza; si `run_tests` vuelve a invocarse DENTRO de esa
+# ejecución (padre en cadena), no re-anida y devuelve un resultado explícito.
+_ATLAS_FORGE_RUNNING_TESTS = "ATLAS_FORGE_RUNNING_TESTS"
+
+
+def _run_project_tests(project_path: str, scope: str = "unit") -> ScriptRunResult:
     """Ejecuta los tests del proyecto (`pytest` o equivalente) como paso
     determinista (T-AF022-US12-03). No es parte del razonamiento del
     Tester — es un script genérico del catálogo AF-018.
 
-    Devuelve `ScriptRunResult` con `success=True` si todos los tests
-    pasan (exit_code 0), o `success=False` con el detalle de fallos en
+    T-AF025-US04-02 — política de subconjunto de suite (decisión tomada y
+    documentada): el ciclo Tester ejecuta por defecto el subconjunto
+    DETERMINISTA y rápido (los tests etiquetados con el marcador `unit`),
+    no la suite completa de integración con tmux real (que además se
+    colgaba por contaminación de estado). `scope`:
+      - `"unit"` (default): `pytest <tests> -m unit` — solo lo determinista
+        y rápido; nunca arranca tmux/agentes reales ni un backend en vivo.
+      - `"all"`: `pytest <tests>` — la suite completa (integración incluida);
+        la pide el operador explícitamente y usa
+        `RUN_PROJECT_TESTS_TIMEOUT_SECONDS`.
+    Como ancla genérica: si el proyecto NO etiqueta nada como `unit` (no hay
+    marcadores), `-m unit` no seleccionaría ningún test; en ese caso se
+    ejecuta el directorio `tests/` completo (fallback determinista para
+    proyectos sin la división).
+
+    Devuelve `ScriptRunResult` con `success=True` si todos los tests pasan
+    (exit_code 0), o `success=False` con el detalle de fallos en
     `stdout`/`stderr`. Si no se encuentra un test runner disponible,
     devuelve un resultado de error explícito, nunca una excepción no
     controlada."""
@@ -284,12 +316,60 @@ def _run_project_tests(project_path: str) -> ScriptRunResult:
                 "directorio 'tests/' con tests."
             ),
         )
-    return run_subprocess(
-        command,
-        str(tests_dir.parent),
-        DEFAULT_SCRIPT_TIMEOUT_SECONDS,
-        action_description="el script genérico 'run_tests'",
-    )
+    if scope == "unit" and _any_unit_marker(tests_dir):
+        # Selección por marcador: solo lo etiquetado `unit` (determinista).
+        command = list(command[0:2]) + ["-m", "unit", "-v"]
+    # Guard anti-recursión (T-AF025-US04-02): si ESTA invocación de
+    # `run_tests` ocurre dentro de una ejecución de pytest ya lanzada por
+    # `run_tests` (p. ej. un test del subconjunto `unit` disparando la
+    # acción `testear`), NO se anida otro `pytest` — devolvemos un resultado
+    # explícito que deja claro que el trabajo ya lo está haciendo el pytest
+    # padre (evita la recursión infinita hasta el timeout de 1800s).
+    import os as _os
+
+    if _os.environ.get(_ATLAS_FORGE_RUNNING_TESTS):
+        return ScriptRunResult(
+            success=False,
+            exit_code=None,
+            stdout="",
+            stderr="",
+            error_message=(
+                "run_tests ignorado: ya hay una ejecución de tests del "
+                "proyecto en vuelo (la lanzó este mismo script) — no se "
+                "anidian ejecuciones de pytest para evitar recursión."
+            ),
+        )
+    _previous = _os.environ.get(_ATLAS_FORGE_RUNNING_TESTS)
+    try:
+        _os.environ[_ATLAS_FORGE_RUNNING_TESTS] = "1"
+        return run_subprocess(
+            command,
+            str(tests_dir.parent),
+            RUN_PROJECT_TESTS_TIMEOUT_SECONDS,
+            action_description="el script genérico 'run_tests'",
+        )
+    finally:
+        if _previous is None:
+            _os.environ.pop(_ATLAS_FORGE_RUNNING_TESTS, None)
+        else:
+            _os.environ[_ATLAS_FORGE_RUNNING_TESTS] = _previous
+
+
+def _any_unit_marker(tests_dir: Path) -> bool:
+    """`True` si algún `test_*.py` de `tests_dir` (recursivo) declara el
+    marcador `unit` (`pytestmark = pytest.mark.unit`) — el subconjunto
+    determinista que `run_tests` ejecuta por defecto. Si no hay ninguno, el
+    proyecto no usa la división y el fallback corre el directorio completo."""
+    if not tests_dir.is_dir():
+        return False
+    for path in tests_dir.rglob("test_*.py"):
+        try:
+            text = path.read_text(encoding="utf-8")
+        except OSError:
+            continue
+        if "pytestmark = pytest.mark.unit" in text:
+            return True
+    return False
 
 
 def run_generic_script(
@@ -368,7 +448,10 @@ def run_generic_script(
             stderr="",
         )
     elif script_id == "run_tests":
-        return _run_project_tests(project_path)
+        # T-AF025-US04-02: `scope` (default "unit") decide el subconjunto
+        # de suite que ejecuta run_tests — ver `_run_project_tests`.
+        scope = str(params.get("scope") or "unit")
+        return _run_project_tests(project_path, scope=scope)
     else:
         command, _label = resolved  # type: ignore[misc]
 

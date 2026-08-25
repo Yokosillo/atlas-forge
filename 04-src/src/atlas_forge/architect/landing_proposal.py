@@ -24,7 +24,10 @@ import yaml
 
 from atlas_forge.architect.propose_tasks import ProposedTask
 from atlas_forge.architect.task_pipeline import _build_task_content, _slugify
-from atlas_forge.backlog.validator_v2 import validate_backlog_file_v2
+from atlas_forge.backlog.validator_v2 import (
+    _read_frontmatter_id,
+    validate_backlog_file_v2,
+)
 
 
 @dataclass
@@ -114,14 +117,34 @@ def write_validated_landing_tasks(
     valida el fichero real en disco con `validate_backlog_file_v2`. Si la
     Task valida, se conserva y se registra en `result.written`; si no
     valida, se ELIMINA y se registra en `result.rejected` con los errores
-    del validador. Devuelve `LandingProposalResult`."""
+    del validador. Devuelve `LandingProposalResult`.
+
+    Unicidad de id (T-AF021-US03-04, bug de duplicados; reforzada en
+    T-AF008-US18-01): antes de escribir, se comprueba si `task.id` ya existe
+    — bien en `tasks_dir` (escaneando el `id:` del frontmatter de los
+    ficheros `.md` ya presentes), bien en la MISMA propuesta (dos Tasks
+    propuestas con el mismo `id`). Un Task cuyo id ya es conocido se
+    auto-deniegue: NO se escribe ni sobreescribe, se registra en
+    `result.rejected` como "id duplicado" (es la misma US aterrizada dos
+    veces, o un id colisionante dentro de la propuesta). El checker
+    determinista de `validator_v2` (`find_duplicate_ids_in_dir`) respalda
+    este guard tras la escritura (`validate_backlog_file_v2`)."""
     result = LandingProposalResult()
     tasks_dir = Path(tasks_dir)
     tasks_dir.mkdir(parents=True, exist_ok=True)
 
+    # IDs ya presentes en el backlog (guard T-AF021-US03-04) + los que esta
+    # MISMA propuesta va reclamando: ambos se tratan igual antes de escribir,
+    # de modo que un duplicado DENTRO de la propuesta también se rechaza sin
+    # escribir un segundo fichero (criterio de T-AF008-US18-01).
+    claimed_ids = _collect_existing_task_ids(tasks_dir)
+
     for task in tasks:
         if not task.id:
             result.rejected.append((task.id, ["Task sin id — se descarta."]))
+            continue
+        if task.id in claimed_ids:
+            result.rejected.append((task.id, [f"El id de Task '{task.id}' ya existe (en '{tasks_dir}' o repetido en esta propuesta) — no se duplica. Se descarta."]))
             continue
         content = _build_task_content(task)
         filename = f"{task.id}-{_slugify(task.title)}.md"
@@ -135,8 +158,29 @@ def write_validated_landing_tasks(
         validation = validate_backlog_file_v2(path)
         if validation.valid:
             result.written.append(path)
+            claimed_ids.add(task.id)
         else:
             path.unlink(missing_ok=True)
             result.rejected.append((task.id, [e.message for e in validation.errors]))
 
     return result
+
+
+def _collect_existing_task_ids(tasks_dir: Path) -> set[str]:
+    """Ids de Task ya presentes en `tasks_dir` (frontmatter `id:` de cada
+    fichero `.md`), para que el aterrizaje nunca duplique un id existente.
+
+    Escaneo por frontmatter (no por sufijo de nombre de fichero): el id es
+    la fuente de verdad; un mismo id con nombres de fichero distintos es
+    exactamente el caso que este guard intenta impedir. Reutiliza el lector
+    canónico de frontmatter de `validator_v2` (T-AF008-US18-01, una única
+    implementación).
+    `set[str]` se devuelve siempre (incluso vacía si `tasks_dir` no existe)."""
+    found: set[str] = set()
+    if not tasks_dir.exists():
+        return found
+    for path in tasks_dir.glob("*.md"):
+        found.add(_read_frontmatter_id(path))
+    # El id "" (fichero sin frontmatter id:) no debe contar como id válido.
+    found.discard("")
+    return found

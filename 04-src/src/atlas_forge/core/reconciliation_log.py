@@ -81,6 +81,44 @@ def append_dispatched_orphan_reconciliation(
     return path
 
 
+def append_creation_request_reconciliation(
+    project_root: Path | str,
+    project_name: str,
+    *,
+    request_id: str,
+    previous_status: str,
+    reason: str,
+    ts: str | None = None,
+) -> Path:
+    """T-AF022-US18-03: registra en el `reconciliation_log.jsonl` (append-only)
+    la reconciliación de una petición de creación (T-AF036-US20-06) que vuelve
+    de `in_flight` a `pending` por haber perdido su Job (`report_file` ausente).
+
+    `request_id`: petición reconciliada; `previous_status`: estado previo (siempre
+    `in_flight`); `reason`: motivo (sin report_file persistido / report_file ya no
+    existe). Mismo formato JSONL y mismo lock que las demás entradas; motivo
+    `creation_request_reconciled`. `ts` por defecto el instante actual en UTC.
+    Devuelve la ruta del fichero de log escrito."""
+    path = reconciliation_log_path(project_root, project_name)
+
+    entry = {
+        "ts": ts if ts is not None else datetime.now(timezone.utc).isoformat(),
+        "reason": "creation_request_reconciled",
+        "request_id": request_id,
+        "previous_status": previous_status,
+        "new_status": "pending",
+        "motivo": reason,
+    }
+    line = json.dumps(entry, ensure_ascii=False) + "\n"
+
+    with _write_lock:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with path.open("a", encoding="utf-8") as handle:
+            handle.write(line)
+
+    return path
+
+
 def append_unreachable_agent_log(
     project_root: Path | str,
     project_name: str,
@@ -108,6 +146,72 @@ def append_unreachable_agent_log(
         "agent_id": agent_id,
         "agent_name": agent_name,
         "motivo": reason,
+    }
+    line = json.dumps(entry, ensure_ascii=False) + "\n"
+
+    with _write_lock:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with path.open("a", encoding="utf-8") as handle:
+            handle.write(line)
+
+    return path
+
+
+def read_reconciliation_log(
+    project_root: Path | str,
+    project_name: str,
+    limit: int | None = None,
+) -> list[dict]:
+    """T-AF022-US18-04: lee el `reconciliation_log.jsonl` (append-only) y
+    devuelve sus entradas, la más reciente PRIMERO (fecha descendente).
+    `limit` acota el número de entradas (las N más recientes). Devuelve `[]`
+    si el fichero no existe o no tiene líneas válidas (mejor esfuerzo, nunca
+    lanza — el panel de la web se apoya en esto)."""
+    path = reconciliation_log_path(project_root, project_name)
+    if not path.is_file():
+        return []
+    entries: list[dict] = []
+    with _write_lock:
+        try:
+            lines = path.read_text(encoding="utf-8").splitlines()
+        except OSError:
+            return []
+        for line in lines:
+            if not line.strip():
+                continue
+            try:
+                entries.append(json.loads(line))
+            except (json.JSONDecodeError, TypeError):
+                continue
+    entries.sort(key=lambda e: e.get("ts", ""), reverse=True)
+    if limit is not None and limit > 0:
+        return entries[:limit]
+    return entries
+
+
+def append_runtime_failed_log(
+    project_root: Path | str,
+    project_name: str,
+    *,
+    agent_id: str,
+    agent_name: str,
+    error: str,
+    ts: str | None = None,
+) -> Path:
+    """T-AF004-US04-03: registra en el `reconciliation_log.jsonl` (append-only)
+    el agotamiento de reintentos de un runtime — el canal consultable por un
+    humano sin abrir la web (mismo formato y lock que las demás entradas).
+    Motivo `runtime_failed`; `error` es el último error registrado del runtime.
+    `ts` por defecto el instante actual en UTC (ISO 8601); acepta explícito
+    para tests. Devuelve la ruta del fichero de log escrito."""
+    path = reconciliation_log_path(project_root, project_name)
+
+    entry = {
+        "ts": ts if ts is not None else datetime.now(timezone.utc).isoformat(),
+        "reason": "runtime_failed",
+        "agent_id": agent_id,
+        "agent_name": agent_name,
+        "error": error,
     }
     line = json.dumps(entry, ensure_ascii=False) + "\n"
 

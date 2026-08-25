@@ -2,93 +2,105 @@
 
 Real state of Atlas Forge contrasted against `02-backlog/` (canonical states) and `07-informes/` (closing reports). This document is the public view of the [canonical roadmap](https://github.com/factoria-software/atlas-forge/blob/main/02-backlog/roadmap.md) of the project.
 
-## Summary by phase
+## Version scheme
 
-| Phase | Content | State |
-|---|---|---|
-| **0.1** | First functional product: Workspace, Session, Runtime, Agents, manual Dispatcher (Jobs + chaining) | ✅ Complete |
-| **0.2** | Multi-runtime/multi-model and token saving: Scribe, automatic Scribe triggering | ✅ Complete |
-| **0.3** | Critical-dispatcher and remote access: backend API, Job cancellation, confirmations | ✅ Complete |
-| **0.4** | Generic and project scripts: 7-script catalog, Scribe indexing | ✅ Complete |
-| **0.9** | Backlog-centric pipeline: Architect role, Epic→US→Task generators, validator, verdicts, structured backlog format, web UX improvements, cross-cutting actions, multi-project sessions, agent reconciliation on startup, live agent log | 🔶 In progress |
-| **0.5–0.8** | Dispatcher v2, Capabilities, Context, Knowledge, Automation, Plugins, remaining Dashboard | ⬜ Planned |
-| — | Config Management (AF-013) | ⏸️ On hold (backlog hold) |
+The version scheme lives in `.atlas-forge/version.yml`: each User Story declares which version it belongs to (`version:` in its frontmatter). The current open version is **0.9**; the planned future versions are **0.9.1** and **0.9.2**.
 
-## Status by Epic
+## State of version 0.9
 
-Source: the `state` frontmatter field of each Epic in `02-backlog/epics/` (canonical) crossed with DONE Tasks and closing reports.
+Version 0.9 is the **backlog-centric pipeline**: the backlog is the product's central control panel and all work is deployed from it (Epic → User Story → Task → Implement) with buttons, not by writing Markdown by hand or talking to each agent separately.
 
-### DONE (implemented and operational)
+### Implemented in 0.9
+
+| Area | What it includes |
+|---|---|
+| **Backlog-centric pipeline** (AF-022) | Architect and Tester roles, Epic→US→Task generators with deterministic validator + self-audit, the state-driven Developer→Tester→Architect cycle, Task rework to the same Developer after a Tester `FALLO`. |
+| **Structured backlog format** (AF-027) | YAML frontmatter + Markdown body for every Epic/User Story/Task; canonical `state` vocabulary for Task and User Story. |
+| **Unified state machines** (AF-040) | `core/state_machines.py` as the single source of truth for states and legal Task/User Story transitions. |
+| **Dispatch queue and pipeline viewer** (AF-042) | Per-project dispatch queue (`queued / dispatched / failed / completed`, plus derived `awaiting_tester`), Pipeline tab in the web showing the queue in real time. |
+| **Simultaneous project sessions** (AF-029) | Multiple live sessions in parallel, one per project; switching the active project does not stop agents of other projects. |
+| **Agent reconciliation on startup** (AF-031) | On `atlas-forge-api` startup, live tmux sessions are recognized by their deterministic name and re-registered as `idle` agents without relaunching their runtime. |
+| **Live agent log in the web** (AF-032) | `WS /ws/agents/{agent_id}/pane`: one channel per connection, read-only, one agent at a time. |
+| **Safe restart of Atlas Forge** (AF-037) | Duplicate-backend detection on startup, `POST /system/restart`, safe-restart procedure that does not kill the tmux server. |
+| **Cross-cutting actions** (AF-025) | Web actions: document, analyze-architecture, suggest-ideas, test, audit-ux, audit-oss, audit-backlog, verify-audit, test-ui, index. |
+| **Unified executable catalog** (AF-034) | `GET /scripts` combines generic scripts, project scripts and cross-cutting actions into a single catalog. |
+| **Parallelizable thread analysis** (AF-026) | `dependency_graph.py` module, `POST /backlog/epic/{epic_id}/analyze-threads` endpoint. |
+| **Unified version model** (AF-036) | `version` as the canonical delivery field (instead of `fase`), "By Version" view in the web, validator for the closed set `{0.9, 0.9.1, 0.9.2}`. |
+| **Item creation from natural language** (AF-036) | `POST /backlog/epic/from-description`, `.../from-description-us`, `.../from-description-task` with a request queue for the Architect. |
+
+### Operational base (DONE Epics)
 
 | Epic | What it includes |
 |---|---|
 | **AF-001** Workspace Management | Git repo discovery, persisted active project, project scripts. |
-| **AF-003** Development Session | Live session during execution, assigned agents. |
-| **AF-004** Runtime Manager | Claude Code and OpenCode in tmux, model switching (OpenCode). |
-| **AF-005** Agent Manager | Developer and Critic roles, two-layer prompts, liveness. |
-
-> Historical note: the Critic role was folded into the Architect (see `00-gobierno/old/CRITICO.md`); the current product pipeline drives work from the backlog (see [Backlog and pipeline](backlog.md)).
-
-| **AF-008** Dispatcher | Jobs, chaining, isolated-Job dispatch, cancellation, automatic Scribe. |
+| **AF-002** Control panel and supervision | Web interface as the only interface: projects, agents, Jobs, backlog. |
 | **AF-014** Local Tools | Scribe: local summarization/indexing (Ollama), including the `index_scripts` operation. |
 | **AF-016** API Backend | FastAPI: agents, Jobs, backlog, scripts, WebSockets, static `/ui/`, systemd. |
 | **AF-018** Generic Scripts | 7 generic scripts catalog + Scribe prose. |
 | **AF-020** Backlog Management | Listing/detail endpoints, launch development, views in the web. |
 | **AF-021** Web Interface | Complete web: projects, agents, Jobs, scripts, backlog, models. |
-| **AF-026** Parallelizable thread analysis | `dependency_graph.py` module, `POST /backlog/epic/{epic_id}/analyze-threads` endpoint, "Generar hilos de desarrollo" button in the web Backlog tab. |
+| **AF-025** Cross-cutting actions | 10 project actions (see above). |
+| **AF-026** Parallelizable thread analysis | See above. |
+| **AF-029** Simultaneous project sessions | See above. |
+| **AF-032** Live agent log | See above. |
+| **AF-037** Safe restart | See above. |
+| **AF-040** Unified state machines | See above. |
 
-### Retired / archived
+### Epics with DONE work pending formal promotion
 
 | Epic | Note |
 |---|---|
-| **AF-002** Dashboard | Terminal interface — **retired and archived** (2026-08-18). All functionality lives in the web. |
-| **AF-017** Mobile app | Native mobile app — **retired and archived** (2026-08-18). Previously **paused** for new functionality (2026-08-04). |
-| **AF-019** Terminal interface | Cancel Job, confirmations, connectivity — **retired and archived** (2026-08-18). |
+| **AF-022** Backlog-centric Pipeline | Nearly all User Stories DONE; the full pipeline is operational. |
+| **AF-024** Web UX+Product improvements | Most User Stories DONE; improvements are added as real usage surfaces gaps. |
+| **AF-030** Closing queue to the Architect | Implemented (append-only queue + watcher). |
+| **AF-031** Agent reconciliation on startup | Implemented. |
 
-### Phase 0.9 — mostly DONE at Epic level
+## Planned, not implemented
 
-| Epic | Tasks | What it provides |
-|---|---|---|
-| **AF-022** Backlog-centric Pipeline | Most User Stories DONE; US-AF022-16 still TO_DO | Architect and Tester roles, Epic→US→Task generators with validator+self-audit, the state-driven Developer→Tester→Architect verdict cycle, file model catalog. |
-| **AF-024** Web UX improvements | Ongoing (23+ Tasks DONE across multiple User Stories, more added as real usage surfaces gaps) | DONE/TO_DO visual differentiation, badge, dependency blocking, Phase field, heat map, unified Roles/Agents screen (same fields/buttons per role, Developer "stop" deletes the instance instead of pausing it), configurable simultaneous-Developer limit, US-detail history. |
-| **AF-025** Cross-cutting actions | 10/12 DONE (US01–07) | Web actions: document, analyze-architecture, suggest-ideas, test, audit-ux, index. |
-| **AF-027** Structured backlog format | 3/3 DONE | YAML frontmatter + Markdown body for every Epic/User Story/Task, replacing free-text `**ID**` bold-pattern parsing. Full migration of the existing backlog completed. |
-| **AF-029** Simultaneous project sessions | 4/4 DONE | Multiple live sessions in parallel, one per project; switching the active project in the web no longer stops any agent — the previously-focused project's agents stay alive in their own session and become reachable again once it regains focus. |
-| **AF-030** Closing queue to the Architect | DONE | Append-only per-project file where a Developer/other role enqueues Task-closing notices for the Architect; deterministic tmux session naming (`<role>-<project>` / `<role>-N-<project>`) plus an `inotifywait` watcher that pushes into the Architect's pane, with a periodic fallback check. |
-| **AF-031** Agent reconciliation on startup | DONE | On `atlas-forge-api` startup, lists real tmux sessions on the socket and recognizes them by their deterministic name (depends on AF-030), re-registering them as `idle` agents without relaunching their runtime — a backend restart no longer loses live agents. |
-| **AF-032** Live agent log in the web | DONE | `WS /ws/agents/{agent_id}/pane`: one channel per connection, server-side poller that only publishes on change, stops on disconnect. One agent at a time, read-only, separate tab/window. |
-
-!!! note "AF-025 pending"
-    `US-AF025-08` (audit OSS, 2 Tasks) is **TO_DO**: not implemented. The decision on `US-AF025-05` (Commit button) was **not to expose it**: commit already exists as a generic script.
-
-### Planned, not implemented
+### 0.9.1
 
 | Epic | Notes |
 |---|---|
-| **AF-006** Context Engine | No Tasks. Planned (Phase 0.6). |
-| **AF-007** Knowledge Engine | No Tasks. Planned (Phase 0.6). |
-| **AF-009** Automation Engine | No Tasks. Planned (Phase 0.7). |
-| **AF-010** Capability Engine | No Tasks. Planned (Phase 0.5). Unlocks US-AF005-03. |
-| **AF-011** Plugin System | No Tasks. **There is no plugin system nor MCP.** Planned (Phase 0.8). |
-| **AF-012** Development Automations | No Tasks. Planned (Phase 0.7). |
-| **AF-013** Configuration Management | **On hold** (backlog hold): reviewed when a real multi-user configuration need appears. |
-| **AF-023** Lifecycle supervision | Not a priority (2026-08-05 decision). A human-triggered "review if stuck" action exists (AF-024/US-AF024-11); automatic background stuck-detection and headless `opencode serve` remain unimplemented. |
-| **AF-028** Persistent control bar for critical agents | Only 2 User Stories defined, no Tasks yet — not started. |
+| **AF-044** Operational auditor | Scope-directed or question-driven audit, finding persistence, history. |
+| **AF-045** Investigator role | New role for on-demand investigation, integrated into the web. |
+| **AF-046** Documenter integrated into the pipeline | Generic events → persistent jobs → queue → consumer agent mechanism, with the Documenter as first consumer. |
+| **AF-047** Agent communication and control mode | Study and decision of tmux vs `opencode serve`/CLI for agent control. |
+| **AF-048** Backlog response performance | Per-project `BacklogGraph` cache with `mtime` invalidation; faster YAML parser. |
 
-### Postponed / discarded
+### 0.9.2 and later
+
+| Epic | Notes |
+|---|---|
+| **AF-006** Context Engine | Relevant-context preparation per Job. No Tasks. |
+| **AF-007** Knowledge Engine | Reuse of project knowledge. No Tasks. |
+| **AF-008** Dispatcher v2 | Pipeline with declarative dependencies, retries, automatic multi-agent coordination and capability resolution. |
+| **AF-009** Automation Engine | Automation of repetitive operations. No Tasks. |
+| **AF-010** Capability Engine | System capability catalog. No Tasks. |
+| **AF-011** Plugin System | No Tasks. **There is no plugin system nor MCP.** |
+| **AF-012** Development Automations | Development automations. No Tasks. |
+| **AF-013** Configuration Management | On hold (backlog hold): only resumed with a real multi-user configuration need. |
+| **AF-023** Lifecycle supervision | Automatic stuck-agent detection and recovery; configurable autonomous scaling. |
+| **AF-028** Persistent control bar for critical agents | Existing Architect bar; extension to other agents not yet decomposed. |
+| **AF-033** Real development cost per Task | Cost measurement per Task. |
+| **AF-035** Creation of a new project | Create a project from scratch (not only select). |
+| **AF-038** Documentation and reports in the web | Documentation and reports view in the web. |
+| **AF-039** Integration with external systems | Integration with external work-management tools. |
+| **AF-041** Observability and telemetry | Structured logging, metrics, analytics. |
+| **AF-042** Pipeline viewer | Remaining scope (agent↔Jobs correlation, queue order and why). |
+| **AF-043** Developer/Tester parallelism and rework | Tester test-planting, prioritized rework and telemetry events (basic rework already operational). |
+| **AF-050** Pre-development design | Planning and architecture before development. Not decomposed. |
+
+## Out of roadmap
 
 | Epic | Note |
 |---|---|
-| **AF-015** Remote access (SSH+tmux) | **Postponed** (discarded in principle, 2026-08-02): the need was resolved by AF-016/AF-017 (a real touch app). Kept for traceability, revisited only if a real need appears that AF-016/AF-017 don't cover. |
-
-## Technical debt and relevant decisions
-
-- **Non-web interfaces retired** (2026-08-18): the terminal interface and the mobile app were archived and removed from the repo. Their Epics (AF-002, AF-017, AF-019) and related User Stories/Tasks are marked `FUERA_ROADMAP`; all new functionality is exposed on the web.
-- **In-memory state**: session, agents and Jobs live in the memory of the `atlas-forge-api` process. On restart, live tmux sessions are re-recognized by their deterministic name and re-registered as `idle` agents (AF-031) — but Job history and any other in-memory state are still lost; full session recovery (`US-AF003-02`) remains planned, not implemented.
-- **Observability** (structured logging, metrics, tracing): no assigned phase, on backlog hold.
+| **AF-015** Remote access (SSH+tmux) | Discarded: the web covers access from any device. |
+| **AF-017** Native mobile app | Retired: the web is the only interface. |
+| **AF-019** Terminal interface (TUI) | Retired: the web is the only interface. |
+| **AF-049** Unify the version model | Deprecated: its scope was completed within 0.9 (`version` field and view). |
 
 ## Functionality criterion
 
 Atlas Forge is considered functional when it can: manage multiple projects, keep persistent sessions, administer agents on different runtimes, coordinate Jobs through pipelines, run automations, prepare context automatically, reuse knowledge, minimize remote-model usage, incorporate capabilities through plugins and provide operational vision.
 
-**State today**: backlog-driven Job coordination, multi-runtime/multi-model and token saving are real. Context/knowledge management, capabilities, plugins and the full declarative pipeline are future work.
+**Current state (0.9):** the state-driven backlog pipeline (Developer→Tester→Architect) with rework, multi-runtime/multi-model (Claude Code, OpenCode, Codex), token saving with Scribe and the web as the only interface are real and operational. Context/knowledge management, capabilities, plugins, telemetry and the full declarative pipeline are future work.

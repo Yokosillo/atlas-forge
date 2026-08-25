@@ -39,6 +39,9 @@ from atlas_forge.models.backlog import ITEM_KIND_EPIC, ITEM_KIND_TASK, ITEM_KIND
 
 BACKLOG_STATUS_NO_DATA_TEXT = "Sin datos: el backlog no tiene aún Epics/US/Tasks."
 
+# Subdirectorios canónicos del backlog (mismo listado que el watcher).
+_BACKLOG_SUBDIRS = ("epics", "user-stories", "tasks")
+
 _PRIORITY_RANK = {"Crítica": 0, "Alta": 1, "Media": 2, "Baja": 3}
 _PRIORITY_LABEL = {0: "Crítica", 1: "Alta", 2: "Media", 3: "Baja", 4: "Sin prioridad"}
 
@@ -104,17 +107,52 @@ def _epic_label_from_file(backlog_path: str | Path, epic_id: str) -> str:
     return title.strip() if isinstance(title, str) and title.strip() else epic_id
 
 
-def _summary(item) -> dict:
-    return {
+def _resolve_epic_label(graph, label: str, backlog_path: str | Path) -> str:
+    """Resuelve el `epic_label` de un grupo `by_epic` (T-AF048-US03-02) desde
+    el grafo YA EN MEMORIA: `graph.items[label].title` (la Epic ya la cargó
+    `load_backlog`; leer el fichero de nuevo por cada grupo era innecesario —
+    la Task T-AF048-US03-01 eliminó la evaluación eager y esta Task elimina la
+    re-lectura en el caso canónico).
+
+    Fallback: si la Epic está referenciada por sus hijo/os pero NO existe en
+    `graph.items` o su `title` está vacío (caso legacy sin fichero/título),
+    recurre a `_epic_label_from_file` (que lee el fichero real; si tampoco
+    existe, devuelve el propio `epic_id`). Nunca lanza."""
+    item = graph.items.get(label)
+    if item is not None and getattr(item, "title", None):
+        title = item.title.strip()
+        if title:
+            return title
+    return _epic_label_from_file(backlog_path, label)
+
+
+def _summary(item, in_flight: bool | None = None) -> dict:
+    entry = {
         "id": item.id,
         "kind": item.kind,
         "epic": item.epic,
+        # T-AF036-US21-02: título del item (`title:` del frontmatter), para
+        # que el buscador del informe raíz coincida también por nombre (y no
+        # solo por ID). Campo aditivo; `None` si no se declara.
+        "title": item.title,
         "priority": item.priority,
         "fase": item.fase,
+        # T-AF036-US25-02: `version` del item (Epics y User Stories), para
+        # que el nuevo valor editado vía `PUT /backlog/{item_id}/version` se
+        # refleje en `GET /backlog`. Campo aditivo; `None` si no lo declara.
+        "version": item.version,
         # T-AF036-US13-02: timestamp de la última transición (frontmatter),
         # `None` si el fichero no lo declara (retrocompatibilidad).
         "updated_at": item.updated_at,
     }
+    # T-AF022-US17-01: indicador de en vuelo/huérfana para items IN_PROGRESS
+    # (`True` si tiene entrada `dispatched` en `dispatch_queue.json` con su
+    # agente; `False` si está IN_PROGRESS sin entrada → huérfana). Campo
+    # aditivo solo para IN_PROGRESS — el resto de items no llevan `in_flight`
+    # y su shape no cambia.
+    if item.state == "IN_PROGRESS" and in_flight is not None:
+        entry["in_flight"] = in_flight
+    return entry
 
 
 def _sorted_by_priority(items: list[dict]) -> list[dict]:
@@ -151,6 +189,94 @@ def reconcile_graph_state(graph):
     return type(graph)(items=items, errors=graph.errors), frozenset(changes.keys())
 
 
+def find_duplicate_ids_in_backlog(backlog_path: str | Path) -> list[dict]:
+    """IDS duplicados en todo el `02-backlog/` (T-AF008-US18-01, criterio 4):
+    recorre `epics/`/`user-stories/`/`tasks/` con el checker determinista
+    `find_duplicate_ids_in_dir` y devuelve, por id, la lista de rutas (relativas
+    al backlog) de los ficheros que lo declaran. Es el error consultable para
+    auditar un backlog YA escrito: lo que el validador individual también
+    detecta, ahora expuesto de forma agregada en el informe.
+
+    Determinista (orden alfabético por id). Devuelve `[]` si no hay
+    duplicados."""
+    # Import perezoso: `validator_v2` tira de `core`→`workspace`→`generic_scripts`
+    # →`report`; un import de módulo en la cabecera crea un ciclo de importación.
+    from atlas_forge.backlog.validator_v2 import find_duplicate_ids_in_dir
+
+    backlog_root = Path(backlog_path)
+    duplicates: list[dict] = []
+    for subdir in _BACKLOG_SUBDIRS:
+        dir_dupes = find_duplicate_ids_in_dir(backlog_root / subdir)
+        for file_id, paths in dir_dupes.items():
+            duplicates.append({
+                "id": file_id,
+                "paths": sorted(str(p.relative_to(backlog_root)) for p in paths),
+            })
+    duplicates.sort(key=lambda entry: entry["id"])
+    return duplicates
+
+
+def _dispatched_task_ids_from_queue(backlog_path: str | Path) -> set[str]:
+    """Conjunto de `task_id` con entrada `dispatched` en `dispatch_queue.json`
+    del proyecto (T-AF022-US17-01) — la fuente persistida que permite decidir
+    si un item `IN_PROGRESS` tiene un Job en vuelo legítimo o está huérfano.
+
+    El registro `_inflight` del Dispatcher es en memoria y se pierde al
+    reiniciar `atlas-forge-api`; la cola JSON sobrevive al reinicio, así que
+    un `IN_PROGRESS` sin entrada `dispatched` tras un reinicio ES huérfano.
+    Determinista y testable: `get_queue` devuelve `[]` si el fichero no
+    existe (proyecto sin cola), sin lanzar.
+
+    El backlog vive en `<root>/02-backlog`, así que el proyecto se deriva de
+    `backlog_path.parent` (raíz + nombre)."""
+    from atlas_forge.dispatcher.dispatch_queue import STATUS_DISPATCHED, get_queue
+
+    backlog_root = Path(backlog_path)
+    project_root = backlog_root.parent
+    entries = get_queue(project_root, project_root.name)
+    return {
+        entry.task_id
+        for entry in entries
+        if getattr(entry, "status", None) == STATUS_DISPATCHED
+    }
+
+
+def _build_in_progress_items(
+    tasks: list,
+    user_stories: list,
+    dispatched_task_ids: set[str],
+) -> list[dict]:
+    """Resúmenes (`_summary`) de los items `IN_PROGRESS` (Task y US derivada)
+    con su indicador `in_flight` (T-AF022-US17-01), ordenados por id.
+
+    - Task: `in_flight` = su `task_id` tiene entrada `dispatched` en la cola.
+    - US: la cola es por Task, así que una US `IN_PROGRESS` derivada se
+      considera `in_flight` si alguna de sus Tasks lo está."""
+    in_flight_by_id: dict[str, bool] = {
+        task.id: task.id in dispatched_task_ids
+        for task in tasks
+        if task.state == "IN_PROGRESS"
+    }
+    for us in user_stories:
+        if us.state != "IN_PROGRESS":
+            continue
+        us_tasks = [task for task in tasks if task.user_story == us.id]
+        in_flight_by_id[us.id] = any(
+            task.id in dispatched_task_ids for task in us_tasks
+        )
+
+    items = [
+        item
+        for item in list(tasks) + list(user_stories)
+        if item.state == "IN_PROGRESS"
+    ]
+    items.sort(key=lambda item: item.id)
+    return [
+        _summary(item, in_flight=in_flight_by_id[item.id])
+        for item in items
+    ]
+
+
 def build_backlog_report(backlog_path: str | Path) -> dict:
     """Informe estructurado del `02-backlog/` dado, en UN solo dict.
 
@@ -178,23 +304,31 @@ def build_backlog_report(backlog_path: str | Path) -> dict:
             continue
         prefix = _epic_prefix(item.epic)
         label = prefix if prefix is not None else "(sin epic)"
-        entry = by_epic.setdefault(
-            label,
-            {
+        # T-AF048-US03-01 (bug de evaluación eager): `setdefault(label, {...})`
+        # evalúa sus argumentos SIEMPRE aunque la clave ya exista — por eso
+        # `_epic_label_from_file` se ejecutaba 844 veces (una por hijo) para
+        # construir solo 51 grupos (0.70 ms × 844 ≈ 0.59 s). Con el chequeo
+        # explícito la etiqueta (lectura de fichero) solo se resuelve cuando
+        # se CREA un grupo nuevo.
+        if label not in by_epic:
+            # T-AF048-US03-02: `epic_label` se resuelve desde `graph.items`
+            # (sin re-leer el fichero de Epic en el caso canónico);
+            # `_epic_label_from_file` queda solo como fallback.
+            by_epic[label] = {
                 "epic": label,
-                "epic_label": _epic_label_from_file(backlog_path, label) if prefix else "(sin epic)",
+                "epic_label": _resolve_epic_label(graph, label, backlog_path) if prefix else "(sin epic)",
                 "user_stories": {},
                 "tasks": {},
                 # T-AF036-US15-01: detalle de cada User Story de la Epic con
                 # su `fase` (para que la vista "Por Fase" muestre solo las US
                 # de la fase del grupo). Campo aditivo, no rompe consumidores.
                 "user_stories_detail": [],
-            },
-        )
+            }
+        entry = by_epic[label]
         if item.kind == ITEM_KIND_USER_STORY:
             entry["user_stories"][item.state] = entry["user_stories"].get(item.state, 0) + 1
             entry["user_stories_detail"].append(
-                {"id": item.id, "fase": item.fase, "state": item.state}
+                {"id": item.id, "fase": item.fase, "state": item.state, "version": item.version}
             )
         else:
             entry["tasks"][item.state] = entry["tasks"].get(item.state, 0) + 1
@@ -210,7 +344,10 @@ def build_backlog_report(backlog_path: str | Path) -> dict:
             continue
         by_epic[epic_item.id] = {
             "epic": epic_item.id,
-            "epic_label": _epic_label_from_file(backlog_path, epic_item.id),
+            # T-AF048-US03-02: resolución desde graph.items (title) con
+            # fallback a _epic_label_from_file, coherente con el bucle de
+            # hijos de arriba.
+            "epic_label": _resolve_epic_label(graph, epic_item.id, backlog_path),
             "user_stories": {},
             "tasks": {},
             "user_stories_detail": [],
@@ -258,6 +395,18 @@ def build_backlog_report(backlog_path: str | Path) -> dict:
         for error in graph.errors
     ]
 
+    # T-AF008-US18-01, criterio 4: ids duplicados en el backlog ya escrito,
+    # como error consultable (solo se añade el campo si hay duplicados, igual
+    # que `drift` — un backlog limpio no cambia su respuesta respecto a antes).
+    duplicate_ids = find_duplicate_ids_in_backlog(backlog_path)
+
+    # T-AF022-US17-01: indicador de en vuelo/huérfana para items IN_PROGRESS,
+    # cruzando con las entradas `dispatched` de `dispatch_queue.json` (la
+    # fuente persistida, no el registro `_inflight` en memoria).
+    items_in_progress = _build_in_progress_items(
+        tasks, user_stories, _dispatched_task_ids_from_queue(backlog_path)
+    )
+
     result = {
         "backlog_path": str(Path(backlog_path)),
         # T-AF036-US02-04: `empty` es False con una sola Epic real (aunque
@@ -276,9 +425,12 @@ def build_backlog_report(backlog_path: str | Path) -> dict:
         "by_epic": epics_sorted,
         "items_lista": _sorted_by_priority([_summary(item) for item in lista]),
         "items_bloqueada": items_bloqueada,
+        "items_in_progress": items_in_progress,
         "max_leverage_chain": [_summary(item) for item in chain],
         "errors": errors,
     }
+    if duplicate_ids:
+        result["duplicate_ids"] = duplicate_ids
     # T-AF022-US13-05, criterio 3: campo nuevo solo si hay drift — un
     # backlog sin drift no cambia su respuesta respecto a antes de esta
     # Task. `total.user_stories`/`total.epics`/`by_epic` ya reflejan el
@@ -343,6 +495,17 @@ def format_human_report(report: dict) -> str:
     else:
         lines.append("  (ninguna)")
 
+    # T-AF022-US17-01: items IN_PROGRESS con su indicador de en vuelo/huérfana
+    # (cruzado con dispatch_queue.json) — para detectar atascos que nunca se
+    # resolverán solos.
+    lines.append("\nItems IN_PROGRESS (en vuelo / huérfanas):")
+    if report["items_in_progress"]:
+        for entry in report["items_in_progress"]:
+            state_label = "en vuelo" if entry["in_flight"] else "HUÉRFANA"
+            lines.append(f"  {entry['id']:<28} [{state_label}]")
+    else:
+        lines.append("  (ninguno)")
+
     lines.append("\nCadena de mayor apalancamiento (próximo foco):")
     if report["max_leverage_chain"]:
         chain_ids = " → ".join(entry["id"] for entry in report["max_leverage_chain"])
@@ -355,6 +518,11 @@ def format_human_report(report: dict) -> str:
         for error in report["errors"]:
             label = error["id"] or error["path"]
             lines.append(f"  {label}: {error['reason']}")
+
+    if report.get("duplicate_ids"):
+        lines.append("\nIDs duplicados:")
+        for entry in report["duplicate_ids"]:
+            lines.append(f"  {entry['id']}: {', '.join(entry['paths'])}")
 
     return "\n".join(lines)
 

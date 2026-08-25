@@ -1,11 +1,12 @@
 # Scripts
 
-Atlas Forge catalogs and runs scripts from the interface, distinguishing two sources:
+Atlas Forge catalogs and runs scripts from the interface, distinguishing three sources exposed together in `GET /scripts`:
 
 - **Generic**: fixed catalog bundled with Atlas Forge, available in any project of the workspace.
 - **Project-specific**: declared by the active project in `.atlas-forge/scripts.yml`.
+- **Cross-cutting actions**: project actions dispatched to agents or external processes (see [Actions](interfaces-web.md#cross-cutting-actions)).
 
-Both run on the active project with the same mechanism (`run_subprocess`, 30s timeout) and are exposed together in `GET /scripts`.
+Scripts run on the active project with the same mechanism (`run_subprocess`, 30s timeout).
 
 ## Generic scripts
 
@@ -56,14 +57,14 @@ scripts:
 
 ## API
 
-- `GET /scripts` — combined catalog (generics first, without `command`; then project-specific with `command`). Each item has `origin: "generic" | "particular"` and `description`.
+- `GET /scripts` — combined catalog of generic scripts, project scripts and cross-cutting actions. Each item has `origin` (`generic` / `particular`) and `description`; actions also carry `execution_type` (`script` / `agent_job` / `external_process`).
 - `POST /scripts/{script_id}/run` — runs (blocking). Optional body `{"message": ...}` (only `commit`). Returns `{success, exit_code, stdout, stderr, error_message, data, prose}`; for `backlog_status`, `data` is the report and `prose` the optional Scribe summary.
 
 Execution failures are returned **structurally** inside the result (never as an HTTP error), except 404 without an active project.
 
 ## In the interfaces
 
-- **Web**: "Scripts" tab with Generic/Project groups, visible description and command hidden behind "▶ View command"; a message field only for `commit`.
+- **Web**: the combined Scripts catalog (generic + project + actions) in the Scripts tab, with visible description and command hidden behind "▶ View command"; a message field only for `commit`.
 
 ## Relationship with Scribe
 

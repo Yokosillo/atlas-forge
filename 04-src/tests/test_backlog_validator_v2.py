@@ -4,6 +4,8 @@ import pytest
 
 from atlas_forge.backlog.validator_v2 import (
     validate_backlog_content_v2,
+    validate_backlog_file_v2,
+    find_duplicate_ids_in_dir,
     ValidationResultV2,
 )
 
@@ -330,3 +332,67 @@ class TestInvalidFase:
         content = VALID_US.replace("fase: Fase 0.9", "fase: ''")
         result = validate_backlog_content_v2(content, "US-AF022-05.md")
         assert result.valid, f"Errores: {result.errors}"
+
+
+class TestDuplicateId:
+    """T-AF008-US18-01: checker determinista de unicidad de `id` por directorio
+    en `validate_backlog_file_v2` — dos ficheros `.md` con el mismo `id` en el
+    mismo directorio hacen la validación FALTA (error, no warning), causal raíz
+    del hallazgo "Agentic stuck"."""
+
+    def test_duplicate_id_in_directory_is_rejected(self, tmp_path):
+        # Dos ficheros con el MISMO id (T-AF022-US05-02, el de VALID_TASK)
+        # pero nombres de fichero distintos en el mismo directorio.
+        first = tmp_path / "T-AF022-US05-02-primero.md"
+        second = tmp_path / "T-AF022-US05-02-segundo.md"
+        first.write_text(VALID_TASK, encoding="utf-8")
+        second.write_text(VALID_TASK, encoding="utf-8")
+
+        result_first = validate_backlog_file_v2(first)
+        result_second = validate_backlog_file_v2(second)
+
+        assert not result_first.valid
+        assert not result_second.valid
+        for result in (result_first, result_second):
+            assert any("duplicado" in e.message for e in result.errors)
+            assert "T-AF022-US05-02" in " ".join(e.message for e in result.errors)
+
+    def test_single_file_with_unique_id_stays_valid(self, tmp_path):
+        path = tmp_path / "T-AF022-US05-02-unico.md"
+        path.write_text(VALID_TASK, encoding="utf-8")
+        result = validate_backlog_file_v2(path)
+        assert result.valid, f"Errores: {result.errors}"
+
+    def test_duplicates_in_other_directories_do_not_pollute(self, tmp_path):
+        # El mismo id en directorios DISTINTOS no es un duplicado: el checker
+        # es por directorio (cada tipo de item vive en su propio directorio).
+        other_dir = tmp_path / "otro"
+        other_dir.mkdir()
+        unique = tmp_path / "T-AF022-US05-02-unico.md"
+        unique.write_text(VALID_TASK, encoding="utf-8")
+        other = other_dir / "T-AF022-US05-02-otro.md"
+        other.write_text(VALID_TASK, encoding="utf-8")
+
+        assert validate_backlog_file_v2(unique).valid
+        assert validate_backlog_file_v2(other).valid
+
+    def test_content_validator_does_not_scan_directories(self):
+        # `validate_backlog_content_v2` no tiene ruta de directorio: la
+        # unicidad solo se comprueba en la validación de fichero en disco.
+        assert validate_backlog_content_v2(VALID_TASK, "T-AF022-US05-02.md").valid
+
+    def test_find_duplicate_ids_in_dir_maps_id_to_paths(self, tmp_path):
+        (tmp_path / "A").mkdir()
+        (tmp_path / "A" / "T-AA-01.md").write_text(VALID_TASK, encoding="utf-8")
+        (tmp_path / "A" / "T-AA-02.md").write_text(VALID_TASK.replace("T-AF022-US05-02", "T-AF022-US05-03"), encoding="utf-8")
+        assert find_duplicate_ids_in_dir(tmp_path / "A") == {}
+
+        (tmp_path / "A" / "T-AA-03.md").write_text(VALID_TASK, encoding="utf-8")
+        dups = find_duplicate_ids_in_dir(tmp_path / "A")
+        assert set(dups) == {"T-AF022-US05-02"}
+        assert len(dups["T-AF022-US05-02"]) == 2
+
+    def test_find_duplicate_ids_in_dir_ignores_non_markdown_and_missing_dir(self, tmp_path):
+        assert find_duplicate_ids_in_dir(tmp_path / "no-existe") == {}
+        (tmp_path / "notas.txt").write_text("---\nid: X\n---\n", encoding="utf-8")
+        assert find_duplicate_ids_in_dir(tmp_path) == {}

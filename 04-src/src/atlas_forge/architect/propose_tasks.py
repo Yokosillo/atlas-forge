@@ -70,123 +70,6 @@ def _extract_us_title(content: str) -> str:
     return ""
 
 
-def _generate_tasks_from_sections(
-    review: USReviewResult,
-    epic_id: str,
-    us_title: str,
-) -> list[ProposedTask]:
-    us_id = review.story_id
-    # Extraer numero de US y Epic para generar T-FBxxx-USnn-mm
-    # us_id tiene formato US-AF999-01, extraer 999 y 01
-    us_parts = us_id.split("-")  # ["US", "AF999", "01"]
-    epic_num = ""
-    us_num = ""
-    if len(us_parts) >= 3:
-        epic_num = us_parts[1]  # "AF999"
-        us_num = us_parts[2]    # "01"
-
-    templates = [
-        {
-            "suffix": "implementar-nucleo",
-            "title_part": "implementar la logica central",
-            "objective": f"Implementar la logica central de la User Story {us_id} ({us_title}).",
-            "description": (
-                f"Construir la funcionalidad principal descrita en la User Story "
-                f"sin exponer ningun punto de acceso externo — solo la capa de "
-                f"dominio pura, invocable programaticamente sin dependencias de "
-                f"infraestructura (HTTP, persistencia, I/O)."
-            ),
-            "criteria": [
-                f"La logica principal de {us_id} esta implementada y es invocable programaticamente.",
-                "No tiene dependencias de infraestructura externa.",
-            ],
-            "priority": "Crítica",
-            "difficulty": "Crítica",
-            "deps": [],
-        },
-        {
-            "suffix": "conectar-entrada",
-            "title_part": "conectar la logica a su contexto de uso",
-            "objective": f"Integrar la funcionalidad de {us_id} en el flujo que la consume.",
-            "description": (
-                f"Conectar el modulo de dominio implementado al contexto que lo "
-                f"invoca — ya sea desde otro modulo, desde un comando CLI, o desde "
-                f"un flujo de agente. El objetivo es que el codigo implementado "
-                f"sea accesible desde fuera del modulo, pero sin que ese punto de "
-                f"conexion constituya una funcionalidad autonoma."
-            ),
-            "criteria": [
-                f"El modulo de {us_id} es invocable desde su contexto de uso.",
-                "La conexion no introduce logica de negocio duplicada.",
-            ],
-            "priority": "Crítica",
-            "difficulty": "Alta",
-            "deps": [f"T-{us_id}-01"],
-        },
-        {
-            "suffix": "validar-flujo",
-            "title_part": "validar el flujo completo",
-            "objective": f"Verificar que {us_id} funciona correctamente en su flujo real.",
-            "description": (
-                f"Ejecutar el flujo completo desde el contexto de uso y verificar "
-                f"que el resultado cumple los criterios de aceptacion de la User "
-                f"Story. Incluye ejercicios que recorren el camino real de "
-                f"invocacion."
-            ),
-            "criteria": [
-                f"El flujo completo de {us_id} se ejecuta sin errores.",
-                "Los criterios de aceptacion de la US son verificables.",
-            ],
-            "priority": "Alta",
-            "difficulty": "Alta",
-            "deps": [f"T-{us_id}-02"],
-        },
-    ]
-
-    # Bug corregido (2026-08-17, encontrado end-to-end vía
-    # run_us_landing_dispatch_cycle, T-AF008-US15-02): las dependencias
-    # de los templates se generan como `T-{us_id}-NN` con `us_id` en
-    # forma canónica (`US-AF999-01`), produciendo `T-US-AF999-01-NN` —
-    # no coincide con ningún fichero real (`T-AF999-US01-NN`). Mismo bug
-    # de prefijo ya corregido en otros 3 sitios por T-AF022-US13-01B
-    # (`task_file_story_prefix`), pero este generador construía el
-    # `task_id` con su propio cálculo local (`epic_num`/`us_num`) sin
-    # pasar por ese normalizador — el parche anterior solo cubría el
-    # caso `T-{us_id}-01` (el template 3 depende de `T-{us_id}-02`, sin
-    # cubrir). Se generaliza: cualquier dependencia con forma
-    # `T-{us_id}-NN` se reescribe al `task_id` real con el mismo NN.
-    task_id_by_index = {i: f"T-{epic_num}-US{us_num}-{i:02d}" for i in range(1, len(templates) + 1)}
-
-    tasks: list[ProposedTask] = []
-    for i, tmpl in enumerate(templates, start=1):
-        # Formato correcto: T-AF999-US01-01 (no US-AF999-01-01)
-        task_id = task_id_by_index[i]
-        # Dependencies usan el mismo formato
-        formatted_deps = []
-        for d in tmpl["deps"]:
-            old_prefix = f"T-{us_id}-"
-            if d.startswith(old_prefix):
-                dep_index = int(d[len(old_prefix):])
-                formatted_deps.append(task_id_by_index.get(dep_index, d))
-            else:
-                formatted_deps.append(d)
-
-        task = ProposedTask(
-            id=task_id,
-            title=f"{task_id} · {tmpl['title_part']}",
-            epic_id=epic_id,
-            us_id=us_id,
-            objective=tmpl["objective"],
-            description=tmpl["description"],
-            criteria=tmpl["criteria"],
-            priority=tmpl["priority"],
-            difficulty=tmpl["difficulty"],
-            dependencies=formatted_deps,
-        )
-        tasks.append(task)
-    return tasks
-
-
 def propose_tasks_from_review(
     review: USReviewResult,
     epic_id: str,
@@ -225,16 +108,23 @@ def propose_tasks_from_review(
     if not us_title:
         us_title = "User Story sin titulo extraible"
 
-    raw_tasks = _generate_tasks_from_sections(review, epic_id, us_title)
-
-    for task in raw_tasks:
-        if _is_independent_value(task):
-            result.notes.append(
-                f"{task.id}: descartada por tener valor observable independiente "
-                f"(criterio de corte US vs Task de METODOLOGIA.md)."
-            )
-        else:
-            result.tasks.append(task)
+    # T-AF036-US23-XX (decisión de producto): se retira el fallback de
+    # generación por plantillas genéricas ("implementar la logica central" /
+    # "conectar la logica" / "validar el flujo completo"). Para cualquier US,
+    # esas 3 Tasks hardcodeadas no representan trabajo real y contaminaban el
+    # pipeline con falso pendiente (casos reales: US-AF005-03 "declarar
+    # capacidades", US-AF008-09 "investigación de mensajería nativa").
+    # Sin `llm_generate` (agente Arquitecto que desglosa la US con criterios
+    # reales), NO se inventa trabajo: la US se deja sin Tasks (estado
+    # NO_TASKS/TO_PLAN del backlog) y la nota informa al operador de que el
+    # desglose debe venir del Arquitecto o a mano.
+    result.notes.append(
+        "Esta User Story no generó Tasks por el camino automático: el "
+        "desglose de US en Tasks requiere el desglose del Arquitecto "
+        "(`llm_generate`) o aterrizaje manual con criterios verificables — "
+        "no se generan plantillas genéricas (decisión de producto "
+        "T-AF036-US23-00). La US queda pendiente de desglose real."
+    )
 
     return result
 

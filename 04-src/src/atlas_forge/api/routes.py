@@ -46,6 +46,7 @@ from atlas_forge.backlog.edit import (
     set_item_fase,
     set_item_priority,
     set_item_state,
+    set_item_version,
 )
 from atlas_forge.backlog.promote import promote_backlog
 from atlas_forge.backlog.dependency_graph import (
@@ -60,15 +61,20 @@ from atlas_forge.architect.epic_landing import can_approve_landing as can_approv
 from atlas_forge.architect.epic_landing import plan_epic_landing
 from atlas_forge.architect.task_pipeline import run_task_pipeline
 from atlas_forge.architect.us_pipeline import write_approved_stories
-from atlas_forge.backlog.parser import load_backlog
+from atlas_forge.backlog.parser import load_backlog, load_backlog_cached
 from atlas_forge.backlog.report import build_backlog_report, priority_rank
 from atlas_forge.core.session_lifecycle import SessionNotActiveError, list_agents
 from atlas_forge.core.session_registry import focus_project_session, get_current_session
+from atlas_forge.core.reconciliation_log import read_reconciliation_log
 from atlas_forge.agents.agent_options import list_available_agent_options
 from atlas_forge.agents.launch import (
     AgentLaunchError,
     launch_agent,
     launch_agent_with_initial_job,
+)
+from atlas_forge.dispatcher.creation_queue import (
+    enqueue_creation_request,
+    get_creation_requests,
 )
 from atlas_forge.dispatcher.job_cancellation import (
     JobCancellationRejectedError,
@@ -83,11 +89,15 @@ from atlas_forge.dispatcher.dispatch_queue import (
     TaskAlreadyDispatchedError,
     TaskAlreadyQueuedError,
     TaskNotQueuedError,
+    TaskNotTerminalError,
     dequeue_task,
     derive_effective_status,
     enqueue_task,
     get_queue,
+    clear_completed,
     clear_history,
+    remove_entry,
+    requeue_entry,
 )
 from atlas_forge.dispatcher.job_creation import JobCreationError
 from atlas_forge.dispatcher.job_dispatch import dispatch_job
@@ -195,6 +205,15 @@ _session_limit_watcher = None
 # mismo patrón que `_session_limit_watcher`.
 _persistent_agent_watcher = None
 
+# T-AF004-US04-01: instancia del watcher de muerte inesperada de runtime,
+# arrancada en `_lifespan` — mismo patrón que `_session_limit_watcher`.
+_runtime_death_watcher = None
+
+# T-AF008-US18-04: instancia del watcher de auto-liberación "working sin
+# Job en vuelo", arrancada en `_lifespan` — mismo patrón que los demás
+# watchers; consulta el `DispatchQueueWorker` para la señal de vuelo.
+_stuck_working_watcher = None
+
 
 def _resolve_workspace_root() -> Path:
     return _WORKSPACE_ROOT if _WORKSPACE_ROOT is not None else Path.cwd()
@@ -271,6 +290,21 @@ class CreateEpicRequest(BaseModel):
     objetivo: str
 
 
+class CreateEpicFromDescriptionRequest(BaseModel):
+    # T-AF036-US20-01 (US-AF036-20): petición de creación de una Epic desde
+    # descripción libre — SOLO un texto. Sin `id`/`title`/`objetivo`/`fase`/
+    # `version` por parte del cliente: "el humano describe; el Arquitecto
+    # estructura". El `tipo` de la petición es `epic` (raíz, sin padre).
+    description: str
+
+
+class CreateFromDescriptionRequest(BaseModel):
+    # T-AF036-US20-03 (US-AF036-20): petición de creación de una Task desde
+    # descripción libre — SOLO un texto; el contexto (`us_id`) viene de la
+    # URL, nunca del body. Mismo contrato que `CreateEpicFromDescriptionRequest`.
+    description: str
+
+
 class CreateUserStoryRequest(BaseModel):
     # T-AF036-US02-02: campos sueltos del formulario "+ Nueva User Story"
     # (T-AF036-US02-05, todavía sin implementar) — deliberadamente SIN
@@ -283,9 +317,10 @@ class CreateUserStoryRequest(BaseModel):
     objetivo: str
     criterios_aceptacion: str
     priority: str | None = None
-    # T-AF036-US14-05: `fase` opcional, validada en servidor contra el
-    # conjunto cerrado `VALID_FASES` (o `null`) por `create_user_story`.
-    fase: str | None = None
+    # T-AF036-US25-01: `version` opcional, validada en servidor contra el
+    # conjunto cerrado `VALID_VERSIONS` (o `null`) por `create_user_story`.
+    # `fase` ya no es asignable por creación (deprecada en favor de `version`).
+    version: str | None = None
 
 
 class CreateTaskRequest(BaseModel):
@@ -304,7 +339,6 @@ class CreateTaskRequest(BaseModel):
     criterios_aceptacion: str
     priority: str | None = None
     dependencies: list[str] | None = None
-
 
 class LaunchDevelopmentRequest(BaseModel):
     agent_id: str
@@ -535,6 +569,9 @@ def _serialize_agent(agent: Agent) -> dict:
         "model": model,
         "session_name": session_name,
         "last_command_at": getattr(agent, "last_command_at", None) or None,
+        # T-AF008-US18-04: motivo consultable del fallo de auto-liberación
+        # ("working sin Job en vuelo"), no-`None` mientras `status == "failed"`.
+        "failure_reason": getattr(agent, "failure_reason", None),
         # T-AF024-US21-01: hora ISO 8601 de recuperación del límite de
         # sesión, solo no-`None` mientras `status == "limited"`.
         "limited_until": getattr(agent, "limited_until", None),
@@ -542,6 +579,10 @@ def _serialize_agent(agent: Agent) -> dict:
         # ortogonal al estado funcional `status`. Se calcula perezosamente en
         # `get_agents` vía `refresh_agent_supervision`.
         "supervision": getattr(agent, "supervision_status", "vivo"),
+        # T-AF005-US03-02: capacidades declaradas por el agente (metadato
+        # consultable por el Dispatcher/AF-010). Retrocompatible con agentes
+        # creados antes del campo (lista vacía).
+        "capabilities": list(getattr(agent, "capabilities", None) or []),
     }
 
 
@@ -1147,12 +1188,15 @@ class UpdateSystemPreferencesRequest(BaseModel):
     max_simultaneous_developers: int | None = None
     tui_enabled: bool | None = None
     developer_waits_for_tester_review: bool | None = None
+    backlog_multiple_expansion: str | None = None
+    auto_reenqueue_orphaned: bool | None = None
 
 
 @router.put("/system/preferences")
 def put_system_preferences(body: UpdateSystemPreferencesRequest) -> dict:
     """Actualiza las preferencias de sistema (US-AF024-12, T-AF002-US04-01).
-    Recibe `{max_simultaneous_developers: <int>, tui_enabled: <bool>}`.
+    Recibe `{max_simultaneous_developers: <int>, tui_enabled: <bool>,
+    backlog_multiple_expansion: "single"|"multi"}`.
     Rechaza con 400 un valor inválido (0, negativo para developers, no
     numérico ya lo rechaza FastAPI/Pydantic al parsear el body) sin persistir
     un estado que rompería `register_developer` (criterio de aceptación
@@ -1176,6 +1220,27 @@ def put_system_preferences(body: UpdateSystemPreferencesRequest) -> dict:
 
     if body.developer_waits_for_tester_review is not None:
         current["developer_waits_for_tester_review"] = body.developer_waits_for_tester_review
+
+    # T-AF036-US27-01: modo de expansión del backlog — solo se aceptan
+    # `"single"`/`"multi"`; cualquier otro valor → 400 sin persistir.
+    if body.backlog_multiple_expansion is not None:
+        if body.backlog_multiple_expansion not in ("single", "multi"):
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    f"backlog_multiple_expansion inválido: "
+                    f"'{body.backlog_multiple_expansion}' — debe ser "
+                    "'single' o 'multi'."
+                ),
+            )
+        current["backlog_multiple_expansion"] = body.backlog_multiple_expansion
+
+    # T-AF022-US18-04: reencolado automático de huérfanas — si la
+    # reconciliación encuentra una `dispatched` huérfana (Job perdido tras
+    # reinicio) la revierte a `TO_DEVELOP` automáticamente (en vez de a
+    # `READY`), para que el siguiente ciclo la re-despache sin intervención.
+    if body.auto_reenqueue_orphaned is not None:
+        current["auto_reenqueue_orphaned"] = body.auto_reenqueue_orphaned
 
     save_system_preferences(current, state_dir=_STATE_DIR)
     return current
@@ -1689,8 +1754,25 @@ def _active_project_or_404():
 
 
 def _load_active_backlog_graph(project):
+    # T-AF048-US01-01 (US-AF048-01): variante memoizada con invalidación por
+    # mtime+size — `GET /backlog`, `GET /backlog/{item_id}` y
+    # `GET /backlog/queue` dejan de re-parsear el `02-backlog/` completo en
+    # cada lectura; una edición en disco se refleja automáticamente (cambio
+    # de fingerprint), sin `--cache-clear` ni reinicio. El grafo devuelto es
+    # idéntico al de `load_backlog`.
     backlog_path = Path(project.path) / "02-backlog"
-    return load_backlog(backlog_path)
+    return load_backlog_cached(backlog_path)
+
+
+@router.get("/runtime/failed")
+def get_runtime_failed() -> dict:
+    """T-AF004-US04-03: eventos de runtime `failed` notificados por el watcher
+    de muerte inesperada (reintentos agotados). Consultable: devuelve la lista
+    de `{agent_id, agent_name, error, ts}` de los runtimes cuyo relanzamiento
+    automático se agotó. No reintenta ni altera nada — solo lectura."""
+    watcher = _runtime_death_watcher
+    events = watcher.failed_events() if watcher is not None else []
+    return {"failed": events}
 
 
 @router.get("/backlog/queue")
@@ -1726,7 +1808,10 @@ def get_dispatch_queue() -> dict:
     # T-AF008-US10-04: el grafo del backlog es la fuente de verdad del
     # estado real de cada Task — el derivado se calcula contra él, no
     # contra el estado almacenado de la entrada.
-    graph = load_backlog(Path(project.path) / "02-backlog")
+    # T-AF048-US01-01: variante memoizada — este endpoint es polling cada
+    # 5s; deja de re-parsear todo el 02-backlog/ en cada poll (solo el
+    # fingerprint de mtime+size).
+    graph = load_backlog_cached(Path(project.path) / "02-backlog")
     state_by_task_id = {item.id: item.state for item in graph.items.values()}
 
     def _effective(entry) -> str:
@@ -1742,7 +1827,18 @@ def get_dispatch_queue() -> dict:
     )
     dispatched = [e for e in entries if _effective(e) == STATUS_DISPATCHED]
     awaiting_tester = [e for e in entries if _effective(e) == STATUS_AWAITING_TESTER]
-    completed = [e for e in entries if _effective(e) == STATUS_COMPLETED]
+    # T-AF042-US06-12: el grupo `completed` se ordena por fecha de cierre
+    # descendente (la Task completada más reciente primero) para que el
+    # historial se lea de lo más reciente a lo más antiguo. Las entradas
+    # legacy sin `finished_at` quedan al final, conservando su orden de
+    # inserción. La clave `(e.finished_at is not None, e.finished_at or "")`
+    # con `reverse=True` coloca primero las entradas fechadas (las más
+    # recientes arriba) y las sin fecha al final.
+    completed = sorted(
+        (e for e in entries if _effective(e) == STATUS_COMPLETED),
+        key=lambda e: (e.finished_at is not None, e.finished_at or ""),
+        reverse=True,
+    )
     failed = [e for e in entries if _effective(e) == STATUS_FAILED]
 
     def _serialize(entry) -> dict:
@@ -1783,6 +1879,119 @@ def delete_backlog_queue_history() -> dict:
     project = _active_project_or_404()
     removed = clear_history(project.path, project.name)
     return {"removed": removed}
+
+
+@router.delete("/backlog/queue/completed")
+def delete_backlog_queue_completed() -> dict:
+    """Borra TODAS las entradas `completed` (DONE) de la cola de despacho
+    (T-AF042-US07-01), conservando `failed`, `queued`, `dispatched` y
+    `awaiting_tester` — el borrado masivo solo de completadas que la web usa
+    (botón "Borrar completadas"), distinto de `DELETE /backlog/queue/history`
+    (borra completed+failed).
+
+    No toca el estado real de las Tasks ni el Dispatcher — solo el registro
+    de auditoría. Devuelve el número de entradas borradas; idempotente
+    (segunda llamada sin `completed` devuelve 0). 404 si no hay proyecto
+    activo."""
+    project = _active_project_or_404()
+    removed = clear_completed(project.path, project.name)
+    return {"removed": removed}
+
+
+@router.delete("/backlog/queue/entry/{task_id}")
+def delete_backlog_queue_entry(task_id: str) -> dict:
+    """Borra una SOLA entrada terminal de la cola de despacho
+    (T-AF036-US17-07): elimina del `dispatch_queue.json` únicamente la
+    entrada de `task_id` cuyo estado es `completed`/`failed`, conservando el
+    resto de la cola. Es el borrado individual que la UI usará (un aspa por
+    fila, T-AF036-US17-09), distinto de `DELETE /backlog/queue/history`
+    (borrado masivo de completed+failed).
+
+    No toca el estado real de las Tasks ni el Dispatcher — solo el registro
+    de auditoría. Devuelve el número de entradas borradas (1). 404 si
+    `task_id` no está en la cola; 409 si existe pero no es terminal (en
+    curso `queued`/`dispatched`) — con `detail` verbatim del motivo."""
+    project = _active_project_or_404()
+    try:
+        remove_entry(project.path, project.name, task_id)
+    except TaskNotQueuedError as error:
+        raise HTTPException(status_code=404, detail=str(error)) from error
+    except TaskNotTerminalError as error:
+        raise HTTPException(status_code=409, detail=str(error)) from error
+
+    return {"task_id": task_id, "removed": 1}
+
+
+@router.post("/backlog/queue/entry/{task_id}/requeue")
+def post_requeue_queue_entry(task_id: str) -> dict:
+    """Vuelve a poner en la cola de despacho una entrada `failed`
+    (T-AF036-US17-08): transiciona la entrada `failed` de `task_id` a
+    `queued` para que el Dispatcher vuelva a poder despacharla, y deja la
+    Task real en `TO_DEVELOP` (la fuente de verdad de "lista para
+    desarrollo", T-AF008-US14-01) si estaba `READY`.
+
+    No borra el histórico de otras entradas — solo la de `task_id`. No toca
+    el estado real del resto de Tasks ni el Dispatcher.
+
+    404 si `task_id` no está en la cola; 409 si la entrada no está `failed`
+    (una `completed`/`queued`/`dispatched` no se reencola por este camino);
+    400 si la Task real ya no es reintentable (no existe en el backlog o ya
+    está `DONE`)."""
+    project = _active_project_or_404()
+    graph = _load_active_backlog_graph(project)
+    item = _find_task_item(graph, task_id)
+    task_state = item.state if item is not None else None
+
+    match = next((e for e in get_queue(project.path, project.name) if e.task_id == task_id), None)
+    if match is None:
+        raise HTTPException(
+            status_code=404,
+            detail=f"La Task '{task_id}' no está en la cola.",
+        )
+    # 409: se valida contra el estado derivado y el almacenado combinados:
+    #           - entrada almacenada `failed`                     -> reencolable (línea)
+    #           - entrada `dispatched` cuya Task real ya no justifica "en curso"
+    #             (READY/TO_DEVELOP tras reinicio/revertida) -> derivada `failed`,
+    #             reencolable por esta vía (mismo criterio que `GET /backlog/queue`
+    #             usa para agrupar las filas: sin esto, la UI ofrecía Reencolar en un
+    #             caso que el backend rechazaba con 409).
+    #           - resto (queued en vuelo / completed / awaiting_tester) -> 409.
+    effective_status = derive_effective_status(match, task_state)
+    is_stored_failed = match.status == STATUS_FAILED
+    is_huerfana_reencolable = match.status != STATUS_FAILED and effective_status == STATUS_FAILED
+    if not (is_stored_failed or is_huerfana_reencolable):
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                f"La entrada de la Task '{task_id}' no está 'failed' "
+                f"(estado '{match.status}', derivado '{effective_status}') — solo una entrada fallida se "
+                "reencola por esta vía."
+            ),
+        )
+
+    # T-AF036-US17-08: la Task real debe seguir siendo reintentable antes de
+    # reencolar — una Task `DONE` (veredicto cerrado) o inexistente en el
+    # backlog no tiene sentido devolverla a la cola (el derivado de pantalla
+    # la pintaría `completed`/`failed` huérfana). 400 con el motivo real.
+    if item is None:
+        raise HTTPException(
+            status_code=400,
+            detail=f"La Task '{task_id}' ya no existe en el backlog — no es reintentable.",
+        )
+    if task_state == "DONE":
+        raise HTTPException(
+            status_code=400,
+            detail=f"La Task '{task_id}' está en estado 'DONE' — no es reintentable.",
+        )
+
+    requeue_entry(project.path, project.name, task_id, task_state=task_state)
+
+    # T-AF008-US14-01: reencolar devuelve la Task real a `TO_DEVELOP` si
+    # estaba `READY` — la fuente de verdad de "lista para desarrollo".
+    if item.state == "READY":
+        set_item_state(item.path, "TO_DEVELOP")
+
+    return {"task_id": task_id, "requeued": True}
 
 
 def _find_task_item(graph, task_id: str):
@@ -1849,16 +2058,26 @@ def post_enqueue_task(task_id: str) -> dict:
 
 
 def _enqueue_all_pending_tasks_of_story(project, graph, us_id: str) -> dict:
-    """Encola todas las Tasks `READY` de `us_id` — lógica compartida entre
+    """Encola todas las Tasks de `us_id` que estén en `READY` **o** ya en
+    `TO_DEVELOP` sin entrada en la cola — lógica compartida entre
     `POST /backlog/{us_id}/enqueue-all` y el atajo de `PUT
     /backlog/{item_id}/state` cuando se marca una User Story como
-    `TO_DEVELOP` (T-AF008-US14-04; vocabulario AF-040): ambos caminos
-    deben producir exactamente el mismo efecto, coordinados para no
-    divergir."""
+    `TO_DEVELOP` (T-AF008-US14-04; T-AF008-US17-01; vocabulario AF-040):
+    ambos caminos deben producir exactamente el mismo efecto, coordinados
+    para no divergir.
+
+    T-AF008-US17-01: incluye las Tasks ya en `TO_DEVELOP` (no solo las
+    `READY`) para que toda Task en `TO_DEVELOP` tenga su entrada en
+    `dispatch_queue.json` — `enqueue_task` es idempotente por `task_id`
+    (lanza `TaskAlreadyQueuedError` si ya tiene entrada `queued`), así que
+    no se duplican entradas. Las ya `TO_DEVELOP` no se re-`set_item_state`
+    (evita una auto-transición), solo se asegura su entrada."""
     pending_tasks = [
         item
         for item in graph.items.values()
-        if item.kind == ITEM_KIND_TASK and item.user_story == us_id and item.state == "READY"
+        if item.kind == ITEM_KIND_TASK
+        and item.user_story == us_id
+        and item.state in ("READY", "TO_DEVELOP")
     ]
 
     enqueued = []
@@ -1873,9 +2092,11 @@ def _enqueue_all_pending_tasks_of_story(project, graph, us_id: str) -> dict:
                 priority=item.priority,
             )
             enqueued.append(entry.task_id)
-            # T-AF008-US14-01: mismo criterio que el encolado individual
-            # — `TO_DEVELOP` (AF-040) en el propio `state` es la fuente de verdad.
-            set_item_state(item.path, "TO_DEVELOP")
+            # T-AF008-US14-01: `TO_DEVELOP` en el propio `state` es la fuente
+            # de verdad. Solo se escribe si aún no estaba (auto-transición
+            # TO_DEVELOP→TO_DEVELOP no es legal en la máquina canónica).
+            if item.state != "TO_DEVELOP":
+                set_item_state(item.path, "TO_DEVELOP")
         except TaskAlreadyQueuedError:
             skipped_already_queued.append(item.id)
 
@@ -1888,10 +2109,12 @@ def _enqueue_all_pending_tasks_of_story(project, graph, us_id: str) -> dict:
 
 @router.post("/backlog/{us_id}/enqueue-all", status_code=201)
 def post_enqueue_all_tasks(us_id: str) -> dict:
-    """Encola de una sola llamada todas las Tasks `TO_DO` de la User
-    Story `us_id` (T-AF008-US10-01, criterio de aceptación 2 de
-    `US-AF008-10`) — equivalente funcional al lote que hoy ofrece un
-    Plan, pero sin el paso de aprobación explícita.
+    """Encola de una sola llamada todas las Tasks `READY`/`TO_DEVELOP` sin
+    entrada de la User Story `us_id` (T-AF008-US10-01, criterio de
+    aceptación 2 de `US-AF008-10`; T-AF008-US17-01 incluye las ya
+    `TO_DEVELOP` para que ninguna quede sin entrada) — equivalente
+    funcional al lote que hoy ofrece un Plan, pero sin el paso de
+    aprobación explícita.
 
     Filtra por el campo `item.user_story` real de cada Task (el valor
     del `user_story:` del frontmatter YAML, T-AF008-US04-05), NUNCA por
@@ -1915,6 +2138,98 @@ def post_enqueue_all_tasks(us_id: str) -> dict:
         )
 
     return _enqueue_all_pending_tasks_of_story(project, graph, us_id)
+
+
+@router.get("/backlog/creation-requests")
+def get_creation_requests_endpoint() -> list[dict]:
+    """Cola de peticiones de creación para el Arquitecto (T-AF036-US20-04/06,
+    US-AF036-20): lista las peticiones del proyecto activo (cualquier estado,
+    en orden de encolado) para el panel "Peticiones para el Arquitecto" de la
+    web. Una petición `failed` expone sus motivos verbatim (`errors`) y la
+    descripción para poder reintentarla. 404 sin proyecto activo."""
+    project = _active_project_or_404()
+    return [
+        {
+            "request_id": request.request_id,
+            "tipo": request.tipo,
+            "description": request.description,
+            "epic_id": request.epic_id,
+            "us_id": request.us_id,
+            "status": request.status,
+            "report_file": request.report_file,
+            "dispatched_at": request.dispatched_at,
+            "result": request.result,
+            "errors": request.errors,
+            "created_at": request.created_at,
+        }
+        for request in get_creation_requests(project.path, project.name)
+    ]
+
+
+@router.get("/backlog/reconciliations")
+def get_backlog_reconciliations(limit: int = 200) -> list[dict]:
+    """Histórico de reconciliaciones (T-AF022-US18-04, US-AF022-18): lee el
+    `reconciliation_log.jsonl` del proyecto activo y devuelve las últimas
+    `limit` entradas (por defecto 200), ordenadas por fecha descendente (la
+    más reciente primero). Cada entrada refleja QUÉ se arregló
+    (`reason`), el item/petición afectado, el estado previo → nuevo (cuando
+    aplica) y `ts`. 404 sin proyecto activo."""
+    project = _active_project_or_404()
+    return read_reconciliation_log(project.path, project.name, limit=limit)
+
+
+class CreateUserStoryFromDescriptionRequest(BaseModel):
+    """Body de `POST /backlog/epic/{epic_id}/from-description-us` (T-AF036-US20-02):
+    solo la descripción libre en lenguaje natural del humano — el cliente NO
+    aporta campos estructurales (id, título, criterios, fase, prioridad...);
+    la interpretación la hace el Arquitecto en el ciclo de despacho."""
+    description: str
+
+
+@router.post("/backlog/epic/{epic_id}/from-description-us", status_code=202)
+def post_create_us_from_description(epic_id: str, body: CreateUserStoryFromDescriptionRequest) -> dict:
+    """Punto de entrada backend que recibe una descripción en lenguaje natural
+    para crear una User Story dentro de `epic_id` (T-AF036-US20-02, US-AF036-20)
+    y la **encola** en la cola de peticiones de creación (`creation_queue`,
+    T-AF036-US20-06) para que el Arquitecto la estructure (id US-FBxxx-nn,
+    título, objetivo, criterios, fase, prioridad, dependencias), la valide y
+    la escriba en el ciclo de despacho/completón — NADA se interpreta de forma
+    síncrona aquí ni se escribe ningún fichero de backlog en la petición web.
+
+    - 404 si `epic_id` no existe como Epic en el backlog activo.
+    - 400 si `description` está vacía (solo espacios/blancos).
+    - 202 con `{request_id, tipo: "us", status: "pending"}` cuando se encola.
+
+    El `epic_id` de contexto se persiste en la entrada de la cola."""
+    project = _active_project_or_404()
+    graph = _load_active_backlog_graph(project)
+
+    if not is_epic_item_id(epic_id) or epic_id not in graph.items:
+        raise HTTPException(
+            status_code=404,
+            detail=f"No existe ninguna Epic con id '{epic_id}' en el backlog.",
+        )
+
+    description = (body.description or "").strip()
+    if not description:
+        raise HTTPException(
+            status_code=400,
+            detail="La descripción de la User Story no puede estar vacía.",
+        )
+
+    entry = enqueue_creation_request(
+        project.path,
+        project.name,
+        tipo="us",
+        description=description,
+        epic_id=epic_id,
+    )
+
+    return {
+        "request_id": entry.request_id,
+        "tipo": entry.tipo,
+        "status": entry.status,
+    }
 
 
 @router.delete("/backlog/{task_id}/enqueue")
@@ -2032,6 +2347,53 @@ def put_backlog_item_fase(item_id: str, body: dict) -> dict:
     return {"item_id": item_id, "fase": new_fase}
 
 
+@router.put("/backlog/{item_id}/version")
+def put_backlog_item_version(item_id: str, body: dict) -> dict:
+    """Cambia el campo `version` del fichero real de una Epic/User Story
+    (T-AF036-US25-01) — reutiliza `atlas_forge.backlog.edit.set_item_version`, que
+    valida el contenido resultante con el validador determinista antes de
+    persistir.
+
+    Body: `{"version": "<string>" | null}`. Conjunto cerrado
+    (T-AF036-US25-01): `version` debe ser una de `0.9`/`0.9.1`/`0.9.2` o
+    `null` (sin versión) — cualquier otro valor responde 400 listando las
+    versiones válidas y NO escribe nada. 400 también si el contenido
+    resultante no pasa el validador — `detail` verbatim — y no escribe
+    nada; 404 si el item no existe.
+
+    Una User Story en estado `DONE` o `IN_REVIEW` (cerrada o pendiente de
+    la validación final del Arquitecto) no puede cambiar su `version`:
+    devuelve 400 y no escribe nada."""
+    project = _active_project_or_404()
+    graph = _load_active_backlog_graph(project)
+    item = graph.items.get(item_id)
+    if item is None:
+        raise HTTPException(
+            status_code=404,
+            detail=f"No existe ningún item con id '{item_id}' en el backlog activo.",
+        )
+
+    if item.kind == "US" and item.state in ("DONE", "IN_REVIEW"):
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"La User Story '{item_id}' está en estado '{item.state}' y no "
+                "puede cambiar su versión de entrega — solo una US no DONE ni "
+                "IN_REVIEW es editable."
+            ),
+        )
+
+    new_version = body.get("version")
+    try:
+        set_item_version(item.path, new_version)
+    except InvalidFieldValueError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+    except BacklogValidationError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+
+    return {"item_id": item_id, "version": new_version}
+
+
 @router.put("/backlog/{item_id}/state")
 def put_backlog_item_state(item_id: str, body: dict) -> dict:
     """Cambia el campo `state` del fichero real de una User Story/Task
@@ -2076,6 +2438,23 @@ def put_backlog_item_state(item_id: str, body: dict) -> dict:
     if new_state == "TO_DEVELOP" and item.kind == ITEM_KIND_USER_STORY:
         graph_after = load_backlog(backlog_path)
         enqueue_result = _enqueue_all_pending_tasks_of_story(project, graph_after, item_id)
+    elif new_state == "TO_DEVELOP" and item.kind == ITEM_KIND_TASK:
+        # T-AF008-US17-01 (criterio 2): poner una Task individual en
+        # `TO_DEVELOP` crea su entrada `queued` en `dispatch_queue.json` si no
+        # existe (reutiliza `enqueue_task`, idempotente por task_id), para que
+        # la ventana Pipeline la muestre y el Dispatcher no la deje fuera del
+        # orden por falta de entrada.
+        try:
+            enqueue_task(
+                project.path,
+                project.name,
+                task_id=item.id,
+                us_id=item.user_story,
+                priority=item.priority,
+            )
+            enqueue_result = {"enqueued": [item.id], "skipped_already_queued": []}
+        except TaskAlreadyQueuedError:
+            enqueue_result = {"enqueued": [], "skipped_already_queued": [item.id]}
 
     response = {"item_id": item_id, "state": new_state, "promoted_epics": promoted_epics}
     if enqueue_result is not None:
@@ -2120,6 +2499,39 @@ def post_backlog_epic(body: CreateEpicRequest) -> dict:
     return {"id": body.id, "title": body.title, "path": str(path)}
 
 
+@router.post("/backlog/epic/from-description", status_code=202)
+def post_backlog_epic_from_description(body: CreateEpicFromDescriptionRequest) -> dict:
+    """T-AF036-US20-01 (US-AF036-20, criterio 4): recibe una descripción
+    libre de una Epic y la ENCOLA para el Arquitecto — sin interpretar nada
+    de forma síncrona ni escribir ficheros en la petición web.
+
+    Crea una entrada `pending` en la cola de peticiones de creación
+    (T-AF036-US20-06, `creation_queue.py`) con `tipo: epic`, la descripción
+    y `created_at`; la Epic es raíz, sin contexto padre. Responde 202 con
+    `{request_id, tipo, status}`.
+
+    Validación mínima síncrona: descripción no vacía (400 en caso
+    contrario). NO se invoca `plan_epic_landing` ni ningún pipeline de
+    interpretación aquí — la interpretación (id único `AF-\\d{3,}`, título,
+    objetivo, `version` default 1.0, sin `fase`), la validación determinista
+    y la escritura del fichero `02-backlog/epics/{id}-{slug}.md` las hace el
+    ciclo de despacho/compleción hacia el Arquitecto (T-AF036-US20-07/08)."""
+    from atlas_forge.dispatcher.creation_queue import enqueue_creation_request
+
+    description = (body.description or "").strip()
+    if not description:
+        raise HTTPException(status_code=400, detail="La descripción no puede estar vacía.")
+
+    project = _active_project_or_404()
+    entry = enqueue_creation_request(
+        project.path,
+        project.name,
+        tipo="epic",
+        description=description,
+    )
+    return {"request_id": entry.request_id, "tipo": entry.tipo, "status": entry.status}
+
+
 @router.post("/backlog/epic/{epic_id}/us", status_code=201)
 def post_backlog_epic_user_story(epic_id: str, body: CreateUserStoryRequest) -> dict:
     """Crea una User Story nueva dentro de la Epic `epic_id`
@@ -2157,7 +2569,7 @@ def post_backlog_epic_user_story(epic_id: str, body: CreateUserStoryRequest) -> 
             body.objetivo,
             body.criterios_aceptacion,
             body.priority,
-            body.fase,
+            body.version,
         )
     except EpicNotFoundError as error:
         raise HTTPException(status_code=404, detail=str(error)) from error
@@ -2173,6 +2585,53 @@ def post_backlog_epic_user_story(epic_id: str, body: CreateUserStoryRequest) -> 
         raise HTTPException(status_code=400, detail=str(error)) from error
 
     return {"id": body.id, "title": body.title, "epic_id": epic_id, "path": str(path)}
+
+
+@router.post("/backlog/us/{us_id}/from-description-task", status_code=202)
+def post_backlog_us_from_description_task(us_id: str, body: CreateFromDescriptionRequest) -> dict:
+    """T-AF036-US20-03 (US-AF036-20, criterio 4): recibe una descripción
+    libre de una Task y la ENCOLA para el Arquitecto — sin interpretar nada
+    de forma síncrona ni escribir ficheros en la petición web.
+
+    El contexto US es explícito por URL: `us_id` debe existir (404 si no)
+    y se guarda como contexto de la petición (`us_id`). Crea una entrada
+    `pending` en la cola de peticiones de creación (T-AF036-US20-06) con
+    `tipo: task`, la descripción y `status: pending`. Responde 202 con
+    `{request_id, tipo, status}`.
+
+    Validación mínima síncrona: descripción no vacía (400). NO se invoca
+    ningún pipeline de interpretación — la interpretación (id único
+    `T-FBxxx-USnn-mm`, título, objetivo, prioridad, dependencias),
+    la validación determinista y la escritura del fichero las resuelve el
+    ciclo de despacho/compleción hacia el Arquitecto (T-AF036-US20-07/08)."""
+    from atlas_forge.dispatcher.creation_queue import enqueue_creation_request
+
+    description = (body.description or "").strip()
+    if not description:
+        raise HTTPException(status_code=400, detail="La descripción no puede estar vacía.")
+
+    project = _active_project_or_404()
+    backlog_path = Path(project.path) / "02-backlog"
+    # 404 si `us_id` no tiene ningún fichero de User Story real (mismo
+    # criterio que `POST /backlog/us/{us_id}/task`).
+    stories_dir = backlog_path / "user-stories"
+    us_file = None
+    if stories_dir.is_dir():
+        us_file = next(iter(sorted(stories_dir.glob(f"{us_id}-*.md")) or sorted(stories_dir.glob(f"{us_id}.md"))), None)
+    if us_file is None:
+        raise HTTPException(
+            status_code=404,
+            detail=f"La User Story '{us_id}' no existe en 'user-stories/'.",
+        )
+
+    entry = enqueue_creation_request(
+        project.path,
+        project.name,
+        tipo="task",
+        description=description,
+        us_id=us_id,
+    )
+    return {"request_id": entry.request_id, "tipo": entry.tipo, "status": entry.status}
 
 
 @router.post("/backlog/us/{us_id}/task", status_code=201)
@@ -2276,7 +2735,9 @@ def get_backlog_item(item_id: str) -> dict:
         raise HTTPException(status_code=404, detail="No hay ningún proyecto activo.")
 
     backlog_path = Path(project.path) / "02-backlog"
-    graph = load_backlog(backlog_path)
+    # T-AF048-US01-01: variante memoizada — abrir una Epic/US deja de
+    # re-parsear todo el backlog en cada GET.
+    graph = load_backlog_cached(backlog_path)
 
     if is_epic_item_id(item_id):
         detail = build_epic_detail(backlog_path, graph, item_id)
@@ -2322,7 +2783,9 @@ def get_epic_coverage(epic_id: str) -> dict:
         raise HTTPException(status_code=404, detail="No hay ningún proyecto activo.")
 
     backlog_path = Path(project.path) / "02-backlog"
-    graph = load_backlog(backlog_path)
+    # T-AF048-US01-01: variante memoizada (lectura) — no re-parsea el backlog
+    # completo si ningún fichero cambió.
+    graph = load_backlog_cached(backlog_path)
 
     result = compute_epic_coverage(backlog_path, graph, epic_id)
     if result is None:
@@ -2772,6 +3235,7 @@ def _serialize_script(script) -> dict:
         "command": script.command,
         "description": script.description,
         "origin": "particular",
+        "execution_type": "script",
     }
 
 
@@ -2782,6 +3246,7 @@ def _serialize_generic_script(script) -> dict:
         "command": None,
         "description": script.description,
         "origin": "generic",
+        "execution_type": "script",
     }
 
 
@@ -2813,9 +3278,16 @@ def get_scripts() -> list[dict]:
     except MalformedScriptManifestError as error:
         raise HTTPException(status_code=400, detail=str(error)) from error
 
+    from atlas_forge.actions.transversal import list_actions
+
     generic = [_serialize_generic_script(script) for script in list_generic_scripts()]
     particular = [_serialize_script(script) for script in scripts]
-    return generic + particular
+    # T-AF034-US01-01: el catálogo combinado agrega también las Acciones
+    # transversales (id, name, description, origin='generic', execution_type).
+    # Un proyecto sin scripts particulares sigue devolviendo genéricos +
+    # acciones sin error (criterio de la US: las fuentes sin datos no rompen
+    # el catálogo).
+    return generic + particular + list_actions()
 
 
 @router.post("/scripts/{script_id}/run")

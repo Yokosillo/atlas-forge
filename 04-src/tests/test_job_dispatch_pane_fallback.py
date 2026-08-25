@@ -165,7 +165,8 @@ def test_poll_inflight_fails_job_when_pane_shows_completion_without_file(
         task_id="T-AF900-US01-01", agent_id="a1",
         report_file=report_file, job=job, dispatched_at=0.0,
     )
-    inflight = {"T-AF900-US01-01": infl}
+    # T-AF008-US18-02: el registro se clavea por `job.id` (no task_id).
+    inflight = {"j1": infl}
     mark_running(job)
     mark_working(agent)
 
@@ -184,4 +185,4 @@ def test_poll_inflight_fails_job_when_pane_shows_completion_without_file(
     assert "no escribió el fichero de auto-reporte" in job.result
     assert agent.status == "idle"
     assert resolved == ["T-AF900-US01-01"]
-    assert "T-AF900-US01-01" not in inflight
+    assert inflight == {}

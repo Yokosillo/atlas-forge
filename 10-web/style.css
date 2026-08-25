@@ -65,6 +65,16 @@ body {
   padding: 8px 0;
 }
 
+/* Botón "Cambiar proyecto" de la barra de contexto: hereda el
+   `min-height: 48px` global de accesibilidad (no vive en
+   `.backlog-body`, así que no le aplica la compactación de 28px de los
+   botones de Backlog/Agentes) — se compacta igual que los demás. */
+.context-bar button {
+  min-height: 28px;
+  min-width: 28px;
+  padding: 2px 8px;
+}
+
 .context-chip {
   font-weight: 600;
 }
@@ -207,6 +217,15 @@ body {
   margin-top: 2px;
 }
 
+/* T-AF008-US18-04: motivo consultable del fallo de auto-liberación
+   ("working sin Job en vuelo") en la fila del agente `failed`. */
+.agent-failed-reason {
+  font-size: 13px;
+  color: #C62828;
+  font-weight: 600;
+  margin-top: 2px;
+}
+
 /* T-AF024-US11-16: aviso de conexión perdida en el detalle de un agente
    caído (`unavailable`) — mismo rojo del estado `unavailable`. */
 .agent-unavailable-note {
@@ -308,6 +327,28 @@ body {
   background: #fff7e6;
 }
 
+/* T-AF021-US03-04: aviso de "Job en curso" junto a la confirmación de
+   detención de un agente (best-effort; no bloquea la detención — el humano
+   decide). El wrap apila el aviso sobre el botón de confirmar. */
+.agent-stop-confirm-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  width: 100%;
+}
+.agent-stop-notice {
+  font-size: 12px;
+  line-height: 1.3;
+  color: #8a4b00;
+  background: #fff7e6;
+  border: 1px solid #e6c183;
+  border-radius: 4px;
+  padding: 4px 6px;
+  overflow-wrap: break-word;
+  word-break: break-word;
+  display: block;
+}
+
 .agent-model-select-row,
 .agent-editor-row {
   flex: 0 0 100%;
@@ -404,7 +445,7 @@ body {
 }
 
 .job-status-run {
-  color: #1a73e8;
+  color: #fb8c00;
 }
 
 .job-status-ok {
@@ -735,6 +776,48 @@ body {
   color: #188038;
 }
 
+/* T-AF034-US01-03: grupos de chips (origen + tipo) de cada tarjeta del
+   catálogo — visibles sin pulsar. El chip de origen y el de tipo comparten
+   el mismo estilo base de píldora (`padding`/`radius`/tamaño). */
+.script-card-chips {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+/* Chip de TIPO de ejecución (T-AF034-US01-03). Etiquetas legibles sobre el
+   fondo SIN depender solo del color (WCAG >= 3:1, mismo criterio que el
+   resto de la UI): cada variante usa texto oscuro sobre fondo pastel claro
+   del mismo matiz. */
+.script-type {
+  font-size: 12px;
+  font-weight: 600;
+  padding: 2px 8px;
+  border-radius: 10px;
+  white-space: nowrap;
+}
+
+.script-type-script {
+  background: #fff3e0; /* ámbar 50 */
+  color: #b26a00;      /* ámbar 800 */
+}
+
+.script-type-agent_job {
+  background: #f3e8fd; /* púrpura 50 */
+  color: #6a1b9a;      /* púrpura 800 */
+}
+
+.script-type-external_process {
+  background: #e0f2f1; /* teal 50 */
+  color: #00695c;      /* teal 800 */
+}
+
+.script-type-unknown {
+  background: #eeeeee; /* gris 200 */
+  color: #424242;      /* gris 800 */
+}
+
 .script-description {
   font-size: 13px;
   color: #444;
@@ -753,7 +836,7 @@ body {
   font-size: 13px;
   margin-top: 4px;
   padding: 2px 10px;
-  min-height: 32px;
+  min-height: 28px;
 }
 
 .script-field-label {
@@ -1061,12 +1144,19 @@ body {
   font-size: 13px;
 }
 
+/* T-AF036-US26-08: los controles de vista y filtros del Backlog se alinean a
+   la izquierda (no repartidos por `space-between` de `.context-bar`). */
+.backlog-controls-left {
+  justify-content: flex-start;
+}
+
 /* T-AF036-US01-01 · Barra de controles: buscador + filtro de estado +
    filtro de prioridad, sobre el listado raíz de la pantalla Backlog. */
 .backlog-filter-bar {
   display: flex;
   flex-wrap: wrap;
   align-items: flex-start;
+  justify-content: flex-start;
   gap: 10px;
   padding: 10px 0;
 }
@@ -1125,6 +1215,33 @@ body {
 }
 .backlog-focus-toggle {
   font-size: 12px;
+  min-height: 28px;
+  padding: 0 8px;
+  border: 1px solid #d0d0d0;
+  border-radius: 4px;
+  background: #fff;
+  color: #333;
+  cursor: pointer;
+  line-height: 1;
+  transition: background 0.15s ease, border-color 0.15s ease;
+}
+.backlog-focus-toggle:hover {
+  background: #f2f6fc;
+  border-color: #1a73e8;
+  color: #1a73e8;
+}
+.backlog-focus-toggle:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+/* T-AF042-US06-09/-13 y criterio 5 de US-AF042-06: los botones de acción de
+   fila ("Aceptar", "Reencolar", "Quitar de la cola") van en la MISMA línea
+   que el nombre de la entrada, a la derecha, compactos — sin aportar altura
+   extra a la fila. "Aceptar" es un botón compacto para no disparar la
+   navegación de la fila clicable. */
+.backlog-queue-row .backlog-focus-toggle {
+  flex: 0 0 auto;
+  white-space: nowrap;
 }
 .backlog-focus-chain {
   margin: 8px 0 2px;
@@ -1150,25 +1267,248 @@ body {
   color: #666;
 }
 
-/* T-AF008-US10-03 · Panel de la cola de despacho, reutiliza
-   `.backlog-focus-panel`/`.backlog-focus-header`/`-title`/`-toggle`
-   (mismo contenedor colapsable que "Próximo foco") — solo las filas
-   individuales necesitan reglas propias. */
-.backlog-queue-row {
-  display: flex;
-  flex-wrap: wrap;
-  justify-content: space-between;
-  align-items: baseline;
-  gap: 4px 12px;
-  padding: 4px 0;
-  border-top: 1px solid #e5e5e5;
+/* T-AF022-US17-02 · Panel determinista "Bloqueadas" de la pantalla Backlog:
+   reintroduce el patrón del panel "Próximo foco" (contenedor colapsable)
+   pero alimentado por `report.items_bloqueada`. Clases propias para no
+   colisionar con `.backlog-focus-panel` (que hoy usan la cola de despacho
+   y las opciones avanzadas del Backlog ni con el panel retirado). */
+.backlog-bloqueadas-panel {
+  border: 1px solid #b3261e;
+  border-radius: 8px;
+  padding: 10px 14px;
+  margin: 10px 0;
+  background: #fff8f7;
 }
-.backlog-queue-row:first-of-type {
-  border-top: none;
+.backlog-bloqueadas-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+.backlog-bloqueadas-title {
+  font-weight: 700;
+  font-size: 14px;
+}
+.backlog-bloqueadas-toggle {
+  font-size: 12px;
+  min-height: 28px;
+  padding: 0 8px;
+  border: 1px solid #d0d0d0;
+  border-radius: 4px;
+  background: #fff;
+  color: #333;
+  cursor: pointer;
+  line-height: 1;
+  transition: background 0.15s ease, border-color 0.15s ease;
+}
+.backlog-bloqueadas-toggle:hover {
+  background: #f2f6fc;
+  border-color: #1a73e8;
+  color: #1a73e8;
+}
+.backlog-bloqueadas-toggle:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+.backlog-bloqueadas-list {
+  margin-top: 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.backlog-bloqueadas-item {
+  border-top: 1px solid #f0e0dd;
+  padding-top: 6px;
+}
+.backlog-bloqueadas-label {
+  font-weight: 600;
+  font-size: 13px;
+}
+.backlog-bloqueadas-title-text {
+  font-size: 12px;
+  color: #444;
+  margin-left: 6px;
+}
+.backlog-bloqueadas-dep {
+  margin: 2px 0 0 14px;
+  font-size: 12px;
+  color: #b3261e;
+  overflow-wrap: break-word;
+  word-break: break-word;
+}
+.backlog-bloqueadas-empty {
+  margin: 6px 0 0;
+  font-size: 13px;
+  color: #666;
+}
+
+/* T-AF022-US17-04: cadena de mayor apalancamiento dentro del panel
+   "Bloqueadas" — fila de ids encadenados `A → B → C` con sus títulos. */
+.backlog-leverage-chain {
+  margin-top: 10px;
+  border-top: 1px dashed #e0b4b0;
+  padding-top: 8px;
+}
+.backlog-leverage-title {
+  font-weight: 700;
+  font-size: 13px;
+  color: #8a1f18;
+}
+.backlog-leverage-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
   margin-top: 4px;
 }
-/* T-AF036-US12-02: las filas con tarea resoluble son enlaces a la tarea en
- * el listado del Backlog — cursor/estilo de enlace para indicar navegación. */
+.backlog-leverage-item {
+  background: #fff;
+  border: 1px solid #d0d0d0;
+  border-radius: 10px;
+  padding: 2px 8px;
+  font-size: 12px;
+  color: #333;
+}
+.backlog-leverage-id {
+  font-weight: 600;
+}
+.backlog-leverage-title-text {
+  font-weight: 400;
+  color: #555;
+}
+.backlog-leverage-arrow {
+  font-size: 13px;
+  color: #8a1f18;
+}
+.backlog-leverage-note {
+  margin: 6px 0 0;
+  font-size: 12px;
+  color: #666;
+}
+
+/* T-AF022-US17-03 · Panel determinista "En curso" (items IN_PROGRESS con el
+   indicador de en vuelo / huérfana). Mismo contenedor colapsable que el panel
+   "Bloqueadas", con badge por item: "en vuelo" (verde) / "huérfana"
+   (rojo/naranja). */
+.backlog-en-curso-panel {
+  border: 1px solid #d0d0d0;
+  border-radius: 8px;
+  padding: 10px 14px;
+  margin: 10px 0;
+  background: #f8f9fa;
+}
+.backlog-en-curso-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+.backlog-en-curso-title {
+  font-weight: 700;
+  font-size: 14px;
+}
+.backlog-en-curso-toggle {
+  font-size: 12px;
+  min-height: 28px;
+  padding: 0 8px;
+  border: 1px solid #d0d0d0;
+  border-radius: 4px;
+  background: #fff;
+  color: #333;
+  cursor: pointer;
+  line-height: 1;
+  transition: background 0.15s ease, border-color 0.15s ease;
+}
+.backlog-en-curso-toggle:hover {
+  background: #f2f6fc;
+  border-color: #1a73e8;
+  color: #1a73e8;
+}
+.backlog-en-curso-toggle:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+.backlog-en-curso-list {
+  margin-top: 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.backlog-en-curso-item {
+  border-top: 1px solid #e0e0e0;
+  padding-top: 6px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.backlog-en-curso-label {
+  font-weight: 600;
+  font-size: 13px;
+}
+.backlog-en-curso-title-text {
+  font-size: 12px;
+  color: #444;
+}
+.backlog-en-curso-empty {
+  margin: 6px 0 0;
+  font-size: 13px;
+  color: #666;
+}
+.backlog-inflight-badge {
+  font-size: 11px;
+  font-weight: 700;
+  padding: 1px 7px;
+  border-radius: 10px;
+  white-space: nowrap;
+  border: 1px solid transparent;
+}
+.backlog-inflight-ok {
+  color: #188038;
+  background: #e6f4ea;
+  border-color: #188038;
+}
+.backlog-inflight-orphan {
+  color: #d93025;
+  background: #fce8e6;
+  border-color: #d93025;
+}
+
+/* T-AF008-US10-03 · Panel de la cola de despacho, reutiliza
+   `.backlog-focus-panel`/`.backlog-focus-header`/`-title`/`-toggle`
+   (mismo contenedor colapsable que "Próximo foco"). La cola se pinta como
+   `<table>` para que las columnas (tarea, estado, encolada, despachada,
+   terminada, acciones) queden ALINEADAS verticalmente entre todas las filas
+   (las filas grid independientes no se alinean entre sí). */
+.backlog-queue-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+  margin-top: 6px;
+}
+.backlog-queue-table thead th {
+  text-align: left;
+  font-size: 11px;
+  font-weight: 600;
+  color: #666;
+  border-bottom: 1px solid #e5e5e5;
+  padding: 2px 6px;
+  white-space: nowrap;
+}
+.backlog-queue-table th.backlog-queue-th-task,
+.backlog-queue-table td:first-child {
+  width: 170px;
+  max-width: 170px;
+}
+.backlog-queue-table tbody tr {
+  border-top: 1px solid #e5e5e5;
+}
+.backlog-queue-table td {
+  padding: 3px 6px;
+  vertical-align: middle;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
 .backlog-queue-row-link {
   cursor: pointer;
 }
@@ -1177,22 +1517,24 @@ body {
   color: #1a73e8;
 }
 .backlog-queue-row-title {
-  flex: 1 1 auto;
-  min-width: 0;
   font-size: 13px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .backlog-queue-row-status {
-  flex: 0 0 auto;
   font-size: 13px;
   font-weight: 600;
-  text-align: right;
 }
-/* T-AF036-US17-03: fechas de las transiciones de la entrada de cola
-   (encolada / despachada / terminada) — línea propia, legible y discreta. */
-.backlog-queue-row-dates {
-  flex: 1 1 100%;
+.backlog-queue-row-col {
   font-size: 12px;
   color: #666;
+}
+.backlog-queue-row-actions {
+  text-align: right;
+}
+.backlog-queue-row-actions .backlog-focus-toggle {
+  margin-left: 4px;
 }
 
 /* T-AF036-US01-04 · Badge "N bloqueadas" por Epic, y separador plegable
@@ -1265,14 +1607,15 @@ body {
 }
 
 .accion-run {
-  background: #20232a;
-  color: #fff;
-  border: none;
+  background: #e4e6e8;
+  color: #20232a;
+  border: 1px solid #c6c9cc;
   border-radius: 6px;
-  padding: 6px 16px;
+  padding: 2px 12px;
+  min-height: 28px;
   cursor: pointer;
   font-weight: 600;
-  font-size: 14px;
+  font-size: 13px;
 }
 
 .accion-run:disabled {
@@ -1296,14 +1639,15 @@ body {
    se vean alineados en una fila con igual alto. Fuera de `.accion-controls`
    (botones "+ Nueva Epic"/"+ Nueva User Story") conserva su aspecto. */
 .accion-controls .backlog-new-epic-btn {
-  background: #20232a;
-  color: #fff;
-  border: none;
+  background: #e4e6e8;
+  color: #20232a;
+  border: 1px solid #c6c9cc;
   border-radius: 6px;
-  padding: 6px 16px;
+  padding: 2px 12px;
+  min-height: 28px;
   cursor: pointer;
   font-weight: 600;
-  font-size: 14px;
+  font-size: 13px;
 }
 
 .accion-num-agents {
@@ -1522,7 +1866,7 @@ body {
   margin-left: auto;
   font-size: 13px;
   padding: 4px 14px;
-  min-height: 32px;
+  min-height: 28px;
   white-space: nowrap;
 }
 

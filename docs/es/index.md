@@ -11,7 +11,7 @@ No es un IDE. No es un framework de agentes. No sustituye la toma de decisiones 
 1. **Descubre** los repositorios Git de tu workspace automáticamente.
 2. **Selecciona** un proyecto activo (una única sesión de desarrollo por proyecto).
 3. **Usa el backlog como panel de control**: el trabajo se despliega desde el backlog (Epic → User Story → Task → Implementar) con un único botón "Progresar" por User Story, no escribiendo Markdown a mano ni hablando con cada agente por separado.
-4. **Ejecuta el pipeline**: el Arquitecto aterriza Epics en User Stories y Tasks; un Dispatcher en segundo plano asigna luego cada Task a un Developer libre, cada Task cerrada a un Tester libre para su verificación, y cada Story completamente terminada a un Arquitecto libre para un veredicto final — automáticamente, sin re-despacho manual por paso.
+4. **Ejecuta el pipeline**: el Arquitecto aterriza Epics en User Stories y Tasks; un Dispatcher en segundo plano asigna luego cada Task a un Developer libre, cada Task cerrada a un Tester libre para su verificación, y cada Story completamente terminada a un Arquitecto libre para un veredicto final. Si el Tester falla una Task, esta vuelve al mismo Developer como retrabajo prioritario — automáticamente, sin re-despacho manual por paso.
 5. **Envía Jobs aislados** a un agente específico cuando necesitas trabajo puntual fuera del pipeline guiado por estados, y **encadena** resultados (Developer → Arquitecto); también puedes **cancelar** trabajo en curso.
 6. **Automatiza lo repetitivo** con scripts deterministas (commit, push, tests, estado del backlog) y delega lecturas/resúmenes en **Scribe**, un modelo local (Ollama) que no consume tokens de tus runtimes remotos.
 
@@ -53,16 +53,16 @@ El concepto central no es el backlog ni los propios agentes — es la **sesión 
 | **Automatización determinista primero** | Scripts deterministas → automatizaciones locales → modelo local (Ollama) → modelo remoto. Nunca un LLM para algo que un script puede hacer. |
 | **Contexto persistente** | La sesión mantiene el proyecto, agentes, runtimes, historial y contexto. Los agentes no se destruyen cuando termina un Job. |
 | **Pipeline centrado en el backlog** | El backlog es el panel de control central: todo el trabajo se despliega desde él, no desde comandos manuales dispersos. |
-| **Arquitectura basada en capacidades** *(en backlog)* | El Dispatcher pide capacidades, no modelos específicos. El Capability Engine (AF-010) está planificado, no implementado. |
+| **Arquitectura basada en capacidades** *(planificada)* | El Dispatcher pide capacidades, no modelos específicos. El Capability Engine (AF-010) está planificado, no implementado. |
 | **Un proceso, un cliente** | La web consume la API; el dominio no pertenece a ningún cliente. |
 
 ## Estado del proyecto
 
 Consulta el [roadmap](roadmap.md) para más detalle.
 
-- **Fases 0.1 a 0.4: completas.** Workspace, Sesión, Runtime (Claude Code, OpenCode, Codex), Agentes, Jobs aislados (encadenamiento, cancelación), Scribe, API backend, scripts genéricos, gestión de backlog e interfaz web.
-- **Fase 0.9 (pipeline centrado en backlog): en curso.** Roles de Arquitecto y Tester, generadores Epic→US→Task, el pipeline guiado por estados Developer→Tester→Arquitecto, formato de backlog estructurado, acciones transversales (AF-025), análisis de hilos paralelizables (AF-026), sesiones multi-proyecto simultáneas, reconciliación de agentes al reiniciar el backend y log de agente en vivo en la web están implementados y en producción.
-- **Planificado, no implementado:** Context Engine (AF-006), Knowledge Engine (AF-007), Capability Engine (AF-010), Plugin System (AF-011), Automation Engine (AF-009/012), Config Management (AF-013), detección automática de agentes atascados (AF-023), barra de control persistente para agentes críticos (AF-028). **No existe sistema de plugins ni MCP.**
+- **Versión 0.9 — pipeline centrado en el backlog, implementado.** Roles de Arquitecto y Tester, generadores Epic→US→Task, el pipeline guiado por estados Developer→Tester→Arquitecto con retrabajo, formato de backlog estructurado, máquinas de estado unificadas, cola de despacho y visor del pipeline, acciones transversales, análisis de hilos paralelizables, sesiones multi-proyecto simultáneas, reconciliación de agentes al reiniciar el backend, log de agente en vivo en la web y reinicio seguro.
+- **Runtimes:** Claude Code, OpenCode y Codex.
+- **Planificado, no implementado:** Context Engine (AF-006), Knowledge Engine (AF-007), Capability Engine (AF-010), Plugin System (AF-011), Automation Engine (AF-009/012), Config Management (AF-013), detección automática de agentes atascados (AF-023), barra de control persistente para agentes críticos (AF-028), auditor operativo (AF-044), rol investigador (AF-045) y Documentador integrado en el pipeline (AF-046). **No existe sistema de plugins ni MCP.**
 
 ## Primeros pasos
 
@@ -74,7 +74,7 @@ Consulta el [roadmap](roadmap.md) para más detalle.
 
 | Sección | Contenido |
 |---|---|
-| [Interfaz web](interfaces-web.md) | La interfaz principal: Backlog, Agentes, Arquitecto, Scripts, Acciones, Configuración. |
+| [Interfaz web](interfaces-web.md) | La interfaz principal: Backlog, Pipeline, Agentes, Arquitecto, Scripts, Configuración. |
 | [API](api.md) | Referencia completa REST + WebSocket. |
 | [Agentes](agents.md) | Roles, lanzamiento, ciclo de vida, gobernanza. |
 | [Runtime y Scribe](runtime.md) | Claude Code, OpenCode, Codex, tmux, Scribe/Ollama. |
@@ -82,7 +82,7 @@ Consulta el [roadmap](roadmap.md) para más detalle.
 | [Scripts](scripts.md) | Scripts genéricos y específicos de proyecto. |
 | [Backlog y pipeline](backlog.md) | Gestión del backlog, validador, generadores Epic→US→Task. |
 | [Configuración](configuration.md) | `models.yml`, `scripts.yml`, preferencias de modelos. |
-| [Roadmap](roadmap.md) | Fases, estado por Epic, backlog hold. |
+| [Roadmap](roadmap.md) | Versiones, estado por Epic, backlog hold. |
 | [FAQ y resolución de problemas](faq.md) | Preguntas frecuentes y resolución de problemas. |
 | [Desarrollo](development.md) | Guía para nuevos desarrolladores. |
 

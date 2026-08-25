@@ -20,6 +20,20 @@ Acciones definidas:
   - `auditar-oss`      → despacha Job a la instancia de Auditor-OSS ya
     lanzada (T-AF024-US13-02; imagen pública del repo + auditoría de la web,
     US-AF025-08)
+  - `auditar-backlog`  → despacha Job al Arquitecto para el paso 1 de la
+    auditoría del backlog (T-AF018-US03-01, US-AF018-03); persiste el
+    informe en `07-informes/US-AF018-03/` con nombre con fecha, nunca solo
+    en pantalla
+  - `verificar-auditoria` → despacha Job al Auditor (rol `auditor_oss`
+    existente; renombrar la etiqueta visible a "Auditor" se decide aparte)
+    para el paso 2 de la auditoría del backlog (T-AF018-US03-02,
+    US-AF018-03): recibe como entrada la ruta del fichero del paso 1
+    (`auditar-backlog`) y verifica cada hallazgo contra el código real,
+    emitiendo una acción concreta parseable por hallazgo
+    (`corregir_estado`/`crear_task_correccion`/`descartar`); persiste el
+    informe en `07-informes/US-AF018-03/` con nombre con fecha y referencia
+    al fichero del paso 1. Acción independiente: NO se ejecuta
+    automáticamente tras `auditar-backlog`
   - `indexar`          → Scribe index_documents (US-AF025-07, Hilo 4)
 """
 
@@ -118,6 +132,70 @@ _ACTION_DESCRIPTIONS: dict[str, str] = {
         "Escribe tu informe completo en el fichero de reporte indicado al "
         "final de tu auditoría. No crees ficheros en 02-backlog/."
     ),
+    "auditar-backlog": (
+        "Audita el backlog activo (paso 1 de la auditoría, US-AF018-03): "
+        "recorre el backlog completo y cruza el `## Estado` declarado de "
+        "cada item (Epic, User Story y Task) contra la evidencia REAL de "
+        "implementación en el código. Lee y entiende el código; esto NO es "
+        "un parseo determinista (esa función la cubre US-AF018-02) y el "
+        "texto de `### Descripción`/`## Objetivo` de las Tasks y sus "
+        "`## Criterios` es solo una pista sobre lo que debería existir, no "
+        "la prueba de que existe.\n\n"
+        "Tu informe debe incluir:\n"
+        "1. Panorama general: conteo de Epics/User Stories/Tasks por estado "
+        "declarado.\n"
+        "2. Tabla por Epic con el estado de sus User Stories y Tasks.\n"
+        "3. Discrepancias entre `## Estado` declarado y evidencia real en "
+        "el código (items colgados en TO_DO/READY ya implementados, items "
+        "DONE incompletos, dependencias no satisfechas).\n"
+        "4. TODOs sin evidencia de implementación.\n"
+        "5. Observaciones de proceso.\n\n"
+        "Por CADA item auditado declara un hallazgo en formato estructurado "
+        "y parseable (el paso 2 consume esta salida):\n"
+        "- id: identificador del item (Epic/User Story/Task).\n"
+        "- estado_declarado: estado que declara el fichero del backlog.\n"
+        "- evidencia: ficheros/funciones/líneas de código que confirman o "
+        "refutan el estado declarado.\n"
+        "- veredicto: confirmado | falso_positivo | incompleto.\n\n"
+        "No escribas a `02-backlog/` — tu salida es un informe para el "
+        "humano y para el paso 2, no una modificación del backlog. Cita "
+        "evidencia de código real para cada hallazgo. Escribe el informe "
+        "completo en el fichero de reporte indicado al terminar — la acción "
+        "lo persiste en 07-informes/ con nombre con fecha; nunca lo dejes "
+        "solo en pantalla/scrollback."
+    ),
+    "verificar-auditoria": (
+        "Verifica la auditoría del backlog (paso 2 de la auditoría, "
+        "US-AF018-03): recibes como entrada el fichero de la auditoría del "
+        "paso 1 (`auditar-backlog`) y verificas CADA hallazgo contra el "
+        "código REAL del repositorio — NO te fíes de la conclusión del paso "
+        "1 sin comprobarla: en un caso real 5 hallazgos de los que 1 era "
+        "erróneo.\n\n"
+        "Fichero de la auditoría del paso 1 (su ruta parte de este Job):\n"
+        "{INPUT_PATH}\n\n"
+        "Lee COMPLETO ese fichero y, por CADA hallazgo declarado (id, "
+        "estado_declarado, evidencia, veredicto provisional), abre el código "
+        "real del item y emite UNA acción concreta y parseable, en este "
+        "formato:\n"
+        "- id: identificador del item (Epic/User Story/Task).\n"
+        "- accion: corregir_estado | crear_task_correccion | descartar.\n"
+        "  - corregir_estado: el hallazgo es correcto pero el `## Estado` "
+        "del fichero del backlog está mal — añade además `- estado_correcto: "
+        "<ESTADO>` con el estado real verificado (p. ej. DONE o READY) y "
+        "evidencia de código.\n"
+        "  - crear_task_correccion: existe un hueco real de implementación "
+        "que requiere una Task nueva de corrección — indica el hueco y su "
+        "evidencia.\n"
+        "  - descartar: falso positivo del paso 1 — indica el motivo con "
+        "evidencia.\n\n"
+        "Tu informe debe declarar qué hallazgos confirmas, cuáles corriges "
+        "y cuáles descartas, referenciando el fichero del paso 1 (nombre "
+        "con fecha). No escribas a `02-backlog/` — tu salida es un informe "
+        "para el humano. Escribe el informe completo en el fichero de "
+        "reporte indicado al terminar — la acción lo persiste en "
+        "07-informes/ con nombre con fecha; nunca lo dejes solo en "
+        "pantalla/scrollback."
+    ),
     "indexar": (
         "Indexa el proyecto para búsqueda rápida vía Scribe (modelo local "
         "Ollama). "
@@ -133,6 +211,36 @@ _ACTION_DESCRIPTIONS: dict[str, str] = {
 }
 
 _REPORTS_DIRNAME = "07-informes"
+
+# Marcador de entrada en las descripciones de acción que requieren un fichero
+# como entrada (actualmente solo `verificar-auditoria`, T-AF018-US03-02). La
+# descripción del Job se construye sustituyéndolo por la ruta real.
+_DESCRIPTION_INPUT_PLACEHOLDER = "{INPUT_PATH}"
+
+
+def _build_action_description(
+    action_id: str, input_path: str | None = None
+) -> str:
+    """Devuelve la descripción del Job de una acción, sustituyendo el
+    marcador de entrada `_DESCRIPTION_INPUT_PLACEHOLDER` por la ruta real del
+    fichero de entrada cuando la acción lo requiere. Si la acción usa el
+    marcador y no se le pasa `input_path`, falla explícitamente en vez de
+    despachar un Job con la entrada ausente."""
+    description = _ACTION_DESCRIPTIONS.get(action_id)
+    if description is None:
+        raise ValueError(
+            f"La acción '{action_id}' no tiene una descripción definida."
+        )
+    if _DESCRIPTION_INPUT_PLACEHOLDER in description:
+        if not input_path:
+            raise ValueError(
+                f"La acción '{action_id}' requiere la ruta del fichero de "
+                "entrada (parámetro 'input_path')."
+            )
+        description = description.replace(
+            _DESCRIPTION_INPUT_PLACEHOLDER, str(input_path)
+        )
+    return description
 
 
 def _find_agent_by_role(role: str) -> Agent | None:
@@ -164,12 +272,9 @@ def _dispatch_agent_action(
     action_id: str,
     agent: Agent,
     socket_name: str,
+    input_path: str | None = None,
 ) -> Job:
-    description = _ACTION_DESCRIPTIONS.get(action_id)
-    if description is None:
-        raise ValueError(
-            f"La acción '{action_id}' no tiene una descripción definida."
-        )
+    description = _build_action_description(action_id, input_path)
 
     session = get_current_session()
     if session is None:
@@ -188,6 +293,15 @@ def _dispatch_agent_action(
     # T-AF025-US08-02: auditar-oss produce 5 ficheros, no 1
     if action_id == ActionType.AUDITAR_OSS:
         _persist_auditor_oss_reports(job)
+    elif action_id in (ActionType.AUDITAR_BACKLOG, ActionType.VERIFICAR_AUDITORIA):
+        # T-AF018-US03-01/02: tanto el paso 1 (`auditar-backlog`) como el
+        # paso 2 (`verificar-auditoria`) de la auditoría persisten con nombre
+        # con fecha (<action_id>-<ts>.md) para que nunca se pierdan en
+        # scrollback y cada ejecución tenga su propio fichero. El paso 2
+        # además referencia el fichero del paso 1 como entrada.
+        _persist_timestamped_action_report(
+            action_id, job, job.result or "", input_path=input_path
+        )
     else:
         _persist_action_report(action_id, job)
 
@@ -201,6 +315,8 @@ _STORY_ID_MAP = {
     "testear": "US-AF025-04",
     "auditar-ux": "US-AF025-06",
     "auditar-oss": "US-AF025-08",
+    "auditar-backlog": "US-AF018-03",
+    "verificar-auditoria": "US-AF018-03",
     "testear-ui": "US-AF022-15",
     "indexar": "US-AF025-07",
 }
@@ -222,6 +338,8 @@ class ActionType:
     TESTEAR = "testear"
     AUDITAR_UX = "auditar-ux"
     AUDITAR_OSS = "auditar-oss"
+    AUDITAR_BACKLOG = "auditar-backlog"
+    VERIFICAR_AUDITORIA = "verificar-auditoria"
     TESTEAR_UI = "testear-ui"
     INDEXAR = "indexar"
 
@@ -233,9 +351,112 @@ ACCIONES_DISPONIBLES: tuple[str, ...] = (
     ActionType.TESTEAR,
     ActionType.AUDITAR_UX,
     ActionType.AUDITAR_OSS,
+    ActionType.AUDITAR_BACKLOG,
+    ActionType.VERIFICAR_AUDITORIA,
     ActionType.TESTEAR_UI,
     ActionType.INDEXAR,
 )
+
+
+# Metadatos de listado del catálogo combinado (T-AF034-US01-01). El catálogo
+# expone cada acción con `name` (etiqueta visible), `description` (resumen
+# corto), `origin` (siempre "generic": no existe concepto de acción particular
+# en esta Task — ver AF-034, "Acciones particulares por manifiesto" es
+# US-AF034-02) y `execution_type`.
+_ACTION_DISPLAY: dict[str, str] = {
+    "documentar": "Documentar todo",
+    "analizar-arquitectura": "Analizar arquitectura",
+    "sugerir-ideas": "Sugerir ideas para el backlog",
+    "testear": "Testear todo",
+    "auditar-ux": "Auditar UX de la web",
+    "auditar-oss": "Auditar imagen open source",
+    "auditar-backlog": "Auditar el backlog contra el código",
+    "verificar-auditoria": "Verificar la auditoría del backlog",
+    "testear-ui": "Testear UI web",
+    "indexar": "Indexar proyecto (Scribe)",
+}
+
+_ACTION_SHORT_DESCRIPTION: dict[str, str] = {
+    "documentar": (
+        "Revisa que la documentación de docs/ esté al día con el código "
+        "real. Propone cambios, no escribe directamente."
+    ),
+    "analizar-arquitectura": (
+        "Análisis de arquitectura con evidencia de código real. Informe "
+        "para decisión humana."
+    ),
+    "sugerir-ideas": (
+        "Propone ideas candidatas de Epics/User Stories a partir del estado "
+        "actual del proyecto. No escribe a 02-backlog/."
+    ),
+    "testear": (
+        "Ejecuta la suite completa de tests del proyecto. Resultado "
+        "determinista (pasa/falla), sin corrección automática."
+    ),
+    "auditar-ux": (
+        "Lanza una auditoría UX de la interfaz web a la instancia de UX "
+        "ya lanzada. Sigue el protocolo de 00-gobierno/UX.md."
+    ),
+    "auditar-oss": (
+        "Audita Atlas Forge como lo haría un maintainer senior de open "
+        "source: imagen pública del repositorio en GitHub y auditoría de la "
+        "interfaz web contra el backend real. Sigue 00-gobierno/AUDITOR-OSS.md."
+    ),
+    "auditar-backlog": (
+        "Lanza al Arquitecto el paso 1 de la auditoría del backlog: cruza el "
+        "## Estado declarado de cada item contra la evidencia real del código "
+        "y persiste el informe en 07-informes/ con nombre con fecha."
+    ),
+    "verificar-auditoria": (
+        "Lanza al Auditor el paso 2 de la auditoría del backlog: recibe como "
+        "entrada el fichero del paso 1 (auditar-backlog), verifica cada "
+        "hallazgo contra el código real y emite una acción concreta por "
+        "hallazgo (corregir_estado / crear_task_correccion / descartar)."
+    ),
+    "testear-ui": (
+        "Ejecuta la suite de tests de interfaz web (Puppeteer) del "
+        "proyecto de forma determinista."
+    ),
+    "indexar": (
+        "Genera un índice temático del proyecto usando el modelo local de "
+        "Ollama. Sin gastar tokens de los agentes principales."
+    ),
+}
+
+# Tipo de ejecución de cada acción, derivado de su naturaleza REAL verificada
+# en `dispatch_action`/`transversal.py` (T-AF034-US01-01):
+#   - "script": ejecución determinista (subproceso o cálculo), segundos.
+#   - "agent_job": despacha un Job a un agente persistente, minutos.
+#   - "external_process": proceso externo headless sin agente.
+_ACTION_EXECUTION_TYPE: dict[str, str] = {
+    "testear": "script",
+    "testear-ui": "script",
+    "documentar": "agent_job",
+    "analizar-arquitectura": "agent_job",
+    "sugerir-ideas": "agent_job",
+    "auditar-ux": "agent_job",
+    "auditar-oss": "agent_job",
+    "auditar-backlog": "agent_job",
+    "verificar-auditoria": "agent_job",
+    "indexar": "external_process",
+}
+
+
+def list_actions() -> list[dict]:
+    """Catálogo de acciones transversales con sus metadatos de listado
+    (T-AF034-US01-01): `id`, `name`, `description`, `origin="generic"` y
+    `execution_type`. Es la fuente única de metadatos del catálogo combinado
+    que `GET /scripts` agrega — no hay otro endpoint de listado propio."""
+    return [
+        {
+            "id": action_id,
+            "name": _ACTION_DISPLAY.get(action_id, action_id),
+            "description": _ACTION_SHORT_DESCRIPTION.get(action_id, ""),
+            "origin": "generic",
+            "execution_type": _ACTION_EXECUTION_TYPE.get(action_id, "agent_job"),
+        }
+        for action_id in ACCIONES_DISPONIBLES
+    ]
 
 
 # Rol destinatario de cada acción que despacha Job a un agente persistente
@@ -254,6 +475,12 @@ _ACTION_ROLE_MAP = {
     "sugerir-ideas": ARQUITECTO_ROLE,
     "auditar-ux": UX_ROLE,
     "auditar-oss": AUDITOR_OSS_ROLE,
+    "auditar-backlog": ARQUITECTO_ROLE,
+    # T-AF018-US03-02: `verificar-auditoria` (paso 2 de la auditoría del
+    # backlog) despacha al rol Auditor existente (`auditor_oss`). Renombrar
+    # la etiqueta visible a "Auditor" se decide aparte y NO corresponde a
+    # esta Task.
+    "verificar-auditoria": AUDITOR_OSS_ROLE,
 }
 
 _ROLE_DISPLAY_NAME = {
@@ -263,18 +490,40 @@ _ROLE_DISPLAY_NAME = {
     AUDITOR_OSS_ROLE: "Auditor-OSS",
 }
 
+# Mensaje específico cuando la acción requiere un agente `idle` del rol y no
+# hay ninguno lanzado (T-AF018-US03-01, criterio 4 de `auditar-backlog`): la
+# acción informa "Lanza el Arquitecto antes de auditar" — no falla en
+# silencio, mismo criterio que `_find_agent_by_role`. Por defecto se usa el
+# mensaje genérico.
+_ACTION_NO_AGENT_MESSAGE: dict[str, str] = {
+    "auditar-backlog": "Lanza el Arquitecto antes de auditar.",
+    # T-AF018-US03-02, criterio espejo del paso 1: sin un Auditor `idle`
+    # lanzado la acción informa explícitamente, no falla en silencio.
+    "verificar-auditoria": "Lanza el Auditor-OSS antes de verificar la auditoría.",
+}
 
-def dispatch_action(action_id: str, socket_name: str = "default") -> dict:
+
+def dispatch_action(
+    action_id: str,
+    socket_name: str = "default",
+    input_path: str | None = None,
+) -> dict:
     """Despacha una acción transversal de proyecto.
 
     Para acciones que requieren agente (`documentar` → Documentador,
     T-AF024-US20-01; `analizar-arquitectura`/`sugerir-ideas` →
-    Arquitecto; `auditar-ux` → UX, T-AF024-US13-03):
+    Arquitecto; `auditar-ux` → UX, T-AF024-US13-03; `auditar-backlog` →
+    Arquitecto, T-AF018-US03-01; `verificar-auditoria` → Auditor,
+    T-AF018-US03-02):
     encuentra el agente del rol correspondiente en la sesión activa, crea y
     despacha un Job con la descripción predefinida, y persiste el informe
     en `07-informes/`. Si no hay ninguna instancia lanzada de ese rol,
     informa explícitamente en vez de fallar en silencio (mismo criterio que
     `job_plan_dispatch.py` aplica para Developer).
+
+    `input_path` es la ruta del fichero de entrada que la acción incorpora
+    a la descripción de su Job (obligatorio para `verificar-auditoria`, que
+    recibe el fichero de la auditoría del paso 1 `auditar-backlog`).
 
     Para `testear`: ejecuta la suite de tests del proyecto de forma
     determinista (sin LLM), y persiste el resultado en `07-informes/`.
@@ -299,16 +548,23 @@ def dispatch_action(action_id: str, socket_name: str = "default") -> dict:
     if action_id not in _ACTION_DESCRIPTIONS:
         raise ValueError(f"Acción desconocida: '{action_id}'.")
 
+    if action_id == ActionType.VERIFICAR_AUDITORIA and not input_path:
+        raise ValueError(
+            "La acción 'verificar-auditoria' requiere la ruta del fichero de "
+            "la auditoría del paso 1 como entrada (parámetro 'input_path')."
+        )
+
     role = _ACTION_ROLE_MAP.get(action_id, ARQUITECTO_ROLE)
     agent = _find_agent_by_role(role)
     if agent is None:
         role_name = _ROLE_DISPLAY_NAME.get(role, role)
+        specific = _ACTION_NO_AGENT_MESSAGE.get(action_id)
         raise RuntimeError(
             f"No hay ningún agente {role_name} en la sesión activa. "
-            f"Lanza un {role_name} antes de ejecutar esta acción."
+            + (specific if specific else f"Lanza un {role_name} antes de ejecutar esta acción.")
         )
 
-    job = _dispatch_agent_action(action_id, agent, socket_name)
+    job = _dispatch_agent_action(action_id, agent, socket_name, input_path=input_path)
 
     return {
         "action": action_id,
@@ -492,7 +748,7 @@ def _dispatch_index_action() -> dict:
     if session is not None:
         record_job(session.id, job)
 
-    _persist_index_action_report("indexar", job, index_result)
+    _persist_timestamped_action_report("indexar", job, index_result)
 
     return {
         "action": "indexar",
@@ -546,13 +802,20 @@ def _is_binary_path(file_path: Path) -> bool:
     )
 
 
-def _persist_index_action_report(
-    action_id: str, job: Job, result_text: str
+def _persist_timestamped_action_report(
+    action_id: str, job: Job, result_text: str, input_path: str | None = None
 ) -> Path:
-    """Persiste el informe de una acción de indexación/auditoría en
-    `07-informes/<US-AF025-XX>/<action_id>-<timestamp>.md`, con timestamp
-    para que ejecuciones distintas no se sobrescriban
-    (T-AF025-US06-02)."""
+    """Persiste el informe de una acción en
+    `07-informes/<US-XX>/<action_id>-<timestamp>.md`, con timestamp para
+    que ejecuciones distintas no se sobrescriban (T-AF025-US06-02;
+    reutilizada por `auditar-backlog` y `verificar-auditoria`,
+    T-AF018-US03-01/02). Simétrica a `_persist_action_report` pero con
+    nombre de fichero con fecha.
+
+    Cuando `input_path` se proporciona (paso 2 de la auditoría del backlog,
+    T-AF018-US03-02), el informe declara explícitamente el fichero del paso 1
+    que se ha verificado — el criterio 4 de la US exige que el informe del
+    paso 2 referencie el fichero del paso 1."""
     story_id = _STORY_ID_MAP.get(action_id, f"AF-025-{action_id}")
     root = _default_reports_root()
     story_dir = root / story_id
@@ -565,8 +828,14 @@ def _persist_index_action_report(
         f"Fecha: {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S UTC')}\n"
         f"Proyecto: {(get_active_project() or _FakeProject('?')).name}\n"
         f"Job ID: {job.id}\n"
-        f"Estado: {job.status}\n\n"
-        f"## Resultado\n\n{result_text}\n"
+        f"Estado: {job.status}\n"
+    )
+    if input_path:
+        report += (
+            f"Fichero auditado (paso 1 de la auditoría): {input_path}\n"
+        )
+    report += (
+        f"\n## Resultado\n\n{result_text}\n"
     )
     report_path.write_text(report, encoding="utf-8")
     return report_path

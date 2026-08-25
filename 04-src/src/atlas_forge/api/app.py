@@ -39,6 +39,7 @@ from atlas_forge.api.events import jobs_hub, plans_hub, register_event_loops
 from atlas_forge.api.routes import router
 from atlas_forge.core.reconciliation_log import append_reconciliation_log
 from atlas_forge.core.session_reconciliation import reconcile_session_agents
+from atlas_forge.core.session_recovery import build_session_snapshot, serialize_snapshot
 from atlas_forge.core.session_registry import (
     SessionAlreadyActiveError,
     get_current_session,
@@ -46,6 +47,8 @@ from atlas_forge.core.session_registry import (
 )
 from atlas_forge.agents.session_limit_watcher import SessionLimitWatcher
 from atlas_forge.agents.persistent_watcher import PersistentAgentWatcher
+from atlas_forge.agents.runtime_death_watcher import RuntimeDeathWatcher
+from atlas_forge.agents.stuck_working_watcher import StuckWorkingWatcher
 from atlas_forge.dispatcher.dispatch_queue_worker import DispatchQueueWorker
 from atlas_forge.runtime.agent_runtime_registry import get_runtime_instance_for_agent
 from atlas_forge.runtime.generic import is_runtime_alive
@@ -168,6 +171,22 @@ async def _lifespan(app: FastAPI):
             except Exception:
                 pass
 
+        # T-AF003-US02-02: persiste el snapshot RECUPERABLE de la sesión una
+        # vez reconciliada (proyecto + agentes ya en `session.agents`) — la
+        # conexión del módulo de dominio (`build_session_snapshot` +
+        # `serialize_snapshot`) al flujo de arranque. La próxima apertura
+        # sobre el mismo proyecto lo consume en
+        # `session_registry._recover_session`. Best-effort: un fallo de I/O
+        # no debe tumbar el arranque (mismo criterio que el log anterior).
+        if current_session is not None:
+            try:
+                snapshot = build_session_snapshot(current_session)
+                save_session_snapshot(
+                    current_session.project_id, serialize_snapshot(snapshot)
+                )
+            except Exception:
+                pass
+
     # T-AF008-US10-02: arranca el Dispatcher de fondo de la cola de
     # despacho (`T-AF008-US10-01`) — un hilo `daemon` DENTRO de este
     # mismo proceso (no un script externo, ver docstring de
@@ -212,6 +231,40 @@ async def _lifespan(app: FastAPI):
         )
         routes_module._persistent_agent_watcher.start()
 
+    # T-AF004-US04-01: arranca el watcher de muerte inesperada de runtime —
+    # mismo patrón que `_session_limit_watcher`: detecta proactivamente cuándo
+    # el proceso del runtime de un agente muere (crash/OOM/kill manual) sin
+    # esperar a que nadie consulte `GET /agents`. Se arranca y detiene junto a
+    # los demás watchers.
+    if current_session is not None:
+        routes_module._runtime_death_watcher = RuntimeDeathWatcher(
+            current_session,
+            socket_name=routes_module._SOCKET_NAME,
+            project_root=(active_project.path if active_project is not None else None),
+            project_name=(active_project.name if active_project is not None else None),
+        )
+        routes_module._runtime_death_watcher.start()
+
+    # T-AF008-US18-04: arranca el watcher de auto-liberación "working sin
+    # Job en vuelo" — mismo patrón y mismo requisito (`current_session` real)
+    # que el resto de watchers. La fuente de "Jobs en vuelo legítimos" es el
+    # `DispatchQueueWorker` (unión de sus registros `_inflight`/`_inflight_review`/
+    # `_inflight_architect_verdict`/`_inflight_landing`); si el worker no está
+    # arrancado (sin proyecto activo) no hay Jobs que excluir y el watcher se
+    # queda con la señal vacía (irrelevante: sin worker tampoco hay despacho).
+    if current_session is not None:
+        routes_module._stuck_working_watcher = StuckWorkingWatcher(
+            current_session,
+            inflight_agent_ids_provider=(
+                (lambda: routes_module._dispatch_queue_worker.get_inflight_agent_ids())
+                if routes_module._dispatch_queue_worker is not None
+                else (lambda: set())
+            ),
+            project_root=(active_project.path if active_project is not None else None),
+            project_name=(active_project.name if active_project is not None else None),
+        )
+        routes_module._stuck_working_watcher.start()
+
     yield
 
     # Shutdown: detiene el hilo `daemon` del Dispatcher al cerrar la app
@@ -234,6 +287,14 @@ async def _lifespan(app: FastAPI):
     if routes_module._persistent_agent_watcher is not None:
         routes_module._persistent_agent_watcher.stop()
         routes_module._persistent_agent_watcher = None
+
+    if routes_module._runtime_death_watcher is not None:
+        routes_module._runtime_death_watcher.stop()
+        routes_module._runtime_death_watcher = None
+
+    if routes_module._stuck_working_watcher is not None:
+        routes_module._stuck_working_watcher.stop()
+        routes_module._stuck_working_watcher = None
 
 
 def create_app() -> FastAPI:

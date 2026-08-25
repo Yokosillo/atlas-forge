@@ -32,3 +32,11 @@ where = ["src"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 asyncio_mode = "auto"
+# T-AF025-US04-02: división de suite por marcadores — `unit` es el
+# subconjunto determinista/rápido que `run_tests` ejecuta por defecto
+# (no arranca tmux/agentes reales ni backend en vivo; la integración se
+# marca `integration`). Los tests sin marcador se consideran integración.
+markers = [
+    "unit: subconjunto determinista y rapido (sin tmux/agentes reales/backend en vivo)",
+    "integration: suite de integracion (puede requerir tmux/agentes/backend reales)",
+]

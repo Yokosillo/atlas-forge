@@ -59,3 +59,35 @@ def is_assignable_fase(value: object) -> bool:
 def format_valid_fases() -> str:
     """Lista legible de las fases válidas para mensajes de error."""
     return ", ".join(sorted(VALID_FASES))
+
+
+# T-AF036-US25-01: `version` es el campo único de versión de Epics y User
+# Stories, con un conjunto cerrado (coherente con `version.yml`: `open: 0.9`,
+# `future: [0.9.1, 0.9.2]`). `fase` queda deprecado (no asignable por
+# edición/creación, solo tolerado como legacy en datos persistidos).
+VALID_VERSIONS = frozenset({"0.9", "0.9.1", "0.9.2"})
+
+
+def is_valid_version(value: object) -> bool:
+    """¿`value` es una versión aceptable en el backlog (o ausencia)?
+
+    Acepta: una versión de `VALID_VERSIONS` o `None`/ausente (sin versión).
+    Es el gate del validador determinista: un fichero persistido (o a
+    persistir) con cualquier otra versión es inválido. Solo acepta `None` o
+    cadenas; un valor de otro tipo (p. ej. un int tras YAML) es inválido."""
+    if value is None:
+        return True
+    return isinstance(value, str) and value in VALID_VERSIONS
+
+
+def is_assignable_version(value: object) -> bool:
+    """¿`value` es asignable por edición/creación?
+
+    Idéntico a `is_valid_version` en este caso (no hay marcador legacy como
+    `SIN_ASIGNAR` para versiones); "sin versión" se asigna con `None`."""
+    return is_valid_version(value)
+
+
+def format_valid_versions() -> str:
+    """Lista legible de las versiones válidas para mensajes de error."""
+    return ", ".join(sorted(VALID_VERSIONS))
