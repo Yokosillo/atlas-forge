@@ -8,3 +8,7 @@ dist/
 .claude/
 claude.log
 .env
+
+# Project-private planning and execution records.
+02-backlog/
+07-informes/
